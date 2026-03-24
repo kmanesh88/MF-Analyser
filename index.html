@@ -2801,84 +2801,99 @@ async function handlePortfolioExcel(evt) {
     const wb   = XLSX.read(buf, { type: 'array' });
     const results = [];
 
-    // Try each sheet — AMCs sometimes put multiple funds on separate sheets
     for (const sheetName of wb.SheetNames) {
+      // Skip index/summary sheets
+      if (/^index$/i.test(sheetName)) continue;
+
       const ws   = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      if (rows.length < 3) continue;
+      if (rows.length < 5) continue;
 
-      // Auto-detect header row (first row with "Name" or "ISIN" or "%" in it)
+      // ── Detect fund name ──
+      // SBI format: Row index 2 = ['SCHEME NAME :', 'Fund Name', ...]
+      // Row index 1 = ['SBI Mutual Fund', scheme_code, 'Back to Index']
+      let fundName = sheetName;
+      for (let r = 0; r < Math.min(10, rows.length); r++) {
+        const row = rows[r];
+        const c0  = String(row[0] || '').trim();
+        const c1  = String(row[1] || '').trim();
+        if (/scheme\s*name/i.test(c0) && c1.length > 3) {
+          fundName = c1; break;
+        }
+        // Fallback: row where col1 is a long fund name with 'Fund' in it
+        if (c1.length > 10 && /fund|scheme/i.test(c1) && !/mutual fund$/i.test(c1)) {
+          fundName = c1;
+        }
+      }
+
+      // ── Find header row ──
+      // Look for row with 'ISIN' and '% to AUM' or 'Name of the Instrument'
       let headerRow = -1;
+      let nameCol = 1, isinCol = 2, sectorCol = 3, pctCol = 6;
+
       for (let r = 0; r < Math.min(15, rows.length); r++) {
-        const row = rows[r].map(c => String(c).toLowerCase());
-        if (row.some(c => c.includes('isin') || (c.includes('name') && !c.includes('scheme name')) || c.includes('% of nav') || c.includes('portfolio'))) {
+        const row = rows[r].map(c => String(c).toLowerCase().trim());
+        if (row.some(c => c.includes('isin'))) {
           headerRow = r;
+          // Map columns dynamically
+          nameCol   = row.findIndex(c => c.includes('name') || c.includes('instrument') || c.includes('issuer'));
+          isinCol   = row.findIndex(c => c.includes('isin'));
+          sectorCol = row.findIndex(c => c.includes('rating') || c.includes('industry') || c.includes('sector'));
+          pctCol    = row.findIndex(c => c.includes('% to') || c.includes('%to') || c.includes('% of nav') || c.includes('% to aum'));
+          if (nameCol < 0) nameCol = 1;
+          if (isinCol < 0) isinCol = 2;
+          if (sectorCol < 0) sectorCol = 3;
+          if (pctCol < 0) pctCol = 6;
           break;
         }
       }
       if (headerRow < 0) continue;
 
-      const headers = rows[headerRow].map(c => String(c).toLowerCase().trim());
-      // Find column indices
-      const nameCol  = headers.findIndex(h => h.includes('name') || h.includes('instrument') || h.includes('security'));
-      const isinCol  = headers.findIndex(h => h.includes('isin'));
-      const pctCol   = headers.findIndex(h => h.includes('% of nav') || h.includes('%nav') || h.includes('net asset') || h.includes('% to'));
-      const valCol   = headers.findIndex(h => h.includes('market value') || h.includes('mkt value') || h.includes('value'));
-      const sectorCol= headers.findIndex(h => h.includes('sector') || h.includes('industry'));
-
-      if (nameCol < 0 && isinCol < 0) continue;
-
-      // Detect current fund name from above the header row
-      let fundName = sheetName !== 'Sheet1' ? sheetName : '';
-      for (let r = 0; r < headerRow; r++) {
-        const cell = String(rows[r][0] || '').trim();
-        if (cell.length > 5 && /fund|scheme/i.test(cell)) { fundName = cell; break; }
-        if (cell.length > 8 && /[A-Z]/.test(cell)) fundName = cell;
-      }
-
-      // Parse data rows
-      const sheetFunds = { fundName, holdings: [] };
-      let totalVal = 0;
-      const rawRows = [];
+      // ── Parse data rows ──
+      const holdings = [];
+      const seen = new Set();
 
       for (let r = headerRow + 1; r < rows.length; r++) {
         const row = rows[r];
-        if (!row || row.every(c => !c)) continue;
-
         const name   = String(row[nameCol] || '').trim();
-        const isin   = isinCol >= 0 ? String(row[isinCol] || '').trim() : '';
-        const sector = sectorCol >= 0 ? String(row[sectorCol] || '').trim() : '';
-        let pct      = pctCol >= 0 ? parseFloat(row[pctCol]) : NaN;
-        let val      = valCol >= 0 ? parseFloat(String(row[valCol]).replace(/,/g,'')) : NaN;
+        const isin   = String(row[isinCol] || '').trim();
+        const sector = String(row[sectorCol] || '').trim();
+        const pctRaw = row[pctCol];
+        const pct    = parseFloat(String(pctRaw).replace(/,/g,''));
 
-        // Stop at totals/summary rows
-        if (/grand\s*total|total\s*net|cash\s*&\s*other|net\s*current/i.test(name)) break;
-        if (!name || name.length < 3) continue;
-        if (/^(sl\.?\s*no|sr\.?\s*no|s\.?\s*no|#)/i.test(name)) continue;
+        // Stop at grand total or notes
+        if (/grand\s*total|notes\s*&\s*symbol|scheme\s*risk/i.test(name)) break;
+        if (/grand\s*total/i.test(String(row[0]||''))) break;
 
-        // Validate ISIN if present
-        const hasValidIsin = /^IN[A-Z0-9]{9}\d$/.test(isin);
-        if (!hasValidIsin && !name.match(/[A-Za-z]{3}/)) continue;
+        // Skip section headers (only 1 meaningful cell), totals, empty rows
+        const nonEmpty = row.filter(c => String(c).trim() !== '').length;
+        if (nonEmpty <= 1) continue;
+        if (/^total$/i.test(name) || /^sub\s*total/i.test(name)) continue;
+        if (!name || name.length < 2) continue;
 
-        rawRows.push({ name, isin, sector, pct, val });
-        if (!isNaN(val) && val > 0) totalVal += val;
+        // Must have a valid ISIN or valid pct
+        const validISIN = /^IN[A-Z0-9]{10}$/.test(isin);
+        if (!validISIN && (isNaN(pct) || pct <= 0)) continue;
+        if (isNaN(pct) || pct <= 0 || pct > 50) continue;
+
+        // Skip cash/repo/treps rows
+        if (/trep|repo|cblo|cash|current\s*asset|margin\s*amount/i.test(name)) continue;
+
+        const cleanName = name
+          .replace(/\s*Ltd\.?\s*$/i,'').replace(/\s*Limited\s*$/i,'')
+          .replace(/\s*LTD\.?\s*$/,'').trim().toUpperCase();
+        if (cleanName.length < 2) continue;
+
+        const key = cleanName.toLowerCase().replace(/\s+/g,'');
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        holdings.push({ name: cleanName, isin, sector, pct: Math.round(pct * 100) / 100 });
       }
 
-      // If we have values but no pcts, compute from total
-      rawRows.forEach(row => {
-        if (isNaN(row.pct) || row.pct === 0) {
-          if (totalVal > 0 && !isNaN(row.val)) row.pct = row.val / totalVal * 100;
-        }
-        if (isNaN(row.pct) || row.pct <= 0 || row.pct > 50) return;
-        sheetFunds.holdings.push({
-          name: row.name.replace(/\s*Ltd\.?\s*$/i,'').replace(/\s*Limited\s*$/i,'').trim().toUpperCase(),
-          isin: row.isin,
-          pct:  Math.round(row.pct * 100) / 100,
-          sector: row.sector
-        });
-      });
-
-      if (sheetFunds.holdings.length >= 3) results.push(sheetFunds);
+      if (holdings.length >= 3) {
+        results.push({ fundName, holdings });
+      }
     }
 
     if (!results.length) throw new Error('No portfolio data found. Check the Excel format.');
@@ -2888,7 +2903,8 @@ async function handlePortfolioExcel(evt) {
 
     if (uz)   uz.className = 'uz ok';
     if (icon) icon.textContent = '✅';
-    if (st)   { st.className = 'uz-st ok'; st.textContent = `✓ ${results.reduce((s,r)=>s+r.holdings.length,0)} holdings across ${results.length} fund(s)`; }
+    const totalHoldings = results.reduce((s,r) => s + r.holdings.length, 0);
+    if (st)   { st.className = 'uz-st ok'; st.textContent = `✓ ${totalHoldings} holdings across ${results.length} fund(s)`; }
 
   } catch(e) {
     if (uz)   uz.className = 'uz';
