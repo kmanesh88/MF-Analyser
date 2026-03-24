@@ -1373,22 +1373,70 @@ body {
       <button class="btn" style="width:100%" onclick="showImportModal()">⬆ Import CAS / Excel</button>
     </div>
 
-    <!-- Right: Upload zone -->
+    <!-- Right: Upload zone with PDF / Excel tabs -->
     <div class="card" style="margin-bottom:0">
-      <div class="card-title">Upload PDF</div>
-      <div id="upload-uz" class="uz"
-        onclick="if(!window._selectedAmcId){showToast('Select an AMC first');return;}document.getElementById('upload-file-input').click()"
-        ondragover="event.preventDefault();this.classList.add('drag')"
-        ondragleave="this.classList.remove('drag')"
-        ondrop="event.preventDefault();this.classList.remove('drag');if(!window._selectedAmcId){showToast('Select an AMC first');return;}const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('upload-file-input');const d=new DataTransfer();d.items.add(dt.files[0]);inp.files=d.files;handleUploadFile({target:inp})}">
-        <input type="file" accept=".pdf" id="upload-file-input" style="display:none" onchange="handleUploadFile(event)">
-        <div class="uz-icon" id="upload-uz-icon">📄</div>
-        <div class="uz-text" id="upload-uz-text">
-          Select an AMC first, then<br>drop or click to upload the PDF
-        </div>
-        <div class="uz-st" id="upload-uz-st"></div>
+
+      <!-- Tab switcher -->
+      <div style="display:flex;gap:0;margin-bottom:1rem;border-bottom:1px solid var(--border)">
+        <button id="uptab-pdf" onclick="switchUploadTab('pdf')"
+          style="flex:1;padding:.55rem;font-size:.72rem;font-weight:600;background:none;border:none;border-bottom:2px solid var(--accent);color:var(--accent);cursor:pointer">
+          📄 Factsheet PDF
+        </button>
+        <button id="uptab-xls" onclick="switchUploadTab('xls')"
+          style="flex:1;padding:.55rem;font-size:.72rem;font-weight:500;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted2);cursor:pointer">
+          📊 Portfolio Excel
+        </button>
       </div>
-      <div id="portfolio-disclosure-link" style="display:none;margin-top:.6rem;text-align:center"></div>
+
+      <!-- PDF tab -->
+      <div id="upload-tab-pdf">
+        <div id="upload-uz" class="uz"
+          onclick="if(!window._selectedAmcId){showToast('Select an AMC first');return;}document.getElementById('upload-file-input').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="event.preventDefault();this.classList.remove('drag');if(!window._selectedAmcId){showToast('Select an AMC first');return;}const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('upload-file-input');const d=new DataTransfer();d.items.add(dt.files[0]);inp.files=d.files;handleUploadFile({target:inp})}">
+          <input type="file" accept=".pdf" id="upload-file-input" style="display:none" onchange="handleUploadFile(event)">
+          <div class="uz-icon" id="upload-uz-icon">📄</div>
+          <div class="uz-text" id="upload-uz-text">
+            Select an AMC first, then<br>drop or click to upload the PDF
+          </div>
+          <div class="uz-st" id="upload-uz-st"></div>
+        </div>
+        <div id="portfolio-disclosure-link" style="display:none;margin-top:.6rem;text-align:center"></div>
+      </div>
+
+      <!-- Excel tab -->
+      <div id="upload-tab-xls" style="display:none">
+        <div class="info" style="margin-bottom:.85rem;font-size:.68rem">
+          Upload the AMC's monthly <strong>portfolio disclosure Excel</strong>. The app auto-detects fund names, ISINs, and % weights.
+          Click <strong>↗</strong> next to any AMC on the left to open their download page.
+        </div>
+        <div id="upload-xls-uz" class="uz" style="cursor:pointer"
+          onclick="document.getElementById('upload-xls-input').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="event.preventDefault();this.classList.remove('drag');const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('upload-xls-input');const d=new DataTransfer();d.items.add(dt.files[0]);inp.files=d.files;handlePortfolioExcel({target:inp})}">
+          <input type="file" accept=".xlsx,.xls,.csv" id="upload-xls-input" style="display:none" onchange="handlePortfolioExcel(event)">
+          <div class="uz-icon" id="upload-xls-icon">📊</div>
+          <div class="uz-text" id="upload-xls-text">
+            Drop portfolio Excel / CSV here<br>or click to browse
+          </div>
+          <div class="uz-st" id="upload-xls-st"></div>
+        </div>
+
+        <!-- Preview of parsed funds -->
+        <div id="upload-xls-preview" style="display:none;margin-top:.85rem">
+          <div style="font-size:.7rem;font-weight:600;color:var(--text2);margin-bottom:.5rem">Parsed funds — verify before saving:</div>
+          <div id="upload-xls-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--s2)"></div>
+          <div class="btn-row" style="margin-top:.75rem">
+            <button class="btn pri" id="upload-xls-save-btn" onclick="savePortfolioExcel()">✓ Save to Selected AMC</button>
+            <button class="btn" onclick="resetXlsUpload()">✕ Cancel</button>
+          </div>
+          <div id="upload-xls-amc-warning" style="display:none;font-size:.65rem;color:var(--orange);margin-top:.5rem">
+            ⚠ No AMC selected — select an AMC on the left first, then save.
+          </div>
+        </div>
+      </div>
 
       <div id="upload-result" style="display:none;margin-top:1rem">
         <div class="flist" id="upload-flist"></div>
@@ -2711,6 +2759,232 @@ function showUploadResult(amc) {
 function addAnotherAmc() {
   clearSelectedAmc();
   setTimeout(() => document.getElementById('amc-search-input')?.focus(), 50);
+}
+
+// ── Upload page tab switching ─────────────────────────────────
+function switchUploadTab(tab) {
+  const isPdf = tab === 'pdf';
+  document.getElementById('upload-tab-pdf').style.display = isPdf ? 'block' : 'none';
+  document.getElementById('upload-tab-xls').style.display = isPdf ? 'none'  : 'block';
+  const pdfBtn = document.getElementById('uptab-pdf');
+  const xlsBtn = document.getElementById('uptab-xls');
+  if (pdfBtn) {
+    pdfBtn.style.borderBottomColor = isPdf ? 'var(--accent)' : 'transparent';
+    pdfBtn.style.color = isPdf ? 'var(--accent)' : 'var(--muted2)';
+    pdfBtn.style.fontWeight = isPdf ? '600' : '500';
+  }
+  if (xlsBtn) {
+    xlsBtn.style.borderBottomColor = isPdf ? 'transparent' : 'var(--accent)';
+    xlsBtn.style.color = isPdf ? 'var(--muted2)' : 'var(--accent)';
+    xlsBtn.style.fontWeight = isPdf ? '500' : '600';
+  }
+}
+
+// ── Portfolio Excel parser ────────────────────────────────────
+// Handles AMC portfolio Excel/CSV files
+// Typical columns: Name, ISIN, Rating/Sector, Market Value, % of NAV
+let _xlsParsedFunds = []; // [{name, isin, pct, sector}]
+
+async function handlePortfolioExcel(evt) {
+  const file = evt.target.files?.[0];
+  if (!file) return;
+
+  const icon = document.getElementById('upload-xls-icon');
+  const st   = document.getElementById('upload-xls-st');
+  const uz   = document.getElementById('upload-xls-uz');
+  if (uz)   uz.className = 'uz load';
+  if (icon) icon.textContent = '⏳';
+  if (st)   { st.className = 'uz-st ld'; st.textContent = 'Parsing…'; }
+
+  try {
+    const buf  = await file.arrayBuffer();
+    const wb   = XLSX.read(buf, { type: 'array' });
+    const results = [];
+
+    // Try each sheet — AMCs sometimes put multiple funds on separate sheets
+    for (const sheetName of wb.SheetNames) {
+      const ws   = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (rows.length < 3) continue;
+
+      // Auto-detect header row (first row with "Name" or "ISIN" or "%" in it)
+      let headerRow = -1;
+      for (let r = 0; r < Math.min(15, rows.length); r++) {
+        const row = rows[r].map(c => String(c).toLowerCase());
+        if (row.some(c => c.includes('isin') || (c.includes('name') && !c.includes('scheme name')) || c.includes('% of nav') || c.includes('portfolio'))) {
+          headerRow = r;
+          break;
+        }
+      }
+      if (headerRow < 0) continue;
+
+      const headers = rows[headerRow].map(c => String(c).toLowerCase().trim());
+      // Find column indices
+      const nameCol  = headers.findIndex(h => h.includes('name') || h.includes('instrument') || h.includes('security'));
+      const isinCol  = headers.findIndex(h => h.includes('isin'));
+      const pctCol   = headers.findIndex(h => h.includes('% of nav') || h.includes('%nav') || h.includes('net asset') || h.includes('% to'));
+      const valCol   = headers.findIndex(h => h.includes('market value') || h.includes('mkt value') || h.includes('value'));
+      const sectorCol= headers.findIndex(h => h.includes('sector') || h.includes('industry'));
+
+      if (nameCol < 0 && isinCol < 0) continue;
+
+      // Detect current fund name from above the header row
+      let fundName = sheetName !== 'Sheet1' ? sheetName : '';
+      for (let r = 0; r < headerRow; r++) {
+        const cell = String(rows[r][0] || '').trim();
+        if (cell.length > 5 && /fund|scheme/i.test(cell)) { fundName = cell; break; }
+        if (cell.length > 8 && /[A-Z]/.test(cell)) fundName = cell;
+      }
+
+      // Parse data rows
+      const sheetFunds = { fundName, holdings: [] };
+      let totalVal = 0;
+      const rawRows = [];
+
+      for (let r = headerRow + 1; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row || row.every(c => !c)) continue;
+
+        const name   = String(row[nameCol] || '').trim();
+        const isin   = isinCol >= 0 ? String(row[isinCol] || '').trim() : '';
+        const sector = sectorCol >= 0 ? String(row[sectorCol] || '').trim() : '';
+        let pct      = pctCol >= 0 ? parseFloat(row[pctCol]) : NaN;
+        let val      = valCol >= 0 ? parseFloat(String(row[valCol]).replace(/,/g,'')) : NaN;
+
+        // Stop at totals/summary rows
+        if (/grand\s*total|total\s*net|cash\s*&\s*other|net\s*current/i.test(name)) break;
+        if (!name || name.length < 3) continue;
+        if (/^(sl\.?\s*no|sr\.?\s*no|s\.?\s*no|#)/i.test(name)) continue;
+
+        // Validate ISIN if present
+        const hasValidIsin = /^IN[A-Z0-9]{9}\d$/.test(isin);
+        if (!hasValidIsin && !name.match(/[A-Za-z]{3}/)) continue;
+
+        rawRows.push({ name, isin, sector, pct, val });
+        if (!isNaN(val) && val > 0) totalVal += val;
+      }
+
+      // If we have values but no pcts, compute from total
+      rawRows.forEach(row => {
+        if (isNaN(row.pct) || row.pct === 0) {
+          if (totalVal > 0 && !isNaN(row.val)) row.pct = row.val / totalVal * 100;
+        }
+        if (isNaN(row.pct) || row.pct <= 0 || row.pct > 50) return;
+        sheetFunds.holdings.push({
+          name: row.name.replace(/\s*Ltd\.?\s*$/i,'').replace(/\s*Limited\s*$/i,'').trim().toUpperCase(),
+          isin: row.isin,
+          pct:  Math.round(row.pct * 100) / 100,
+          sector: row.sector
+        });
+      });
+
+      if (sheetFunds.holdings.length >= 3) results.push(sheetFunds);
+    }
+
+    if (!results.length) throw new Error('No portfolio data found. Check the Excel format.');
+
+    _xlsParsedFunds = results;
+    showXlsPreview(results, file.name);
+
+    if (uz)   uz.className = 'uz ok';
+    if (icon) icon.textContent = '✅';
+    if (st)   { st.className = 'uz-st ok'; st.textContent = `✓ ${results.reduce((s,r)=>s+r.holdings.length,0)} holdings across ${results.length} fund(s)`; }
+
+  } catch(e) {
+    if (uz)   uz.className = 'uz';
+    if (icon) icon.textContent = '❌';
+    if (st)   { st.className = 'uz-st err'; st.textContent = '✗ ' + (e.message || 'Parse error'); }
+    console.error(e);
+  }
+}
+
+function showXlsPreview(results, filename) {
+  const preview = document.getElementById('upload-xls-preview');
+  const list    = document.getElementById('upload-xls-list');
+  if (!preview || !list) return;
+
+  list.innerHTML = results.map(r => `
+    <div style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">
+      <div style="font-size:.72rem;font-weight:600;color:var(--text);margin-bottom:.35rem">
+        ${r.fundName || '(unnamed fund)'}
+        <span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:.4rem">${r.holdings.length} holdings</span>
+      </div>
+      ${r.holdings.slice(0,5).map(h =>
+        `<div style="display:flex;justify-content:space-between;font-size:.62rem;color:var(--text2);padding:.1rem 0">
+          <span>${h.name}</span>
+          <span style="color:var(--muted);font-family:'IBM Plex Mono',monospace">${h.pct.toFixed(2)}%</span>
+        </div>`
+      ).join('')}
+      ${r.holdings.length > 5 ? `<div style="font-size:.6rem;color:var(--muted);margin-top:.2rem">+${r.holdings.length-5} more…</div>` : ''}
+    </div>
+  `).join('');
+
+  preview.style.display = 'block';
+}
+
+function savePortfolioExcel() {
+  const amcId = window._selectedAmcId;
+  if (!amcId) {
+    document.getElementById('upload-xls-amc-warning').style.display = 'block';
+    return;
+  }
+  document.getElementById('upload-xls-amc-warning').style.display = 'none';
+
+  const amc = amcs.find(a => a.id === amcId);
+  if (!amc) return;
+
+  // Convert parsed holdings into fund data format
+  // Each result sheet = one fund in the AMC
+  _xlsParsedFunds.forEach(result => {
+    const fname = result.fundName || `${amc.name} Fund`;
+    const equityStocks = result.holdings
+      .filter(h => !h.isin || /^INE/.test(h.isin)) // equity ISINs start with INE
+      .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || '') }));
+    const debtItems = result.holdings
+      .filter(h => h.isin && /^IN[09]/.test(h.isin))
+      .map(h => ({ name: h.name, pct: h.pct, cat: classifyDebt(h.name) || 'aaa' }));
+
+    let lc=0, mc=0, sc=0;
+    equityStocks.forEach(s => {
+      const c = classifyEquity(s.name);
+      if (c==='large') lc+=s.pct; else if (c==='mid') mc+=s.pct; else sc+=s.pct;
+    });
+    const eqTotal=lc+mc+sc, eqOther=Math.max(0,100-eqTotal-debtItems.reduce((s,d)=>s+d.pct,0));
+    if (eqTotal>0){const k=(100-eqOther)/eqTotal;lc*=k;mc*=k;sc*=k;}
+
+    let gsec=0,sdl=0,aaa=0,aa=0,mkt=0,cash=0;
+    debtItems.forEach(d=>{if(d.cat==='gsec')gsec+=d.pct;else if(d.cat==='sdl')sdl+=d.pct;else if(d.cat==='aaa')aaa+=d.pct;else if(d.cat==='aa')aa+=d.pct;else if(d.cat==='mkt')mkt+=d.pct;else cash+=d.pct;});
+
+    amc.funds[fname] = {
+      large:lc, mid:mc, small:sc, eqOther,
+      gsec, sdl, aaa, aa, mkt, cash,
+      debtTotal: gsec+sdl+aaa+aa+mkt+cash,
+      equityStocks, debtItems, amc: amc.name
+    };
+  });
+
+  amc.status = 'loaded';
+  showUploadResult(amc);
+  refreshUploadPage();
+  updateNextBtn();
+  saveToStorage();
+  if (window._fb?.currentUser) window._fbSaveCloud();
+  showToast(`✓ ${_xlsParsedFunds.reduce((s,r)=>s+r.holdings.length,0)} holdings saved to ${amc.name}`);
+  resetXlsUpload();
+}
+
+function resetXlsUpload() {
+  _xlsParsedFunds = [];
+  const preview = document.getElementById('upload-xls-preview');
+  const uz      = document.getElementById('upload-xls-uz');
+  const icon    = document.getElementById('upload-xls-icon');
+  const st      = document.getElementById('upload-xls-st');
+  const inp     = document.getElementById('upload-xls-input');
+  if (preview) preview.style.display = 'none';
+  if (uz)      uz.className = 'uz';
+  if (icon)    icon.textContent = '📊';
+  if (st)      { st.className = 'uz-st'; st.textContent = ''; }
+  if (inp)     inp.value = '';
 }
 
 // Shims for legacy calls
