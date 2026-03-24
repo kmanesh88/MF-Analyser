@@ -1388,6 +1388,7 @@ body {
         </div>
         <div class="uz-st" id="upload-uz-st"></div>
       </div>
+      <div id="portfolio-disclosure-link" style="display:none;margin-top:.6rem;text-align:center"></div>
 
       <div id="upload-result" style="display:none;margin-top:1rem">
         <div class="flist" id="upload-flist"></div>
@@ -2562,6 +2563,21 @@ function selectLoadedAmc(id) {
   if (uzText) uzText.innerHTML = `Drop <strong>${amc.name}</strong> factsheet here or click to browse<br>
     <span style="font-size:.65rem;color:var(--muted)">text-based PDF · not scanned</span>`;
 
+  // Show portfolio disclosure link
+  const amcData = ALL_AMCS.find(a => a.name.toLowerCase() === amc.name.toLowerCase());
+  const linkEl = document.getElementById('portfolio-disclosure-link');
+  if (linkEl) {
+    if (amcData?.portfolio) {
+      linkEl.innerHTML = `<a href="${amcData.portfolio}" target="_blank" rel="noopener"
+        style="font-size:.68rem;color:var(--blue);text-decoration:none;display:inline-flex;align-items:center;gap:.3rem">
+        ↗ Download ${amc.name} portfolio disclosure
+      </a>`;
+      linkEl.style.display = 'block';
+    } else {
+      linkEl.style.display = 'none';
+    }
+  }
+
   // Reset dropzone state for re-upload
   const uz = document.getElementById('upload-uz');
   const icon = document.getElementById('upload-uz-icon');
@@ -2618,7 +2634,13 @@ function filterUploadDropdown() {
         <div style="font-size:.76rem;color:var(--text);font-weight:${isLoaded?'600':'400'}">${a.name}</div>
         <div style="font-size:.58rem;color:var(--muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.full}</div>
       </div>
-      ${isLoaded ? '<span style="font-size:.58rem;color:var(--green);flex-shrink:0">✓</span>' : ''}
+      <div style="display:flex;align-items:center;gap:.4rem;flex-shrink:0">
+        ${a.portfolio ? `<a href="${a.portfolio}" target="_blank" rel="noopener"
+          onclick="event.stopPropagation()"
+          style="font-size:.55rem;color:var(--blue);text-decoration:none;padding:1px 5px;border:1px solid var(--blue);border-radius:3px;white-space:nowrap"
+          title="Open portfolio disclosure page">↗</a>` : ''}
+        ${isLoaded ? '<span style="font-size:.58rem;color:var(--green)">✓</span>' : ''}
+      </div>
     </div>`;
   }).join('');
   dd.style.display = 'block';
@@ -2738,52 +2760,81 @@ async function handlePDF(evt, amcId) {
     const totalPages = pdf.numPages;
     if (st) st.innerHTML = `<span class="spin"></span> ${totalPages} pages — extracting text…`;
 
-    // Extract all pages in parallel batches of 20 for speed
-    const BATCH = 20;
+    const isKotakAMC   = /kotak/i.test(amc.name);
+    const isSundaramAMC = /sundaram/i.test(amc.name);
+
+    // Fast text extractor — skips font size tracking for speed on large factsheets
+    const extractPage = async (i) => {
+      const pg = await pdf.getPage(i);
+      const ct = await pg.getTextContent();
+
+      const byY = {};
+      ct.items.forEach(item => {
+        const y = Math.round(item.transform[5]);
+        if (!byY[y]) byY[y] = { parts: [], maxSize: 0 };
+        byY[y].parts.push(item.str);
+        // Only track font size if we need heading detection (non-Kotak)
+        if (!isKotakAMC) {
+          const fs = Math.abs(item.transform[3]);
+          byY[y].maxSize = Math.max(byY[y].maxSize, fs);
+        }
+      });
+
+      const sortedYs = Object.keys(byY).map(Number).sort((a,b) => b-a);
+      const lines = sortedYs.map(y => ({
+        text: byY[y].parts.join(' ').trim(),
+        fontSize: byY[y].maxSize,
+        y
+      })).filter(l => l.text);
+
+      // Page heading detection (skip for Kotak — not needed)
+      let pageHeading = '';
+      if (!isKotakAMC) {
+        const pageHeight = lines.length > 0 ? lines[0].y : 800;
+        const topLines = lines.filter(l => l.y > pageHeight * 0.65);
+        const maxFontSize = Math.max(...topLines.map(l => l.fontSize), 0);
+        if (maxFontSize > 0) {
+          pageHeading = topLines
+            .filter(l => l.fontSize >= maxFontSize * 0.85)
+            .map(l => l.text.trim())
+            .filter(t => t.length > 3)
+            .join(' ').replace(/\s+/g,' ').trim();
+        }
+      }
+
+      return { pageNum: i, lines: lines.map(l => l.text), heading: pageHeading };
+    };
+
+    // For Kotak: process in batches but stop early once we've found all funds
+    // (portfolio pages end when no more ISINs appear for 10+ pages in a row)
     const pages = [];
+    const BATCH = 20;
+    let consecutiveEmptyPages = 0;
+    const EARLY_EXIT_THRESHOLD = isKotakAMC ? 15 : totalPages; // stop after 15 non-portfolio pages
 
     for (let batch = 0; batch < totalPages; batch += BATCH) {
       const batchEnd = Math.min(batch + BATCH, totalPages);
       const batchPages = await Promise.all(
-        Array.from({length: batchEnd - batch}, (_, j) => batch + j + 1).map(async i => {
-          const pg = await pdf.getPage(i);
-          const ct = await pg.getTextContent();
-
-          const byY = {};
-          ct.items.forEach(item => {
-            const y = Math.round(item.transform[5]);
-            const fontSize = Math.abs(item.transform[3]);
-            if (!byY[y]) byY[y] = { parts: [], maxSize: 0 };
-            byY[y].parts.push(item.str);
-            byY[y].maxSize = Math.max(byY[y].maxSize, fontSize);
-          });
-
-          const sortedYs = Object.keys(byY).map(Number).sort((a,b) => b-a);
-          const lines = sortedYs.map(y => ({
-            text: byY[y].parts.join(' ').trim(),
-            fontSize: byY[y].maxSize,
-            y
-          })).filter(l => l.text);
-
-          // Page heading: largest font in top 35% of page
-          const pageHeight = lines.length > 0 ? lines[0].y : 800;
-          const topLines = lines.filter(l => l.y > pageHeight * 0.65);
-          const maxFontSize = Math.max(...topLines.map(l => l.fontSize), 0);
-          let pageHeading = '';
-          if (maxFontSize > 0) {
-            pageHeading = topLines
-              .filter(l => l.fontSize >= maxFontSize * 0.85)
-              .map(l => l.text.trim())
-              .filter(t => t.length > 3)
-              .join(' ').replace(/\s+/g,' ').trim();
-          }
-
-          return { pageNum: i, lines: lines.map(l => l.text), heading: pageHeading };
-        })
+        Array.from({length: batchEnd - batch}, (_, j) => batch + j + 1).map(extractPage)
       );
       pages.push(...batchPages);
 
-      // Update progress
+      // Early exit check for Kotak — count pages without ISINs
+      if (isKotakAMC) {
+        let batchHadISIN = false;
+        batchPages.forEach(p => {
+          const hasISIN = p.lines.some(l => /\bINE[A-Z0-9]{9}\d\b/.test(l));
+          if (hasISIN) { batchHadISIN = true; consecutiveEmptyPages = 0; }
+          else consecutiveEmptyPages++;
+        });
+
+        // If we've already found some funds AND hit a long stretch with no ISINs, stop
+        if (consecutiveEmptyPages >= EARLY_EXIT_THRESHOLD && batch > 20) {
+          if (st) st.innerHTML = `<span class="spin"></span> Parsing… done (${pages.length}/${totalPages} pages scanned)`;
+          break;
+        }
+      }
+
       const pct = Math.round(batchEnd / totalPages * 100);
       if (st) st.innerHTML = `<span class="spin"></span> Parsing… ${pct}%`;
     }
@@ -4789,52 +4840,50 @@ document.addEventListener('click', e => {
 // Sorted by AUM (largest first as of early 2026)
 const ALL_AMCS = [
   // ── Tier 1 — Top 10 by AUM ──
-  { name:'SBI',                    full:'SBI Mutual Fund',                     aum:'₹11.97L Cr', tier:1 },
-  { name:'ICICI Prudential',       full:'ICICI Prudential Mutual Fund',         aum:'₹11.42L Cr', tier:1 },
-  { name:'HDFC',                   full:'HDFC Mutual Fund',                     aum:'₹9.53L Cr',  tier:1 },
-  { name:'Nippon',                 full:'Nippon India Mutual Fund',             aum:'₹5.46L Cr',  tier:1 },
-  { name:'Kotak',                  full:'Kotak Mahindra Mutual Fund',           aum:'₹4.78L Cr',  tier:1 },
-  { name:'Mirae Asset',            full:'Mirae Asset Mutual Fund',              aum:'₹4.10L Cr',  tier:1 },
-  { name:'Axis',                   full:'Axis Mutual Fund',                     aum:'₹3.29L Cr',  tier:1 },
-  { name:'UTI',                    full:'UTI Mutual Fund',                      aum:'₹3.19L Cr',  tier:1 },
-  { name:'Aditya Birla Sun Life',  full:'Aditya Birla Sun Life Mutual Fund',   aum:'₹3.16L Cr',  tier:1 },
-  { name:'Groww',                  full:'Groww Mutual Fund',                    aum:'₹2.87L Cr',  tier:1 },
+  { name:'SBI',                    full:'SBI Mutual Fund',                     aum:'₹11.97L Cr', tier:1, portfolio:'https://www.sbimf.com/portfolios' },
+  { name:'ICICI Prudential',       full:'ICICI Prudential Mutual Fund',         aum:'₹11.42L Cr', tier:1, portfolio:'https://www.icicipruamc.com/downloads/monthly-portfolio' },
+  { name:'HDFC',                   full:'HDFC Mutual Fund',                     aum:'₹9.53L Cr',  tier:1, portfolio:'https://www.hdfcfund.com/statutory-disclosure/portfolio/monthly-portfolio' },
+  { name:'Nippon',                 full:'Nippon India Mutual Fund',             aum:'₹5.46L Cr',  tier:1, portfolio:'https://mf.nipponindiaim.com/InvestorServices/Pages/InvestorPortfolio.aspx' },
+  { name:'Kotak',                  full:'Kotak Mahindra Mutual Fund',           aum:'₹4.78L Cr',  tier:1, portfolio:'https://www.kotakmf.com/Information/portfolios' },
+  { name:'Mirae Asset',            full:'Mirae Asset Mutual Fund',              aum:'₹4.10L Cr',  tier:1, portfolio:'https://www.miraeassetmf.co.in/downloads/monthly-portfolio' },
+  { name:'Axis',                   full:'Axis Mutual Fund',                     aum:'₹3.29L Cr',  tier:1, portfolio:'https://www.axismf.com/downloads/monthly-portfolio' },
+  { name:'UTI',                    full:'UTI Mutual Fund',                      aum:'₹3.19L Cr',  tier:1, portfolio:'https://www.utimf.com/downloads/portfolio-disclosure-scheme-wise' },
+  { name:'Aditya Birla Sun Life',  full:'Aditya Birla Sun Life Mutual Fund',   aum:'₹3.16L Cr',  tier:1, portfolio:'https://mutualfund.adityabirlacapital.com/downloads/portfolios' },
+  { name:'Groww',                  full:'Groww Mutual Fund',                    aum:'₹2.87L Cr',  tier:1, portfolio:'https://groww.in/mutual-funds/pages/portfolio-disclosure' },
   // ── Tier 2 — Mid-size ──
-  { name:'Franklin Templeton',     full:'Franklin Templeton Mutual Fund',       aum:'₹1.80L Cr',  tier:2 },
-  { name:'DSP',                    full:'DSP Mutual Fund',                      aum:'₹1.74L Cr',  tier:2 },
-  { name:'Tata',                   full:'Tata Mutual Fund',                     aum:'₹1.60L Cr',  tier:2 },
-  { name:'Motilal Oswal',          full:'Motilal Oswal Mutual Fund',            aum:'₹1.54L Cr',  tier:2 },
-  { name:'Sundaram',               full:'Sundaram Mutual Fund',                 aum:'₹0.72L Cr',  tier:2 },
-  { name:'HSBC',                   full:'HSBC Mutual Fund',                     aum:'₹0.68L Cr',  tier:2 },
-  { name:'Canara Robeco',          full:'Canara Robeco Mutual Fund',            aum:'₹0.66L Cr',  tier:2 },
-  { name:'PGIM India',             full:'PGIM India Mutual Fund',               aum:'₹0.56L Cr',  tier:2 },
-  { name:'Bandhan',                full:'Bandhan Mutual Fund',                  aum:'₹0.49L Cr',  tier:2 },
-  { name:'Edelweiss',              full:'Edelweiss Mutual Fund',                aum:'₹0.43L Cr',  tier:2 },
-  { name:'Invesco',                full:'Invesco Mutual Fund',                  aum:'₹0.43L Cr',  tier:2 },
-  { name:'L&T / HSBC',            full:'L&T Mutual Fund (now HSBC)',           aum:'—',           tier:2 },
-  { name:'Quant',                  full:'Quant Mutual Fund',                    aum:'₹0.96L Cr',  tier:2 },
-  { name:'WhiteOak Capital',       full:'WhiteOak Capital Mutual Fund',         aum:'₹0.21L Cr',  tier:2 },
+  { name:'Franklin Templeton',     full:'Franklin Templeton Mutual Fund',       aum:'₹1.80L Cr',  tier:2, portfolio:'https://www.franklintempletonindia.com/investor/tools-and-resources/portfolio-of-all-schemes' },
+  { name:'DSP',                    full:'DSP Mutual Fund',                      aum:'₹1.74L Cr',  tier:2, portfolio:'https://www.dspim.com/downloads/portfolios' },
+  { name:'Tata',                   full:'Tata Mutual Fund',                     aum:'₹1.60L Cr',  tier:2, portfolio:'https://www.tatamutualfund.com/portfolio-disclosure' },
+  { name:'Motilal Oswal',          full:'Motilal Oswal Mutual Fund',            aum:'₹1.54L Cr',  tier:2, portfolio:'https://www.motilaloswalmf.com/mf/downloads/monthly-portfolio' },
+  { name:'Sundaram',               full:'Sundaram Mutual Fund',                 aum:'₹0.72L Cr',  tier:2, portfolio:'https://www.sundarammutual.com/portfolio-disclosure' },
+  { name:'HSBC',                   full:'HSBC Mutual Fund',                     aum:'₹0.68L Cr',  tier:2, portfolio:'https://www.assetmanagement.hsbc.co.in/en/retail-investors/statutory-disclosure/monthly-portfolio' },
+  { name:'Canara Robeco',          full:'Canara Robeco Mutual Fund',            aum:'₹0.66L Cr',  tier:2, portfolio:'https://www.canararobeco.com/download-center' },
+  { name:'PGIM India',             full:'PGIM India Mutual Fund',               aum:'₹0.56L Cr',  tier:2, portfolio:'https://www.pgimindiamf.com/downloads/monthly-portfolio' },
+  { name:'Bandhan',                full:'Bandhan Mutual Fund',                  aum:'₹0.49L Cr',  tier:2, portfolio:'https://www.bandhanmf.com/downloads/monthly-portfolio' },
+  { name:'Edelweiss',              full:'Edelweiss Mutual Fund',                aum:'₹0.43L Cr',  tier:2, portfolio:'https://www.edelweissmf.com/downloads/monthly-portfolio' },
+  { name:'Invesco',                full:'Invesco Mutual Fund',                  aum:'₹0.43L Cr',  tier:2, portfolio:'https://www.invescomutualfund.com/downloads/monthly-portfolio' },
+  { name:'Quant',                  full:'Quant Mutual Fund',                    aum:'₹0.96L Cr',  tier:2, portfolio:'https://www.quantmutual.com/downloads' },
+  { name:'WhiteOak Capital',       full:'WhiteOak Capital Mutual Fund',         aum:'₹0.21L Cr',  tier:2, portfolio:'https://www.whiteoakcapital.com/mutual-fund/downloads' },
+  { name:'PPFAS',                  full:'PPFAS Mutual Fund (Parag Parikh)',      aum:'₹0.92L Cr',  tier:2, portfolio:'https://amc.ppfas.com/downloads/portfolio-disclosure/' },
   // ── Tier 3 — Smaller / Boutique ──
-  { name:'360 ONE',                full:'360 ONE Mutual Fund',                  aum:'₹0.13L Cr',  tier:3 },
-  { name:'Baroda BNP Paribas',     full:'Baroda BNP Paribas Mutual Fund',       aum:'₹0.25L Cr',  tier:3 },
-  { name:'BOI',                    full:'BOI Mutual Fund',                      aum:'₹0.09L Cr',  tier:3 },
-  { name:'PPFAS',                  full:'PPFAS Mutual Fund (Parag Parikh)',      aum:'₹0.92L Cr',  tier:3 },
-  { name:'JM Financial',           full:'JM Financial Mutual Fund',             aum:'₹0.16L Cr',  tier:3 },
-  { name:'LIC',                    full:'LIC Mutual Fund',                      aum:'₹0.29L Cr',  tier:3 },
-  { name:'ITI',                    full:'ITI Mutual Fund',                      aum:'₹0.05L Cr',  tier:3 },
-  { name:'Mahindra Manulife',      full:'Mahindra Manulife Mutual Fund',        aum:'₹0.11L Cr',  tier:3 },
-  { name:'Mirae Asset (ETF)',      full:'Mirae Asset NYSE FANG+ ETF',           aum:'—',           tier:3 },
-  { name:'NJ',                     full:'NJ Mutual Fund',                       aum:'₹0.22L Cr',  tier:3 },
-  { name:'Old Bridge',             full:'Old Bridge Mutual Fund',               aum:'₹0.05L Cr',  tier:3 },
-  { name:'Samco',                  full:'Samco Mutual Fund',                    aum:'₹0.06L Cr',  tier:3 },
-  { name:'Shriram',                full:'Shriram Mutual Fund',                  aum:'₹0.02L Cr',  tier:3 },
-  { name:'Trust',                  full:'Trust Mutual Fund',                    aum:'₹0.10L Cr',  tier:3 },
-  { name:'Union',                  full:'Union Mutual Fund',                    aum:'₹0.16L Cr',  tier:3 },
-  { name:'Bajaj Finserv',          full:'Bajaj Finserv Mutual Fund',            aum:'₹0.16L Cr',  tier:3 },
-  { name:'Helios',                 full:'Helios Mutual Fund',                   aum:'₹0.08L Cr',  tier:3 },
-  { name:'Zerodha',                full:'Zerodha Mutual Fund',                  aum:'₹0.20L Cr',  tier:3 },
-  { name:'Navi',                   full:'Navi Mutual Fund',                     aum:'₹0.08L Cr',  tier:3 },
-  { name:'Quantum',                full:'Quantum Mutual Fund',                  aum:'₹0.09L Cr',  tier:3 },
+  { name:'360 ONE',                full:'360 ONE Mutual Fund',                  aum:'₹0.13L Cr',  tier:3, portfolio:'https://www.360.one/asset-management/mutualfund/downloads/disclosures/' },
+  { name:'Baroda BNP Paribas',     full:'Baroda BNP Paribas Mutual Fund',       aum:'₹0.25L Cr',  tier:3, portfolio:'https://www.barodabnpparibasmf.in/portfolio-disclosure' },
+  { name:'BOI',                    full:'BOI Mutual Fund',                       aum:'₹0.09L Cr',  tier:3, portfolio:'https://www.boimf.in/portfolios' },
+  { name:'JM Financial',           full:'JM Financial Mutual Fund',             aum:'₹0.16L Cr',  tier:3, portfolio:'https://www.jmfinancialmf.com/downloads/monthly-portfolio' },
+  { name:'LIC',                    full:'LIC Mutual Fund',                      aum:'₹0.29L Cr',  tier:3, portfolio:'https://www.licmf.com/downloads/monthly-portfolio' },
+  { name:'ITI',                    full:'ITI Mutual Fund',                      aum:'₹0.05L Cr',  tier:3, portfolio:'https://www.itimf.com/downloads' },
+  { name:'Mahindra Manulife',      full:'Mahindra Manulife Mutual Fund',        aum:'₹0.11L Cr',  tier:3, portfolio:'https://www.mahindramanulifemf.com/downloads/monthly-portfolio' },
+  { name:'NJ',                     full:'NJ Mutual Fund',                       aum:'₹0.22L Cr',  tier:3, portfolio:'https://www.njmutualfund.com/downloads' },
+  { name:'Old Bridge',             full:'Old Bridge Mutual Fund',               aum:'₹0.05L Cr',  tier:3, portfolio:'https://www.oldbridgeamc.com/downloads' },
+  { name:'Samco',                  full:'Samco Mutual Fund',                    aum:'₹0.06L Cr',  tier:3, portfolio:'https://www.samco.in/mutual-fund/downloads' },
+  { name:'Shriram',                full:'Shriram Mutual Fund',                  aum:'₹0.02L Cr',  tier:3, portfolio:'https://www.shriramamc.in/downloads' },
+  { name:'Trust',                  full:'Trust Mutual Fund',                    aum:'₹0.10L Cr',  tier:3, portfolio:'https://www.trustmf.com/downloads' },
+  { name:'Union',                  full:'Union Mutual Fund',                    aum:'₹0.16L Cr',  tier:3, portfolio:'https://www.unionmf.com/downloads' },
+  { name:'Bajaj Finserv',          full:'Bajaj Finserv Mutual Fund',            aum:'₹0.16L Cr',  tier:3, portfolio:'https://www.bajajfinservmf.in/downloads' },
+  { name:'Helios',                 full:'Helios Mutual Fund',                   aum:'₹0.08L Cr',  tier:3, portfolio:'https://www.heliosmf.in/downloads' },
+  { name:'Zerodha',                full:'Zerodha Mutual Fund',                  aum:'₹0.20L Cr',  tier:3, portfolio:'https://zerodhamf.com/downloads' },
+  { name:'Navi',                   full:'Navi Mutual Fund',                     aum:'₹0.08L Cr',  tier:3, portfolio:'https://www.navimf.com/downloads' },
+  { name:'Quantum',                full:'Quantum Mutual Fund',                  aum:'₹0.09L Cr',  tier:3, portfolio:'https://www.quantumamc.com/monthly-portfolio' },
 ];
 
 const TOP10_AMCS = ALL_AMCS.filter(a => a.tier === 1).map(a => a.name);
