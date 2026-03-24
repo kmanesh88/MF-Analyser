@@ -7,6 +7,147 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Firebase -->
+<script type="module">
+import { initializeApp }                          from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+import { getAuth, signInWithPopup, signOut, GoogleAuthProvider, onAuthStateChanged }
+                                                   from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs }
+                                                   from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey:            "AIzaSyC61qLPZztu1Vd8uETMbYi-I5pndrg5484",
+  authDomain:        "mf-analyser-f2867.firebaseapp.com",
+  projectId:         "mf-analyser-f2867",
+  storageBucket:     "mf-analyser-f2867.firebasestorage.app",
+  messagingSenderId: "528169645475",
+  appId:             "1:528169645475:web:14f3962a3607d52b095616"
+};
+
+const fbApp  = initializeApp(firebaseConfig);
+const auth   = getAuth(fbApp);
+const db     = getFirestore(fbApp);
+
+// ── Expose to global scope so rest of app can use ──
+window._fb = {
+  auth, db,
+  GoogleAuthProvider,
+  signInWithPopup, signOut, onAuthStateChanged,
+  doc, getDoc, setDoc, collection, getDocs,
+  currentUser: null
+};
+
+// ── Listen for auth state changes ──
+onAuthStateChanged(auth, user => {
+  window._fb.currentUser = user;
+  const btn    = document.getElementById('fb-login-btn');
+  const info   = document.getElementById('fb-user-info');
+  const avatar = document.getElementById('fb-avatar');
+  if (user) {
+    if (btn)    { btn.textContent = 'Sign Out'; btn.onclick = () => signOut(auth); }
+    if (info)   info.textContent = user.displayName || user.email;
+    if (avatar) { avatar.src = user.photoURL || ''; avatar.style.display = user.photoURL ? 'block' : 'none'; }
+    // Load cloud data
+    window._fbLoadCloud();
+  } else {
+    if (btn)    { btn.textContent = '🔐 Sign in with Google'; btn.onclick = () => signInWithPopup(auth, new GoogleAuthProvider()); }
+    if (info)   info.textContent = 'Not signed in — data saved locally only';
+    if (avatar) avatar.style.display = 'none';
+  }
+});
+
+// ── Save to Firestore ──
+window._fbSaveCloud = async () => {
+  const user = window._fb.currentUser;
+  if (!user) return;
+  try {
+    const uid = user.uid;
+    // Save AMC factsheet data (split into chunks if large)
+    const amcPayload = {
+      amcCtr,
+      savedAt: new Date().toISOString(),
+      amcs: amcs.map(a => ({
+        id: a.id, name: a.name, status: a.status,
+        funds: Object.fromEntries(
+          Object.entries(a.funds).map(([fname, f]) => [fname, {
+            large:f.large, mid:f.mid, small:f.small, eqOther:f.eqOther,
+            gsec:f.gsec, sdl:f.sdl, aaa:f.aaa, aa:f.aa,
+            mkt:f.mkt, cash:f.cash, debtTotal:f.debtTotal, amc:f.amc,
+            equityStocks: f.equityStocks||[], debtItems: f.debtItems||[]
+          }])
+        )
+      }))
+    };
+    await setDoc(doc(db, 'users', uid, 'data', 'amcs'), amcPayload);
+
+    // Save portfolios
+    await setDoc(doc(db, 'users', uid, 'data', 'portfolios'), {
+      portfolios, portCtr, activePortId, savedAt: new Date().toISOString()
+    });
+
+    // Save thresholds
+    await setDoc(doc(db, 'users', uid, 'data', 'thresholds'), { thresholds });
+
+    document.getElementById('fb-sync-status').textContent = '☁ Synced ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
+  } catch(e) {
+    console.error('Cloud save failed:', e);
+    document.getElementById('fb-sync-status').textContent = '⚠ Sync failed';
+  }
+};
+
+// ── Load from Firestore ──
+window._fbLoadCloud = async () => {
+  const user = window._fb.currentUser;
+  if (!user) return;
+  try {
+    document.getElementById('fb-sync-status').textContent = '☁ Loading…';
+    const uid = user.uid;
+
+    const [amcSnap, portSnap, threshSnap] = await Promise.all([
+      getDoc(doc(db, 'users', uid, 'data', 'amcs')),
+      getDoc(doc(db, 'users', uid, 'data', 'portfolios')),
+      getDoc(doc(db, 'users', uid, 'data', 'thresholds'))
+    ]);
+
+    let loaded = false;
+
+    if (amcSnap.exists()) {
+      const d = amcSnap.data();
+      amcCtr = d.amcCtr || 0;
+      amcs = (d.amcs || []).map(a => ({ id:a.id, name:a.name, status:a.status, funds:a.funds||{} }));
+      loaded = true;
+    }
+
+    if (portSnap.exists()) {
+      const d = portSnap.data();
+      portfolios   = d.portfolios  || [];
+      portCtr      = d.portCtr     || 0;
+      activePortId = d.activePortId|| null;
+    }
+
+    if (threshSnap.exists()) {
+      const d = threshSnap.data();
+      thresholds = { ...DEFAULT_THRESHOLDS, ...(d.thresholds||{}) };
+    }
+
+    if (loaded) {
+      refreshUploadPage();
+      renderPortfolioGrid();
+      buildAllocTable();
+      refreshActivePortfolioUI();
+      updateNextBtn();
+      updateStorageStatus();
+      document.getElementById('fb-sync-status').textContent = '☁ Synced from cloud';
+      showToast('Data loaded from cloud ☁');
+    } else {
+      document.getElementById('fb-sync-status').textContent = '☁ No cloud data yet';
+    }
+  } catch(e) {
+    console.error('Cloud load failed:', e);
+    document.getElementById('fb-sync-status').textContent = '⚠ Load failed';
+  }
+};
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap');
 
@@ -943,10 +1084,20 @@ body {
   <div class="nav-item" id="nav-metrics" onclick="showPage('metrics')"><div class="ndot"></div>Deeper Metrics</div>
 
   <div class="sb-foot">
+    <!-- Firebase Auth -->
+    <div style="margin-bottom:.85rem;padding-bottom:.85rem;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem">
+        <img id="fb-avatar" style="display:none;width:22px;height:22px;border-radius:50%" src="">
+        <div id="fb-user-info" style="font-size:.6rem;color:var(--muted);flex:1;line-height:1.4">Not signed in — data saved locally only</div>
+      </div>
+      <button id="fb-login-btn" class="btn sm" style="width:100%;margin-bottom:.35rem">🔐 Sign in with Google</button>
+      <div id="fb-sync-status" style="font-size:.55rem;color:var(--muted);text-align:center"></div>
+    </div>
+
     <div id="storage-status" style="margin-bottom:.75rem;line-height:1.7">
       <span style="color:var(--muted)">●</span> No saved data
     </div>
-    <button class="btn sm" style="width:100%;margin-bottom:.5rem" onclick="saveToStorage()">💾 Save Now</button>
+    <button class="btn sm" style="width:100%;margin-bottom:.5rem" onclick="saveToStorage();if(window._fb?.currentUser)window._fbSaveCloud()">💾 Save Now</button>
     <button class="btn sm danger" style="width:100%;font-size:.56rem" onclick="clearStorage()">✕ Clear All Data</button>
     <div style="margin-top:.75rem;color:var(--muted);font-size:.54rem;line-height:1.6">
       SEBI Cap List · Jan 2025<br>
@@ -1875,6 +2026,8 @@ let thresholds = { ...DEFAULT_THRESHOLDS };
 
 function savePortfolios() {
   try { localStorage.setItem(PORT_LS, JSON.stringify({portfolios,portCtr,activePortId})); } catch(e) {}
+  // Auto-sync to cloud if signed in
+  if (window._fb?.currentUser) window._fbSaveCloud();
 }
 function loadPortfolios() {
   try {
@@ -2293,7 +2446,6 @@ const LS_KEY = 'mf_analyser_v4';
 
 function saveToStorage() {
   try {
-    // Serialize only what's needed — skip large equityStocks array detail if > 5MB
     const payload = {
       amcCtr,
       savedAt: new Date().toISOString(),
@@ -2314,21 +2466,17 @@ function saveToStorage() {
       }))
     };
     const json = JSON.stringify(payload);
-    // Check size — localStorage limit is ~5MB
     if (json.length > 4.5 * 1024 * 1024) {
-      // Strip individual stock arrays to save space
       payload.amcs.forEach(a => {
-        Object.values(a.funds).forEach(f => {
-          f.equityStocks = [];
-          f.debtItems = [];
-        });
+        Object.values(a.funds).forEach(f => { f.equityStocks = []; f.debtItems = []; });
       });
       localStorage.setItem(LS_KEY, JSON.stringify(payload));
-      console.warn('Storage: stock-level data stripped to fit localStorage limit');
     } else {
       localStorage.setItem(LS_KEY, json);
     }
     updateStorageStatus();
+    // Auto-sync to cloud if signed in
+    if (window._fb?.currentUser) window._fbSaveCloud();
   } catch(e) {
     console.error('Save failed:', e);
   }
