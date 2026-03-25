@@ -3167,17 +3167,19 @@ async function pushExcelToApiServer(file, amcName) {
   return pushFilesToApiServer([file], amcName);
 }
 
+const _yield = () => new Promise(r => setTimeout(r, 0)); // release main thread
+
 async function handlePortfolioExcel(evt) {
   const files = Array.from(evt.target.files || []);
   if (!files.length) return;
-  _lastXlsFiles = files; // store all files for API push
+  _lastXlsFiles = files;
 
   const icon = document.getElementById('upload-xls-icon');
   const st   = document.getElementById('upload-xls-st');
   const uz   = document.getElementById('upload-xls-uz');
   if (uz)   uz.className = 'uz load';
   if (icon) icon.textContent = '⏳';
-  if (st)   { st.className = 'uz-st ld'; st.textContent = `Parsing ${files.length} file(s)…`; }
+  if (st)   { st.className = 'uz-st ld'; st.textContent = `Reading file…`; }
 
   try {
     const results = [];
@@ -3186,58 +3188,67 @@ async function handlePortfolioExcel(evt) {
       const fname = file.name.toLowerCase();
 
       if (fname.endsWith('.zip')) {
-        // Handle ZIP — extract Excels using JSZip if available, else skip with message
         if (typeof JSZip !== 'undefined') {
-          const zip  = await JSZip.loadAsync(await file.arrayBuffer());
+          if (st) st.textContent = 'Extracting ZIP…';
+          await _yield();
+          const zip    = await JSZip.loadAsync(await file.arrayBuffer());
           const xlFiles = Object.keys(zip.files).filter(n =>
             (n.endsWith('.xlsx') || n.endsWith('.xls')) && !zip.files[n].dir
           );
-          if (st) st.innerHTML = `<span class="spin"></span> Extracting ${xlFiles.length} files from ZIP…`;
           for (const xlName of xlFiles) {
+            if (st) st.textContent = `Parsing ${xlName}…`;
+            await _yield();
             const xlBuf = await zip.files[xlName].async('arraybuffer');
             const wb    = XLSX.read(xlBuf, { type: 'array' });
-            parseWorkbook(wb, xlName, results);
+            await parseWorkbook(wb, xlName, results);
           }
         } else {
-          // No JSZip — send zip directly to API server, skip local parse
           if (getMfApiUrl()) {
-            if (st) st.innerHTML = `<span class="spin"></span> Sending ZIP to API server…`;
+            if (st) st.textContent = 'Sending ZIP to server…';
+            await _yield();
             const amcEl = document.getElementById('amc-search-input');
-            const amcName = amcEl?.value?.trim() || 'Unknown';
-            await pushFilesToApiServer(files, amcName);
-            if (st) { st.className='uz-st ok'; st.textContent='✓ ZIP sent to API server'; }
+            await pushFilesToApiServer(files, amcEl?.value?.trim() || 'Unknown');
+            if (st) { st.className='uz-st ok'; st.textContent='✓ Sent to API server'; }
             if (uz) uz.className='uz ok';
             if (icon) icon.textContent='✓';
             return;
           } else {
-            showToast('ZIP upload requires API server — paste URL in the API bar above');
+            showToast('ZIP upload requires API server URL to be set above');
             if (uz) uz.className='uz'; if (icon) icon.textContent='📊'; if (st) st.textContent='';
             return;
           }
         }
       } else {
-        // Single Excel
+        if (st) st.textContent = `Reading ${file.name}…`;
+        await _yield();
         const buf = await file.arrayBuffer();
+        await _yield();
+        if (st) st.textContent = `Parsing sheets…`;
         const wb  = XLSX.read(buf, { type: 'array' });
-        parseWorkbook(wb, file.name, results);
+        await _yield();
+        await parseWorkbook(wb, file.name, results);
       }
     }
 
-    if (!results.length) throw new Error('No portfolio data found in uploaded file(s)');
+    if (!results.length) throw new Error('No portfolio data found — check the file format');
     _xlsParsedFunds = results;
-    _lastXlsFile    = files[0]; // keep first for legacy compat
+    _lastXlsFile    = files[0];
 
-    // Show preview
+    if (uz)   uz.className = 'uz ok';
+    if (icon) icon.textContent = '✅';
+    const totalH = results.filter(r=>!r.isClientFormat).reduce((s,r)=>s+(r.holdings?.length||0),0);
+    if (st)   { st.className='uz-st ok'; st.textContent = `✓ ${results.length} fund(s), ${totalH} holdings`; }
     showXlsPreview(results);
 
   } catch(e) {
     if (uz)   uz.className = 'uz';
     if (icon) icon.textContent = '❌';
-    if (st)   { st.className='uz-st err'; st.textContent = '✗ '+e.message; }
+    if (st)   { st.className='uz-st err'; st.textContent = '✗ ' + e.message; }
+    console.error('[handlePortfolioExcel]', e);
   }
 }
 
-function parseWorkbook(wb, filename, results) {
+async function parseWorkbook(wb, filename, results) {
   // ── Detect Advisorkhoj consolidated format ────────────────────
   // Signature: has "Index" sheet mapping acronym → fund name
   const isAdvisorkhoj = wb.SheetNames.includes('Index') && wb.SheetNames.length > 3;
@@ -3247,39 +3258,40 @@ function parseWorkbook(wb, filename, results) {
     const indexMap = {};
     const idxRows = XLSX.utils.sheet_to_json(wb.Sheets['Index'], {header:1, defval:''});
     idxRows.forEach(row => {
-      if (row[1] && row[2] && row[0] !== 'ACRONYM')
+      if (row[1] && row[2] && String(row[0]) !== 'ACRONYM' && row[0] !== 'S.NO.' && row[0] !== 'S.NO')
         indexMap[String(row[1]).trim()] = String(row[2]).trim();
     });
 
     const VALID_ISIN = /^IN[A-Z0-9]{10}$/;
     const SKIP = /^(a\)|b\)|c\)|d\)|e\)|f\)|\(a\)|\(b\)|\(c\)|\(d\)|\(e\)|\(f\)|sub.?total|grand.?total|total.?for|treps|reverse\s*repo|margin\s*money|cash\s*and\s*other|net\s*current|at\s*the\s*beginning|direct\s*plan|regular\s*plan|riskometer|option|nav\s*per|scheme\s*name|sl\s*no)/i;
 
-    wb.SheetNames.forEach(sname => {
-      if (sname === 'Index' || /annex/i.test(sname)) return;
+    for (const sname of wb.SheetNames) {
+      if (sname === 'Index' || /annex/i.test(sname)) continue;
+      await _yield(); // release main thread between sheets
       const ws   = wb.Sheets[sname];
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-      if (rows.length < 5) return;
+      if (rows.length < 5) continue;
 
       const fundName = indexMap[sname] || String(rows[1]?.[0] || '').trim() || sname;
 
       // Fixed columns: 0=SL, 1=ISIN, 2=Name, 3=Sector, 4=Qty, 5=MktVal, 6=%NAV
       const holdings = [];
-      rows.slice(4).forEach(row => {
+      for (const row of rows.slice(4)) {
         const isin   = String(row[1] || '').trim();
         const name   = String(row[2] || '').trim();
         const sector = String(row[3] || '').trim();
         const pctRaw = row[6];
-        if (!VALID_ISIN.test(isin)) return;
-        if (!name || SKIP.test(name)) return;
+        if (!VALID_ISIN.test(isin)) continue;
+        if (!name || SKIP.test(name)) continue;
         const pct = parseFloat(pctRaw) * 100; // stored as decimal
-        if (isNaN(pct) || pct <= 0 || pct > 100) return;
+        if (isNaN(pct) || pct <= 0 || pct > 100) continue;
         holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000});
-      });
+      }
 
       if (holdings.length >= 2) {
         results.push({fundName, isClientFormat:false, holdings, pct:0});
       }
-    });
+    }
     return; // done
   }
 
@@ -3381,75 +3393,6 @@ function parseWorkbook(wb, filename, results) {
     if (holdings.length>=3) results.push({fundName,isClientFormat:false,holdings,pct:0});
   }
 }
-  // ── Detect format ──────────────────────────────────────────────────────
-  // 1. Advisorkhoj: has 'Index' sheet with ACRONYM column
-  // 2. Client portfolio: fund name + market value columns
-  // 3. SEBI standard: ISIN column in header row
-
-  const hasIndex = wb.SheetNames.includes('Index') || wb.SheetNames.includes('index');
-
-  if (hasIndex) {
-    // ── FORMAT: Advisorkhoj consolidated ──────────────────────────────
-    // Index sheet maps acronym → full fund name
-    // Each fund sheet: Row 0=AMC, Row 1=Fund name, Row 3=Headers
-    // % column (index 6) is DECIMAL (0.04 = 4%) — multiply × 100
-    const idxWs = wb.Sheets['Index'] || wb.Sheets['index'];
-    const idxRows = XLSX.utils.sheet_to_json(idxWs, {header:1, defval:''});
-    const fundNames = {};
-    idxRows.forEach(row => {
-      if (row[0] && row[1] && row[2] && /^\d+$/.test(String(row[0]).trim()))
-        fundNames[String(row[1]).trim()] = String(row[2]).trim();
-    });
-
-    const SKIP_AK = /^(sub\s*total|grand\s*total|total\s*for|[a-e]\)\s*equity|[a-e]\)\s*debt|[a-e]\)\s*money|[a-e]\)\s*mutual|\([a-e]\)\s*listed|\([a-e]\)\s*cert|\([a-e]\)\s*overseas|\([a-e]\)\s*priv|\([a-e]\)\s*comm|\([a-e]\)\s*govt|\([a-e]\)\s*treas|\([a-e]\)\s*sec|\([a-e]\)\s*rev|\([a-e]\)\s*warrant|cash\s*and\s*other|riskometer|benchmark|tier\s*[ij])/i;
-    const DEBT_S = /b\)\s*debt|govt\s*sec|corporate\s*bond|securitized\s*debt/i;
-    const MMT_S  = /c\)\s*money\s*market|reverse\s*repo|trep|cblo|commercial\s*paper|treasury\s*bill|certificate\s*of\s*dep/i;
-
-    for (const sname of wb.SheetNames) {
-      if (/^(index)$/i.test(sname)) continue;
-      const ws   = wb.Sheets[sname];
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-      if (rows.length < 5) continue;
-
-      const fullName = fundNames[sname] || String(rows[1]?.[0] || '').trim() || sname;
-      if (!fullName || fullName === sname) continue;
-
-      const holdings = [];
-      let inDebt = false, inMkt = false;
-
-      for (let i = 4; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row || row.length < 7) continue;
-        const sl     = String(row[0] || '').trim();
-        const isin   = String(row[1] || '').trim();
-        const name   = String(row[2] || '').trim();
-        const sector = String(row[3] || '').trim();
-        const pctRaw = row[6];
-
-        if (!name || name.length < 2) continue;
-        if (DEBT_S.test(name))   { inDebt = true;  inMkt = false; continue; }
-        if (MMT_S.test(name))    { inMkt  = true;  inDebt = false; continue; }
-        if (/^[D-Z]\)|cash\s*and\s*other|mutual\s*fund\s*unit|riskometer/i.test(name))
-          { inDebt = false; inMkt = false; }
-        if (SKIP_AK.test(name)) continue;
-
-        const hasSl   = sl && /^\d+$/.test(sl);
-        const hasIsin = /^IN[A-Z0-9]{10}$/.test(isin);
-        if (!hasSl && !hasIsin) continue;
-
-        let pct = 0;
-        try { pct = parseFloat(String(pctRaw).replace(/,/g,'').trim()) * 100; } catch(e) {}
-        if (pct <= 0 || pct > 100) continue;
-
-        holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000,
-                       debt_cat: inDebt || inMkt ? 'debt' : null});
-      }
-      if (holdings.length >= 1)
-        results.push({fundName: fullName, isClientFormat: false, holdings, isAdvisorkhoj: true});
-    }
-    return; // done with Advisorkhoj
-  }
-
   // ── FORMAT: Client portfolio or SEBI standard ──────────────────────
   const isClientFormat = wb.SheetNames.some(sn => {
     const ws = wb.Sheets[sn];
