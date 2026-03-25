@@ -4800,33 +4800,62 @@ function buildSummary() {
   // ── Holdings Banner ──────────────────────────────────────────
   const port = activePortId ? portfolios.find(p=>p.id===activePortId) : null;
   const holdingsDetail = port?.holdingsDetail || {};
+  const hasDetail = Object.keys(holdingsDetail).some(k => holdingsDetail[k]?.val > 0);
   const bannerEl = document.getElementById('sum-holdings-banner');
   const bodyEl   = document.getElementById('sum-holdings-body');
   const totalEl  = document.getElementById('sum-holdings-total');
 
-  if (bannerEl && bodyEl && Object.keys(holdingsDetail).length) {
-    const totalVal = Object.values(holdingsDetail).reduce((s,h) => s + (h.val||0), 0);
+  // Always show holdings banner — use holdingsDetail if available, else just show % from allocations
+  if (bannerEl && bodyEl) {
     bannerEl.style.display = 'block';
-    if (totalEl) totalEl.textContent = `Total: ₹${(totalVal/100000).toFixed(2)}L`;
+    const totalVal = hasDetail
+      ? Object.values(holdingsDetail).reduce((s,h) => s + (h.val||0), 0)
+      : 0;
+    if (totalEl) totalEl.textContent = totalVal > 0
+      ? `Total ₹${(totalVal/100000).toFixed(2)}L`
+      : `${items.length} funds · ${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}% allocated`;
+
     bodyEl.innerHTML = items.map(f => {
       const hd = holdingsDetail[f.name] || {};
-      const val = hd.val || 0;
+      const val   = hd.val   || 0;
       const units = hd.units || 0;
       return `<tr>
-        <td style="font-size:.72rem">${f.name}</td>
-        <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">${units > 0 ? units.toLocaleString('en-IN', {maximumFractionDigits:4}) : '—'}</td>
-        <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">${val > 0 ? '₹'+val.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—'}</td>
-        <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.wt.toFixed(1)}%</td>
+        <td style="font-size:.72rem;color:var(--text)">${f.name}</td>
+        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${units > 0 ? units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}</td>
+        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${val > 0 ? '₹'+val.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}</td>
+        <td class="r" style="font-size:.7rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.wt.toFixed(1)}%</td>
       </tr>`;
-    }).join('') +
-    `<tr style="border-top:2px solid var(--border);font-weight:700">
+    }).join('') + (totalVal > 0 ? `
+    <tr style="border-top:2px solid var(--border);font-weight:700;background:var(--s3)">
       <td style="font-size:.72rem">Total</td>
       <td class="r">—</td>
-      <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">₹${totalVal.toLocaleString('en-IN', {maximumFractionDigits:0})}</td>
+      <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">₹${totalVal.toLocaleString('en-IN',{maximumFractionDigits:0})}</td>
       <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}%</td>
-    </tr>`;
-  } else if (bannerEl) {
-    bannerEl.style.display = 'none';
+    </tr>` : '');
+  }
+
+  // Check if any fund has factsheet data
+  const hasFactsheetData = items.some(f => (f.equityStocks?.length > 0) || (f.debtItems?.length > 0) || f.large > 0 || f.gsec > 0);
+
+  if (!hasFactsheetData) {
+    // Show placeholder — no factsheet uploaded yet
+    document.getElementById('sum-kpi').innerHTML = [
+      metric(items.length, 'Funds', 'var(--accent)'),
+      metric('—', 'Unique Stocks', 'var(--muted2)'),
+      metric('—', 'Equity', 'var(--muted2)'),
+      metric('—', 'Debt', 'var(--muted2)'),
+    ].join('');
+    const noDataMsg = `<div style="text-align:center;padding:2rem 1rem;color:var(--muted);font-size:.7rem;line-height:1.8">
+      Upload factsheets via <strong>Add Factsheets</strong> to see cap split, sector breakdown and top holdings analysis
+    </div>`;
+    document.getElementById('sum-cap-metrics').innerHTML = noDataMsg;
+    document.getElementById('sum-cap-bar').innerHTML = '';
+    document.getElementById('sum-debt-metrics').innerHTML = '';
+    document.getElementById('sum-debt-bar').innerHTML = '';
+    document.getElementById('sum-sector-bars-left').innerHTML = '';
+    document.getElementById('sum-sector-bars-right').innerHTML = '';
+    document.getElementById('sum-top10').innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:2rem;font-size:.65rem">No factsheet data — upload factsheets to see holdings analysis</td></tr>`;
+    return;
   }
 
   const tw  = items.reduce((s,f)=>s+f.wt, 0);
