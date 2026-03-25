@@ -6060,30 +6060,33 @@ function showImportPreview() {
         <div style="font-family:'IBM Plex Mono',monospace;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem">Funds Found</div>
         <div style="font-family:'Fraunces',serif;font-size:1.5rem;font-weight:600;color:var(--text)">${total}</div>
       </div>
-      <div style="background:var(--s2);border:1px solid var(--border);border-radius:var(--r-sm);padding:.65rem 1rem;flex:1;text-align:center">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem">Matched to Loaded</div>
-        <div style="font-family:'Fraunces',serif;font-size:1.5rem;font-weight:600;color:${matched>0?'var(--green)':'var(--orange)'}">${matched}/${total}</div>
-      </div>
+      ${matched > 0 ? `<div style="background:var(--s2);border:1px solid var(--border);border-radius:var(--r-sm);padding:.65rem 1rem;flex:1;text-align:center">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem">Factsheet Linked</div>
+        <div style="font-family:'Fraunces',serif;font-size:1.5rem;font-weight:600;color:var(--green)">${matched}/${total}</div>
+      </div>` : ''}
       ${totalVal>0?`<div style="background:var(--s2);border:1px solid var(--border);border-radius:var(--r-sm);padding:.65rem 1rem;flex:1;text-align:center">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem">Total Value</div>
         <div style="font-family:'Fraunces',serif;font-size:1.4rem;font-weight:600;color:var(--text)">₹${(totalVal/100000).toFixed(1)}L</div>
       </div>`:''}
     </div>
-    ${matched < total ? `<div class="warn" style="margin-bottom:.85rem">
-      ${total-matched} fund${total-matched>1?'s':''} could not be matched to uploaded factsheets.
-      Upload the relevant AMC factsheets first, then re-import — or proceed and set allocations manually.
+    ${matched < total ? `<div style="font-size:.68rem;color:var(--muted);background:var(--s3);border-radius:var(--r-sm);padding:.5rem .75rem;margin-bottom:.85rem">
+      ℹ ${matched > 0 ? `${matched} fund${matched>1?'s':''} linked to uploaded factsheets. ` : ''}Upload AMC factsheets later to enable cap/sector analysis.
     </div>` : ''}
     <div style="background:var(--s2);border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden">
-      <div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:.5rem;font-size:.6rem;color:var(--muted);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.06em">
-        <span>Fund</span><span style="text-align:right">Value</span><span style="text-align:right">Allocation</span><span>Match</span>
+      <div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr;gap:.5rem;font-size:.6rem;color:var(--muted);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.06em">
+        <span>Fund</span><span style="text-align:right">Market Value</span><span style="text-align:right">% of Portfolio</span>
       </div>
-      ${importParsedFunds.map(f => `
-        <div class="imp-fund-row">
-          <div class="imp-fund-name">${f.matched||f.name}</div>
-          <div class="imp-fund-val">${f.value>0?'₹'+(f.value/1000).toFixed(0)+'K':''}</div>
-          <div class="imp-fund-pct">${f.pct.toFixed(2)}%</div>
-          <span class="imp-matched ${f.matched?'yes':'no'}">${f.matched?'✓':'—'}</span>
-        </div>`).join('')}
+      ${importParsedFunds.map(f => {
+        const cleanName = (f.matched || f.name)
+          .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+          .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
+          .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+        return `<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr;gap:.5rem;align-items:center">
+          <div style="font-size:.72rem;color:var(--text)">${cleanName}</div>
+          <div style="font-size:.68rem;text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${f.value>0?'₹'+(f.value/1000).toFixed(0)+'K':''}</div>
+          <div style="font-size:.72rem;text-align:right;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.pct.toFixed(1)}%</div>
+        </div>`;
+      }).join('')}
     </div>`;
 
   document.getElementById('import-step1').style.display = 'none';
@@ -6098,30 +6101,55 @@ function confirmImport() {
   if (!importParsedFunds.length) { showToast('No fund data to import'); return; }
 
   const id = 'p' + (++portCtr);
-  const allocations = {};
+  const allocations   = {};
+  const holdingsDetail = {};
+
+  // Helper to clean fund name suffixes
+  const cleanFundName = n => n
+    .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+    .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
+    .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
 
   importParsedFunds.forEach(f => {
-    // Use matched fund name if available, otherwise use parsed name
-    const fundName = f.matched || f.name;
-    if (f.pct > 0) allocations[fundName] = parseFloat(f.pct.toFixed(2));
+    const rawName  = f.matched || f.name;
+    const fundName = cleanFundName(rawName);
+    if (f.pct > 0) {
+      allocations[fundName]    = parseFloat(f.pct.toFixed(2));
+      holdingsDetail[fundName] = { val: f.value || 0, units: f.units || 0 };
+    }
   });
 
-  portfolios.push({
+  const port = {
     id, name, client,
     createdAt: new Date().toISOString(),
     allocations,
+    holdingsDetail,
     snapshots: [],
     alerts: [],
     importedFrom: importTab,
     importedAt: new Date().toISOString(),
-  });
+  };
+  portfolios.push(port);
 
   savePortfolios();
   closeImportModal();
   setActivePortfolio(id);
+
+  // Load allocRows from the new portfolio
+  allocRows = Object.entries(allocations).map(([fname, pct]) => ({
+    key: sid(fname), fundName: fname, amcName: '', pct, isUploaded: false
+  }));
+
   renderPortfolioGrid();
-  showToast(`Portfolio "${name}" created with ${Object.keys(allocations).length} funds`);
-  showPage('alloc');
+  showToast(`"${name}" created — ${Object.keys(allocations).length} funds`);
+
+  // Go to summary — shows holdings banner; if factsheets uploaded, run full analysis
+  const hasFactsheet = allFunds().some(f => allocations[f.name] > 0);
+  if (hasFactsheet) {
+    runAnalysis();
+  } else {
+    showPage('summary');
+  }
 }
 
 // Close modal on backdrop click
