@@ -4836,26 +4836,38 @@ function buildSummary() {
     const totalVal = hasDetail
       ? Object.values(holdingsDetail).reduce((s,h) => s + (h.val||0), 0)
       : 0;
+    const hasUnits = hasDetail && Object.values(holdingsDetail).some(h => (h.units||0) > 0);
+
     if (totalEl) totalEl.textContent = totalVal > 0
       ? `Total ₹${(totalVal/100000).toFixed(2)}L`
       : `${items.length} funds · ${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}% allocated`;
 
+    // Update table header to match columns
+    const thead = bannerEl.querySelector('thead tr');
+    if (thead) {
+      thead.innerHTML = `
+        <th>Scheme</th>
+        ${hasUnits ? '<th class="r">Units</th>' : ''}
+        ${totalVal > 0 ? '<th class="r">Market Value</th>' : ''}
+        <th class="r">% of Portfolio</th>`;
+    }
+
     bodyEl.innerHTML = items.map(f => {
-      const hd = holdingsDetail[f.name] || {};
+      const hd    = holdingsDetail[f.name] || {};
       const val   = hd.val   || 0;
       const units = hd.units || 0;
       return `<tr>
         <td style="font-size:.72rem;color:var(--text)">${f.name}</td>
-        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${units > 0 ? units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}</td>
-        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${val > 0 ? '₹'+val.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}</td>
-        <td class="r" style="font-size:.7rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.wt.toFixed(1)}%</td>
+        ${hasUnits ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${units > 0 ? units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}</td>` : ''}
+        ${totalVal > 0 ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${val > 0 ? '₹'+val.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}</td>` : ''}
+        <td class="r" style="font-size:.72rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.wt.toFixed(1)}%</td>
       </tr>`;
     }).join('') + (totalVal > 0 ? `
     <tr style="border-top:2px solid var(--border);font-weight:700;background:var(--s3)">
       <td style="font-size:.72rem">Total</td>
-      <td class="r">—</td>
+      ${hasUnits ? '<td class="r">—</td>' : ''}
       <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">₹${totalVal.toLocaleString('en-IN',{maximumFractionDigits:0})}</td>
-      <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}%</td>
+      <td class="r" style="font-size:.72rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}%</td>
     </tr>` : '');
   }
 
@@ -4863,15 +4875,15 @@ function buildSummary() {
   const hasFactsheetData = items.some(f => (f.equityStocks?.length > 0) || (f.debtItems?.length > 0) || f.large > 0 || f.gsec > 0);
 
   if (!hasFactsheetData) {
-    // Show placeholder — no factsheet uploaded yet
     document.getElementById('sum-kpi').innerHTML = [
       metric(items.length, 'Funds', 'var(--accent)'),
       metric('—', 'Unique Stocks', 'var(--muted2)'),
       metric('—', 'Equity', 'var(--muted2)'),
       metric('—', 'Debt', 'var(--muted2)'),
     ].join('');
-    const noDataMsg = `<div style="text-align:center;padding:2rem 1rem;color:var(--muted);font-size:.7rem;line-height:1.8">
-      Upload factsheets via <strong>Add Factsheets</strong> to see cap split, sector breakdown and top holdings analysis
+    const noDataMsg = `<div style="text-align:center;padding:2rem 1rem;color:var(--muted);font-size:.72rem;line-height:2">
+      Upload factsheets to unlock cap split, sector breakdown &amp; holdings analysis<br>
+      <button class="btn pri" style="margin-top:.75rem;font-size:.7rem" onclick="showPage('upload')">↑ Upload Factsheets</button>
     </div>`;
     document.getElementById('sum-cap-metrics').innerHTML = noDataMsg;
     document.getElementById('sum-cap-bar').innerHTML = '';
