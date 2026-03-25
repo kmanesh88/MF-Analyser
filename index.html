@@ -1345,7 +1345,7 @@ body {
 <div class="page" id="page-upload">
   <div class="pg-header">
     <div class="pg-title">Add Factsheets</div>
-    <div class="pg-sub">Select AMC · Drop PDF · Repeat for each AMC</div>
+    <div class="pg-sub">Download AMC Excel → upload → fast analysis</div>
   </div>
 
   <div style="display:grid;grid-template-columns:minmax(220px,280px) 1fr;gap:1.25rem;align-items:start;min-width:0">
@@ -1363,54 +1363,41 @@ body {
             style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.5rem .75rem;font-size:.78rem;color:var(--text);outline:none">
           <div id="amc-dropdown" style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:var(--s1);border:1px solid var(--border2);border-radius:var(--r-sm);box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:200;max-height:240px;overflow-y:auto"></div>
         </div>
-        <!-- Loaded AMCs list -->
         <div id="loaded-amc-list"></div>
         <div id="loaded-amc-empty" style="font-size:.7rem;color:var(--muted);padding:.5rem 0">No AMCs loaded yet</div>
       </div>
-
-      <!-- Import shortcut -->
       <div style="font-size:.7rem;color:var(--muted2);text-align:center;margin-bottom:.5rem">or</div>
       <button class="btn" style="width:100%" onclick="showImportModal()">⬆ Import CAS / Excel</button>
     </div>
 
-    <!-- Right: Upload zone with PDF / Excel tabs -->
+    <!-- Right: Upload zone — Excel primary, PDF secondary -->
     <div class="card" style="margin-bottom:0">
 
-      <!-- Tab switcher -->
+      <!-- Tabs: Excel first -->
       <div style="display:flex;gap:0;margin-bottom:1rem;border-bottom:1px solid var(--border)">
-        <button id="uptab-pdf" onclick="switchUploadTab('pdf')"
+        <button id="uptab-xls" onclick="switchUploadTab('xls')"
           style="flex:1;padding:.55rem;font-size:.72rem;font-weight:600;background:none;border:none;border-bottom:2px solid var(--accent);color:var(--accent);cursor:pointer">
+          📊 Portfolio Excel <span style="font-size:.56rem;background:var(--accent);color:#fff;border-radius:3px;padding:1px 5px;margin-left:2px;font-weight:500">Faster</span>
+        </button>
+        <button id="uptab-pdf" onclick="switchUploadTab('pdf')"
+          style="flex:1;padding:.55rem;font-size:.72rem;font-weight:500;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted2);cursor:pointer">
           📄 Factsheet PDF
         </button>
-        <button id="uptab-xls" onclick="switchUploadTab('xls')"
-          style="flex:1;padding:.55rem;font-size:.72rem;font-weight:500;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted2);cursor:pointer">
-          📊 Portfolio Excel
-        </button>
       </div>
 
-      <!-- PDF tab -->
-      <div id="upload-tab-pdf">
-        <div id="upload-uz" class="uz"
-          onclick="if(!window._selectedAmcId){showToast('Select an AMC first');return;}document.getElementById('upload-file-input').click()"
-          ondragover="event.preventDefault();this.classList.add('drag')"
-          ondragleave="this.classList.remove('drag')"
-          ondrop="event.preventDefault();this.classList.remove('drag');if(!window._selectedAmcId){showToast('Select an AMC first');return;}const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('upload-file-input');const d=new DataTransfer();d.items.add(dt.files[0]);inp.files=d.files;handleUploadFile({target:inp})}">
-          <input type="file" accept=".pdf" id="upload-file-input" style="display:none" onchange="handleUploadFile(event)">
-          <div class="uz-icon" id="upload-uz-icon">📄</div>
-          <div class="uz-text" id="upload-uz-text">
-            Select an AMC first, then<br>drop or click to upload the PDF
-          </div>
-          <div class="uz-st" id="upload-uz-st"></div>
+      <!-- Excel tab (PRIMARY) -->
+      <div id="upload-tab-xls">
+        <div style="font-size:.68rem;color:var(--muted2);margin-bottom:.75rem;line-height:1.7">
+          Download the AMC's <strong style="color:var(--text)">monthly portfolio Excel</strong> and upload it here. Parses in 2–5 seconds vs 30–60s for PDF.
         </div>
-        <div id="portfolio-disclosure-link" style="display:none;margin-top:.6rem;text-align:center"></div>
-      </div>
 
-      <!-- Excel tab -->
-      <div id="upload-tab-xls" style="display:none">
-        <div class="info" style="margin-bottom:.85rem;font-size:.68rem">
-          Upload the AMC's monthly <strong>portfolio disclosure Excel</strong>. The app auto-detects fund names, ISINs, and % weights.
-          Click <strong>↗</strong> next to any AMC on the left to open their download page.
+        <!-- Quick-access download links -->
+        <div style="margin-bottom:.8rem">
+          <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.4rem;font-family:'IBM Plex Mono',monospace">Download from AMC — click then upload the Excel file</div>
+          <div id="amc-excel-links" style="display:grid;grid-template-columns:1fr 1fr;gap:.3rem"></div>
+          <div id="amc-excel-selected" style="display:none;margin-top:.5rem;padding:.4rem .65rem;background:var(--accent-dim);border-radius:var(--r-sm);font-size:.68rem;color:var(--accent)"></div>
         </div>
+
         <div id="upload-xls-uz" class="uz" style="cursor:pointer"
           onclick="document.getElementById('upload-xls-input').click()"
           ondragover="event.preventDefault();this.classList.add('drag')"
@@ -1418,13 +1405,10 @@ body {
           ondrop="event.preventDefault();this.classList.remove('drag');const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('upload-xls-input');const d=new DataTransfer();d.items.add(dt.files[0]);inp.files=d.files;handlePortfolioExcel({target:inp})}">
           <input type="file" accept=".xlsx,.xls,.csv" id="upload-xls-input" style="display:none" onchange="handlePortfolioExcel(event)">
           <div class="uz-icon" id="upload-xls-icon">📊</div>
-          <div class="uz-text" id="upload-xls-text">
-            Drop portfolio Excel / CSV here<br>or click to browse
-          </div>
+          <div class="uz-text" id="upload-xls-text">Drop AMC portfolio Excel here<br>or click to browse</div>
           <div class="uz-st" id="upload-xls-st"></div>
         </div>
 
-        <!-- Preview of parsed funds -->
         <div id="upload-xls-preview" style="display:none;margin-top:.85rem">
           <div style="font-size:.7rem;font-weight:600;color:var(--text2);margin-bottom:.5rem">Parsed funds — verify before saving:</div>
           <div id="upload-xls-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--s2)"></div>
@@ -1436,6 +1420,24 @@ body {
             ⚠ No AMC selected — select an AMC on the left first, then save.
           </div>
         </div>
+      </div>
+
+      <!-- PDF tab (SECONDARY) -->
+      <div id="upload-tab-pdf" style="display:none">
+        <div style="font-size:.68rem;color:var(--muted2);margin-bottom:.85rem;line-height:1.7">
+          Use PDF only when no Excel is available (e.g. <strong style="color:var(--text)">Sundaram</strong>). Select the AMC first, then upload the factsheet PDF.
+        </div>
+        <div id="upload-uz" class="uz"
+          onclick="if(!window._selectedAmcId){showToast('Select an AMC first');return;}document.getElementById('upload-file-input').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="event.preventDefault();this.classList.remove('drag');if(!window._selectedAmcId){showToast('Select an AMC first');return;}const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('upload-file-input');const d=new DataTransfer();d.items.add(dt.files[0]);inp.files=d.files;handleUploadFile({target:inp})}">
+          <input type="file" accept=".pdf" id="upload-file-input" style="display:none" onchange="handleUploadFile(event)">
+          <div class="uz-icon" id="upload-uz-icon">📄</div>
+          <div class="uz-text" id="upload-uz-text">Select an AMC first, then<br>drop or click to upload the PDF</div>
+          <div class="uz-st" id="upload-uz-st"></div>
+        </div>
+        <div id="portfolio-disclosure-link" style="display:none;margin-top:.6rem;text-align:center"></div>
       </div>
 
       <div id="upload-result" style="display:none;margin-top:1rem">
@@ -2586,7 +2588,7 @@ function showPage(pg) {
   if (pg==='alerts')     buildAlertsPage();
   if (pg==='thresholds') buildThresholdsPage();
   if (pg==='monitor')    renderWatchlist();
-  if (pg==='upload')     rebuildAmcPanels();
+  if (pg==='upload')     { rebuildAmcPanels(); buildAmcExcelLinks(); }
 }
 
 function switchMetric(v) {
@@ -2891,6 +2893,49 @@ function switchUploadTab(tab) {
     xlsBtn.style.borderBottomColor = isPdf ? 'transparent' : 'var(--accent)';
     xlsBtn.style.color = isPdf ? 'var(--muted2)' : 'var(--accent)';
     xlsBtn.style.fontWeight = isPdf ? '500' : '600';
+  }
+}
+
+// ── AMC Excel download links ──────────────────────────────────
+// For each AMC in the loaded list, show a direct link to their disclosure page
+// AMCs that only have PDF (no Excel disclosure): Sundaram
+const AMC_EXCEL_ONLY_PDF = new Set(['sundaram']);
+
+function buildAmcExcelLinks() {
+  const el = document.getElementById('amc-excel-links');
+  if (!el) return;
+  const loadedNames = new Set(amcs.map(a => a.name.toLowerCase()));
+
+  // Show all tier-1 + tier-2 AMCs, mark loaded ones
+  const toShow = ALL_AMCS.filter(a => a.tier <= 2);
+  el.innerHTML = toShow.map(a => {
+    const isPdfOnly = AMC_EXCEL_ONLY_PDF.has(a.name.toLowerCase());
+    const isLoaded  = loadedNames.has(a.name.toLowerCase());
+    const label     = isPdfOnly ? 'PDF only' : '↗ Download Excel';
+    const color     = isLoaded  ? 'var(--green)' : isPdfOnly ? 'var(--muted2)' : 'var(--blue)';
+    const border    = isLoaded  ? 'var(--green)' : isPdfOnly ? 'var(--border2)' : 'var(--blue)';
+    const prefix    = isLoaded  ? '✓ ' : '';
+    if (isPdfOnly) {
+      return `<button onclick="switchUploadTab('pdf');pickAmc('${a.name}')"
+        style="text-align:left;background:none;border:1px solid ${border};border-radius:var(--r-sm);padding:.3rem .55rem;font-size:.62rem;cursor:pointer;color:${color}">
+        ${prefix}${a.name} <span style="opacity:.6;font-size:.55rem">PDF</span>
+      </button>`;
+    }
+    return `<a href="${a.portfolio}" target="_blank" rel="noopener"
+      onclick="highlightSelectedAmc('${a.name}')"
+      style="display:block;text-align:left;background:none;border:1px solid ${border};border-radius:var(--r-sm);padding:.3rem .55rem;font-size:.62rem;cursor:pointer;color:${color};text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+      ${prefix}${a.name}${isLoaded ? '' : ' ↗'}
+    </a>`;
+  }).join('');
+}
+
+function highlightSelectedAmc(name) {
+  const el = document.getElementById('amc-excel-selected');
+  if (el) {
+    el.style.display = 'block';
+    el.textContent = `↓ Now download the ${name} Excel, then select "${name}" on the left and upload it`;
+    // Auto-pick AMC in selector
+    pickAmc(name);
   }
 }
 
@@ -3271,6 +3316,7 @@ function removeAMC(id)               { doRemoveAMC(id); }
 function rebuildAmcPanels() {
   refreshUploadPage();
   updateNextBtn();
+  buildAmcExcelLinks();
 }
 
 function handleUploadFile(evt) {
