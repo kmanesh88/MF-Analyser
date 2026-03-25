@@ -2310,7 +2310,14 @@ function renderPortfolioGrid() {
   }
 
   grid.innerHTML = portfolios.map(p => {
-    const snap    = p.snapshots?.[p.snapshots.length-1]?.summary;
+    // Find last snapshot that has actual factsheet data
+    const goodSnap = [...(p.snapshots||[])].reverse()
+      .find(s => (s.summary.large||0)+(s.summary.mid||0)+(s.summary.small||0)+(s.summary.debtTotal||0) > 0);
+    const snap = goodSnap?.summary || null;
+
+    // Clear stale zero-data alerts
+    if (!snap && (p.alerts||[]).length) { p.alerts = []; }
+
     const alerts  = p.alerts || [];
     const br = alerts.filter(a=>a.type==='breach'), wa = alerts.filter(a=>a.type==='warning'), mv = alerts.filter(a=>a.type==='movement');
     const rag     = br.length?'rag-red':wa.length?'rag-amber':snap?'rag-green':'';
@@ -2368,16 +2375,24 @@ function loadPortfolio(id) {
   const port = portfolios.find(p => p.id === id);
   if (!port) return;
 
-  // If portfolio has been analysed before (has a snapshot), go straight to summary
-  // If it has allocations but no snapshot, go to alloc to trigger analysis
-  // If empty, go to upload
-  if (port.snapshots?.length) {
-    // Re-run analysis silently then show summary
-    runAnalysisForPortfolio(port);
-  } else if (Object.keys(port.allocations||{}).length) {
+  // Load allocRows for this portfolio
+  allocRows = Object.entries(port.allocations||{}).map(([name, pct]) => {
+    const f = allFunds().find(f => f.name === name);
+    return { key: sid(name), fundName: name, amcName: f?.amc || '', pct, isUploaded: !!f };
+  });
+
+  if (!Object.keys(port.allocations||{}).length) {
+    // No allocations yet — go to alloc page
     showPage('alloc');
+    return;
+  }
+
+  // Has allocations — go straight to summary (shows holdings banner + analysis if factsheet data exists)
+  const hasFactsheet = allFunds().some(f => (port.allocations||{})[f.name] > 0);
+  if (hasFactsheet) {
+    runAnalysis(); // builds full analysis then shows summary
   } else {
-    showPage('upload');
+    showPage('summary'); // shows holdings banner with "upload factsheets" message
   }
 }
 
@@ -2419,6 +2434,11 @@ function takeSnapshot() {
   const items=getActiveItems(); if(!items.length) return;
   const tw=items.reduce((s,f)=>s+f.wt,0);
   const bl=k=>items.reduce((s,f)=>s+f.wt*(f[k]||0),0)/tw;
+
+  // Skip snapshot if no factsheet data — would just store zeros and trigger false alerts
+  const hasData = items.some(f => f.large>0 || f.mid>0 || f.small>0 || f.gsec>0 || f.equityStocks?.length>0);
+  if (!hasData) return;
+
   const sectorMap={};
   items.forEach(f=>(f.equityStocks||[]).forEach(s=>{
     const sec=getSector(s.name,s.sector); sectorMap[sec]=(sectorMap[sec]||0)+s.pct*f.wt/100;
@@ -2442,6 +2462,11 @@ function runAlerts(port) {
   const snap=port.snapshots[port.snapshots.length-1].summary;
   const prev=port.snapshots.length>1?port.snapshots[port.snapshots.length-2].summary:null;
   const alerts=[];
+
+  // Skip threshold alerts if no factsheet data (all cap/debt values are zero)
+  const hasData = (snap.large||0)+(snap.mid||0)+(snap.small||0)+(snap.debtTotal||0) > 0;
+  if (!hasData) { port.alerts=[]; return []; }
+
   const eqSum=snap.large+snap.mid+snap.small;
   const pL=eqSum>0?snap.large/eqSum*100:0, pM=eqSum>0?snap.mid/eqSum*100:0, pS=eqSum>0?snap.small/eqSum*100:0;
   const dSum=snap.debtTotal||0;
