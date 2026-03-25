@@ -1453,23 +1453,102 @@ body {
 
 <!-- ── Allocation ── -->
 <div class="page" id="page-alloc">
-  <div class="pg-header"><div class="pg-title">Portfolio Allocation</div>
-  <div class="pg-sub">Enter your % weight for each fund</div></div>
-  <div class="card">
-    <div class="card-title">Fund Weights</div>
-    <div class="info">Enter each fund's <strong>% of your total portfolio</strong>. Funds left blank are excluded from blended calculations.</div>
-    <table class="at">
-      <thead><tr><th>Fund</th><th>AMC</th><th class="r">% Portfolio</th></tr></thead>
-      <tbody id="alloc-body"></tbody>
-    </table>
-    <div class="tot-row" id="alloc-tot">Total: 0%</div>
-    <div id="active-port-indicator" style="font-size:.6rem;color:var(--accent);padding:.5rem .7rem 0;display:none">
-      Editing: <span id="active-port-indicator-name"></span>
+  <div class="pg-header">
+    <div class="pg-title">Set Allocation</div>
+    <div class="pg-sub">Select portfolio → add funds → analyse</div>
+  </div>
+
+  <!-- Top bar: Portfolio selector + Analyse shortcut -->
+  <div class="card" style="margin-bottom:1rem;padding:.7rem 1rem">
+    <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+      <span style="font-size:.6rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;font-family:'IBM Plex Mono',monospace;flex-shrink:0">Portfolio</span>
+      <select id="alloc-port-sel" onchange="allocOnPortChange()"
+        style="flex:1;min-width:180px;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.45rem .65rem;font-size:.82rem;font-weight:600;color:var(--text);outline:none">
+        <option value="">Select portfolio…</option>
+      </select>
+      <button onclick="showPage('clients')" class="btn" style="font-size:.68rem;flex-shrink:0">+ New</button>
+      <button id="alloc-analyse-shortcut" onclick="runAnalysis()"
+        style="display:none;background:var(--accent);color:#fff;border:none;border-radius:var(--r-sm);padding:.42rem 1.1rem;font-size:.72rem;font-weight:700;cursor:pointer;flex-shrink:0;letter-spacing:.02em">
+        ▶ Analyse →
+      </button>
     </div>
-    <div class="btn-row">
-      <button class="btn" onclick="showPage('upload')">← Back</button>
-      <button class="btn" onclick="showPage('clients')">← Portfolios</button>
-      <button class="btn pri" onclick="runAnalysis()">Analyse →</button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 360px;gap:1rem;align-items:start">
+
+    <!-- Left: Cascade dropdowns -->
+    <div class="card" style="margin-bottom:0">
+      <div class="card-title" style="margin-bottom:.85rem">Add Fund</div>
+
+      <!-- Row 1: AMC + Category -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-bottom:.65rem">
+        <div>
+          <label style="font-size:.58rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:.28rem">Fund House</label>
+          <select id="alloc-amc-sel" onchange="allocOnAmcChange()"
+            style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.48rem .6rem;font-size:.76rem;color:var(--text);outline:none">
+            <option value="">Select AMC…</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.58rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:.28rem">Category</label>
+          <select id="alloc-cat-sel" onchange="allocOnCatChange()" disabled
+            style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.48rem .6rem;font-size:.76rem;color:var(--text);outline:none;opacity:.45">
+            <option value="">Select category…</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Row 2: Scheme + Weight + Add -->
+      <div style="display:grid;grid-template-columns:1fr 5rem auto;gap:.65rem;align-items:flex-end">
+        <div>
+          <label style="font-size:.58rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:.28rem">Scheme</label>
+          <select id="alloc-scheme-sel" disabled
+            style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.48rem .6rem;font-size:.76rem;color:var(--text);outline:none;opacity:.45">
+            <option value="">Select scheme…</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.58rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:.28rem">Weight %</label>
+          <input id="alloc-pct-inp" type="number" min="0" max="100" step="0.1" placeholder="25"
+            onkeydown="if(event.key==='Enter')allocAddFund()"
+            style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.48rem .5rem;font-size:.76rem;color:var(--text);outline:none;text-align:right">
+        </div>
+        <button class="btn pri" onclick="allocAddFund()" style="height:2.1rem;padding:0 1rem;white-space:nowrap">+ Add</button>
+      </div>
+
+      <div id="alloc-port-warning" style="display:none;margin-top:.6rem;font-size:.63rem;color:var(--orange)">⚠ Select a portfolio first</div>
+    </div>
+
+    <!-- Right: Fund allocation list -->
+    <div class="card" style="margin-bottom:0">
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+        <div id="alloc-port-label" style="font-size:.78rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">—</div>
+        <div style="display:flex;align-items:center;gap:.5rem;flex-shrink:0">
+          <span id="alloc-tot" style="font-size:.75rem;font-weight:700;font-family:'IBM Plex Mono',monospace;color:var(--accent)">0%</span>
+          <button id="alloc-clear-btn" onclick="allocClearAll()" title="Clear all funds"
+            style="display:none;background:none;border:1px solid var(--border2);border-radius:3px;padding:.12rem .4rem;font-size:.58rem;color:var(--muted2);cursor:pointer">Clear</button>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:.7rem">
+        <div id="alloc-bar" style="height:100%;background:var(--blue);border-radius:2px;transition:width .3s,background .3s;width:0%"></div>
+      </div>
+
+      <!-- Fund rows -->
+      <div id="alloc-fund-rows" style="max-height:320px;overflow-y:auto">
+        <div id="alloc-empty-msg" style="text-align:center;color:var(--muted);font-size:.63rem;padding:2rem 0;line-height:1.9">
+          Select a portfolio above,<br>then add funds from the left
+        </div>
+      </div>
+
+      <!-- Analyse -->
+      <div style="margin-top:.75rem;padding-top:.7rem;border-top:1px solid var(--border)">
+        <button class="btn pri" id="alloc-analyse-btn" onclick="runAnalysis()" disabled style="width:100%;font-size:.75rem">
+          ▶ Analyse Portfolio
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -2178,24 +2257,6 @@ function refreshActivePortfolioUI() {
   }
 }
 
-function syncAllocsFromPortfolio(id) {
-  const port=portfolios.find(p=>p.id===id); if(!port) return;
-  allFunds().forEach(({name})=>{
-    const el=document.getElementById('ai-'+sid(name)); if(el) el.value=port.allocations[name]||'';
-  });
-  updateAllocTot();
-}
-
-function saveCurrentAllocToPortfolio() {
-  if (!activePortId) return;
-  const port=portfolios.find(p=>p.id===activePortId); if(!port) return;
-  port.allocations={};
-  allFunds().forEach(({name})=>{
-    const v=parseFloat(document.getElementById('ai-'+sid(name))?.value||0); if(v>0) port.allocations[name]=v;
-  });
-  savePortfolios();
-}
-
 function deletePortfolio(id) {
   portfolios = portfolios.filter(p => p.id !== id);
   if (activePortId === id) {
@@ -2300,38 +2361,22 @@ function loadPortfolio(id) {
 }
 
 function runAnalysisForPortfolio(port) {
-  // 1. Navigate to alloc page — this calls buildAllocTable() which creates the input fields
-  showPage('alloc');
-
-  // 2. After the DOM has the inputs, inject portfolio weights and run analysis
-  // Use requestAnimationFrame to ensure DOM is fully rendered
-  requestAnimationFrame(() => {
-    // Inject saved allocations into the input fields
-    let hasWeights = false;
-    allFunds().forEach(({name}) => {
-      const el = document.getElementById('ai-' + sid(name));
-      const wt = port.allocations?.[name] || 0;
-      if (el) {
-        el.value = wt > 0 ? wt : '';
-        if (wt > 0) hasWeights = true;
-      }
-    });
-    updateAllocTot();
-
-    if (!hasWeights) {
-      // No saved allocations — stay on alloc page for user to enter them
-      return;
-    }
-
-    // 3. Run analysis — this populates all the results pages and navigates to summary
-    runAnalysis();
+  activePortId = port.id;
+  allocRows = Object.entries(port.allocations||{}).map(([name, pct]) => {
+    const f = allFunds().find(f => f.name === name);
+    return { key: sid(name), fundName: name, amcName: f?.amc || '', pct, isUploaded: !!f };
   });
+  if (!allocRows.some(r => r.pct > 0)) {
+    showPage('alloc');
+    return;
+  }
+  runAnalysis();
 }
 
 function getActiveItems() {
   const items=[];
   allFunds().forEach(({name,amc,data})=>{
-    const wt=parseFloat(document.getElementById('ai-'+sid(name))?.value||0);
+    const wt=getAllocWeight(name);
     if(wt>0) items.push({name,amc,wt,...data});
   });
   return items;
@@ -2802,14 +2847,106 @@ async function handlePortfolioExcel(evt) {
     const results = [];
 
     for (const sheetName of wb.SheetNames) {
-      // Skip index/summary sheets
       if (/^index$/i.test(sheetName)) continue;
 
       const ws   = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      if (rows.length < 5) continue;
+      if (rows.length < 2) continue;
 
-      // ── Detect fund name ──
+      // ── Detect format ──────────────────────────────────────────
+      // Format A: Client portfolio statement — Fund Name + Units + Current Value
+      // Format B: AMC disclosure Excel — ISIN column + % to AUM
+
+      // Check for client portfolio format: look for fund name col + value col
+      let clientHeaderRow = -1;
+      let clientNameCol = -1, clientValueCol = -1;
+
+      for (let r = 0; r < Math.min(10, rows.length); r++) {
+        const rowLower = rows[r].map(c => String(c).toLowerCase().trim());
+        // Name col: anything with 'fund', 'scheme', 'name'
+        const nc = rowLower.findIndex(c =>
+          c.includes('fund name') || c.includes('scheme name') ||
+          c === 'scheme' || c === 'fund' || c === 'name'
+        );
+        // Value col: current value / market value / amount
+        const vc = rowLower.findIndex(c =>
+          c.includes('current value') || c.includes('market value') ||
+          c.includes('amount') || c === 'value'
+        );
+        if (nc >= 0 && vc >= 0 && nc !== vc) {
+          clientHeaderRow = r;
+          clientNameCol   = nc;
+          clientValueCol  = vc;
+          break;
+        }
+      }
+
+      // Fallback: if no explicit header found, check if rows look like "fund name, number, big-number"
+      // by scanning first few data rows and inferring columns
+      if (clientHeaderRow < 0) {
+        for (let r = 0; r < Math.min(5, rows.length); r++) {
+          const row = rows[r];
+          // Find column with a string containing "Fund" and a column with a large number > 10000
+          const nameCandidates = row.map((c,i) => ({i, v: String(c).trim()}))
+            .filter(x => /fund|scheme/i.test(x.v) && x.v.length > 5);
+          const valCandidates  = row.map((c,i) => ({i, v: parseFloat(String(c).replace(/,/g,''))}))
+            .filter(x => x.v > 10000);
+          if (nameCandidates.length && valCandidates.length) {
+            clientHeaderRow = -2; // sentinel: no header row, data starts at r
+            clientNameCol   = nameCandidates[0].i;
+            clientValueCol  = valCandidates[valCandidates.length - 1].i; // largest value col = current value
+            // Parse from this row onwards
+            const rawFunds = [];
+            let totalValue = 0;
+            for (let dr = r; dr < rows.length; dr++) {
+              const drow = rows[dr];
+              const dname = String(drow[clientNameCol] || '').trim();
+              const dval  = parseFloat(String(drow[clientValueCol] || '').replace(/,/g,''));
+              if (!dname || dname.length < 3 || isNaN(dval) || dval <= 0) continue;
+              rawFunds.push({ name: dname, val: dval });
+              totalValue += dval;
+            }
+            if (rawFunds.length >= 2 && totalValue > 0) {
+              rawFunds.forEach(f => {
+                const pct = Math.round(f.val / totalValue * 10000) / 100;
+                const cleanName = f.name
+                  .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+                  .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
+                  .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+                results.push({ fundName: cleanName, isClientFormat: true, pct, val: f.val });
+              });
+            }
+            break;
+          }
+        }
+        continue; // move to next sheet regardless
+      }
+
+      if (clientHeaderRow >= 0 && clientNameCol >= 0 && clientValueCol >= 0) {
+        // ── FORMAT A (explicit header): Client portfolio ──
+        const rawFunds = [];
+        let totalValue = 0;
+        for (let r = clientHeaderRow + 1; r < rows.length; r++) {
+          const row  = rows[r];
+          const name = String(row[clientNameCol] || '').trim();
+          const val  = parseFloat(String(row[clientValueCol] || '').replace(/,/g,''));
+          if (!name || name.length < 3) continue;
+          if (isNaN(val) || val <= 0) continue;
+          rawFunds.push({ name, val });
+          totalValue += val;
+        }
+        if (rawFunds.length && totalValue > 0) {
+          rawFunds.forEach(f => {
+            const pct = Math.round(f.val / totalValue * 10000) / 100;
+            const cleanName = f.name
+              .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+              .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
+              .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+            results.push({ fundName: cleanName, isClientFormat: true, pct, val: f.val });
+          });
+        }
+        continue; // done with this sheet
+      }
       // SBI format: Row index 2 = ['SCHEME NAME :', 'Fund Name', ...]
       // Row index 1 = ['SBI Mutual Fund', scheme_code, 'Back to Index']
       let fundName = sheetName;
@@ -2898,6 +3035,10 @@ async function handlePortfolioExcel(evt) {
 
     if (!results.length) throw new Error('No portfolio data found. Check the Excel format.');
 
+    console.log('[Excel] Parsed results:', results.map(r => ({
+      fundName: r.fundName, isClientFormat: r.isClientFormat, pct: r.pct
+    })));
+
     _xlsParsedFunds = results;
     showXlsPreview(results, file.name);
 
@@ -2917,34 +3058,77 @@ async function handlePortfolioExcel(evt) {
 function showXlsPreview(results, filename) {
   const preview = document.getElementById('upload-xls-preview');
   const list    = document.getElementById('upload-xls-list');
+  const saveBtn = document.getElementById('upload-xls-save-btn');
   if (!preview || !list) return;
 
-  list.innerHTML = results.map(r => `
-    <div style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">
-      <div style="font-size:.72rem;font-weight:600;color:var(--text);margin-bottom:.35rem">
-        ${r.fundName || '(unnamed fund)'}
-        <span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:.4rem">${r.holdings.length} holdings</span>
+  // Check if client portfolio format
+  const isClientFmt = results.some(r => r.isClientFormat);
+
+  if (isClientFmt) {
+    // Show as portfolio allocation table
+    const total = results.reduce((s,r) => s + r.val, 0);
+    list.innerHTML = `
+      <div style="padding:.4rem .75rem;background:var(--s3);border-bottom:1px solid var(--border)">
+        <span style="font-size:.62rem;color:var(--muted)">Detected: client portfolio with ${results.length} funds</span>
+      </div>` +
+      results.map(r => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem .75rem;border-bottom:1px solid var(--border)">
+          <span style="font-size:.7rem;color:var(--text)">${r.fundName}</span>
+          <span style="font-size:.65rem;color:var(--muted);font-family:'IBM Plex Mono',monospace">${r.pct.toFixed(1)}%</span>
+        </div>`).join('');
+    if (saveBtn) saveBtn.textContent = '✓ Save as Portfolio Allocation';
+  } else {
+    list.innerHTML = results.map(r => `
+      <div style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">
+        <div style="font-size:.72rem;font-weight:600;color:var(--text);margin-bottom:.35rem">
+          ${r.fundName || '(unnamed fund)'}
+          <span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:.4rem">${r.holdings.length} holdings</span>
+        </div>
+        ${(r.holdings||[]).slice(0,5).map(h =>
+          `<div style="display:flex;justify-content:space-between;font-size:.62rem;color:var(--text2);padding:.1rem 0">
+            <span>${h.name}</span>
+            <span style="color:var(--muted);font-family:'IBM Plex Mono',monospace">${h.pct.toFixed(2)}%</span>
+          </div>`
+        ).join('')}
+        ${(r.holdings||[]).length > 5 ? `<div style="font-size:.6rem;color:var(--muted);margin-top:.2rem">+${r.holdings.length-5} more…</div>` : ''}
       </div>
-      ${r.holdings.slice(0,5).map(h =>
-        `<div style="display:flex;justify-content:space-between;font-size:.62rem;color:var(--text2);padding:.1rem 0">
-          <span>${h.name}</span>
-          <span style="color:var(--muted);font-family:'IBM Plex Mono',monospace">${h.pct.toFixed(2)}%</span>
-        </div>`
-      ).join('')}
-      ${r.holdings.length > 5 ? `<div style="font-size:.6rem;color:var(--muted);margin-top:.2rem">+${r.holdings.length-5} more…</div>` : ''}
-    </div>
-  `).join('');
+    `).join('');
+    if (saveBtn) saveBtn.textContent = '✓ Save to Selected AMC';
+  }
 
   preview.style.display = 'block';
 }
 
 function savePortfolioExcel() {
-  const amcId = window._selectedAmcId;
-  if (!amcId) {
-    document.getElementById('upload-xls-amc-warning').style.display = 'block';
+  const isClientFmt = _xlsParsedFunds.some(r => r.isClientFormat);
+
+  if (isClientFmt) {
+    // Save as portfolio allocations to the active portfolio
+    if (!activePortId) {
+      document.getElementById('upload-xls-amc-warning').style.display = 'block';
+      document.getElementById('upload-xls-amc-warning').textContent = '⚠ Select or create a portfolio first (from Portfolios page)';
+      return;
+    }
+    document.getElementById('upload-xls-amc-warning').style.display = 'none';
+    const port = portfolios.find(p => p.id === activePortId);
+    if (!port) return;
+
+    port.allocations = {};
+    _xlsParsedFunds.forEach(r => { port.allocations[r.fundName] = r.pct; });
+    console.log('[Excel] Saved allocations:', port.allocations);
+
+    // Also populate allocRows for the allocation page
+    allocRows = _xlsParsedFunds.map(r => ({
+      key: sid(r.fundName), fundName: r.fundName, amcName: '', pct: r.pct, isUploaded: false
+    }));
+
+    savePortfolios();
+    saveToStorage();
+    if (window._fb?.currentUser) window._fbSaveCloud();
+    showToast(`✓ ${_xlsParsedFunds.length} funds saved to "${port.name}"`);
+    resetXlsUpload();
     return;
   }
-  document.getElementById('upload-xls-amc-warning').style.display = 'none';
 
   const amc = amcs.find(a => a.id === amcId);
   if (!amc) return;
@@ -3047,8 +3231,8 @@ async function handlePDF(evt, amcId) {
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
       data: buf,
-      disableFontFace: true,   // skip font loading — not needed for text
-      verbosity: 0              // suppress PDF.js console warnings
+      disableFontFace: true,
+      verbosity: 0
     }).promise;
 
     const totalPages = pdf.numPages;
@@ -3059,36 +3243,40 @@ async function handlePDF(evt, amcId) {
     if (st) st.innerHTML = `<span class="spin"></span> Scanning ${totalPages} pages…`;
 
     // ── PASS 1: Quick scan — identify portfolio pages ──────────
-    // Extract just enough text per page to decide if it has holdings
-    // This is ~5x faster than full extraction because we stop early per page
-    const PORTFOLIO_TRIGGERS = /portfolio\s*(as|statement)|^PORTFOLIO\b|scheme\s*portfolio|holdings\s*as\s*on|%\s*of\s*nav|%\s*to\s*aum|\bINE[A-Z0-9]{9}\d\b/i;
+    // For each page, fetch ONLY first 40 text items (enough for trigger detection)
+    // Do NOT store full ct — saves memory and speeds up pass 2 re-fetch
+    const PORTFOLIO_TRIGGERS = /portfolio\s*(as|statement)|^PORTFOLIO\b|scheme\s*portfolio|holdings\s*as\s*on|%\s*of\s*nav|%\s*to\s*aum|\bINE[A-Z0-9]{9}\d\b|no\s*of\s*stocks|grand\s*total|% Of Net Asset/i;
+
+    // AMC-specific page ranges to scan (skip cover pages, footnotes, disclosures)
+    // Sundaram: portfolio starts p6, ends ~p54, disclosures p55+
+    const scanStart = isSundaramAMC ? 6 : 1;
+    const scanEnd   = isSundaramAMC ? Math.min(totalPages, 55) : totalPages;
 
     const quickScan = async (pageNum) => {
       const pg = await pdf.getPage(pageNum);
       const ct = await pg.getTextContent({ includeMarkedContent: false });
-      // Join first 30 text items — enough to detect triggers without processing full page
-      const sample = ct.items.slice(0, 60).map(i => i.str).join(' ');
-      return { pageNum, isPortfolio: PORTFOLIO_TRIGGERS.test(sample), ct };
+      const sample = ct.items.slice(0, 40).map(i => i.str).join(' ');
+      // Don't store ct — pass 2 will re-fetch only matched pages
+      return { pageNum, isPortfolio: PORTFOLIO_TRIGGERS.test(sample) };
     };
 
-    // Scan all pages in parallel batches of 30
-    const SCAN_BATCH = 30;
+    // Scan in large parallel batches — 50 at once for speed
+    const SCAN_BATCH = 50;
     const scanResults = [];
-    for (let b = 0; b < totalPages; b += SCAN_BATCH) {
-      const end = Math.min(b + SCAN_BATCH, totalPages);
+    for (let b = scanStart - 1; b < scanEnd; b += SCAN_BATCH) {
+      const end = Math.min(b + SCAN_BATCH, scanEnd);
       const batch = await Promise.all(
         Array.from({length: end - b}, (_, j) => quickScan(b + j + 1))
       );
       scanResults.push(...batch);
-      const pct = Math.round(end / totalPages * 100);
+      const pct = Math.round((end - scanStart + 1) / (scanEnd - scanStart + 1) * 100);
       if (st) st.innerHTML = `<span class="spin"></span> Scanning… ${pct}%`;
     }
 
-    // Find portfolio page range — take pages that matched + 2 buffer on each side
+    // Collect matched portfolio pages + 1-page buffer each side
     const portfolioNums = new Set();
     scanResults.forEach((r, idx) => {
       if (r.isPortfolio) {
-        // Add this page and neighbours (fund name often on prev page)
         for (let d = -1; d <= 1; d++) {
           const n = scanResults[idx + d]?.pageNum;
           if (n) portfolioNums.add(n);
@@ -3097,17 +3285,17 @@ async function handlePDF(evt, amcId) {
     });
 
     if (portfolioNums.size === 0) {
-      // Fallback: process all pages (scanned PDF or unusual format)
-      portfolioNums.add(...Array.from({length: totalPages}, (_, i) => i + 1));
+      // Fallback: process all pages in range
+      for (let p = scanStart; p <= scanEnd; p++) portfolioNums.add(p);
     }
 
     const portfolioPageNums = [...portfolioNums].sort((a,b) => a-b);
-    if (st) st.innerHTML = `<span class="spin"></span> Extracting ${portfolioPageNums.length} of ${totalPages} pages…`;
+    if (st) st.innerHTML = `<span class="spin"></span> Reading ${portfolioPageNums.length} portfolio pages…`;
 
-    // ── PASS 2: Full extract — only portfolio pages ────────────
-    const extractFull = async (r) => {
-      // Reuse the already-fetched content from pass 1 if available
-      const ct = r.ct;
+    // ── PASS 2: Full extract — only portfolio pages, fetched fresh ─
+    const extractFull = async (pageNum) => {
+      const pg = await pdf.getPage(pageNum);
+      const ct = await pg.getTextContent({ includeMarkedContent: false });
       const byY = {};
 
       ct.items.forEach(item => {
@@ -3140,12 +3328,17 @@ async function handlePDF(evt, amcId) {
         }
       }
 
-      return { pageNum: r.pageNum, lines: lines.map(l => l.text), heading: pageHeading };
+      return { pageNum, lines: lines.map(l => l.text), heading: pageHeading };
     };
 
-    // Process portfolio pages — ct already fetched in pass 1, so this is just parsing
-    const portfolioScanResults = scanResults.filter(r => portfolioPageNums.includes(r.pageNum));
-    const pages = await Promise.all(portfolioScanResults.map(extractFull));
+    // Fetch portfolio pages in parallel batches of 20
+    const pages = [];
+    const EXTRACT_BATCH = 20;
+    for (let b = 0; b < portfolioPageNums.length; b += EXTRACT_BATCH) {
+      const batch = portfolioPageNums.slice(b, b + EXTRACT_BATCH);
+      const results = await Promise.all(batch.map(extractFull));
+      pages.push(...results);
+    }
     pages.sort((a,b) => a.pageNum - b.pageNum);
 
     const funds = parseFunds(pages, amc.name);
@@ -3207,41 +3400,76 @@ function parseFunds(pages, amcName) {
   // Fund name appears near bottom: "Sundaram Large Cap Fund An open-ended..."
   if (isSundaram) {
     pages.forEach(page => {
-      const text = page.lines.join(' ');
-      // Only pages with substantial holdings data
-      if (!/grand\s*total|no\s*of\s*stocks|portfolio.*net\s*asset/i.test(text)) return;
+      const lines = page.lines;
+      const text  = lines.join('\n');
 
-      // Extract fund name — appears near end of page
-      // "Sundaram Large Cap Fund An open-ended..."
-      const fnameMatch = text.match(/Sundaram\s+([A-Z][A-Za-z\s&\-]+(?:Fund|Scheme))/);
-      const fname = fnameMatch ? fnameMatch[0].replace(/\s+An\s+open.*/i,'').trim() : null;
+      // Only process pages that have portfolio content
+      // Sundaram pages with holdings always have "% Of Net Asset" and "Grand Total"
+      if (!/grand\s*total|no\.?\s*of\s*stocks/i.test(text)) return;
+      if (!/portfolio|% of net asset/i.test(text)) return;
+
+      // Extract fund name — Sundaram puts it at bottom: "Sundaram Large Cap Fund\nAn open-ended..."
+      // Also appears in page heading area
+      let fname = null;
+      for (const line of lines) {
+        // Match "Sundaram XYZ Fund" — stop before "An open-ended"
+        const m = line.match(/^(Sundaram\s+[A-Za-z\s\-&\/]+Fund(?:\s+[-–]\s+(?:Series|Class)\s+[IVX\d]+)?)/i);
+        if (m) {
+          fname = m[1].replace(/\s+/g,' ').trim();
+          break;
+        }
+      }
+      if (!fname) {
+        // fallback: look in joined text
+        const m2 = text.match(/Sundaram\s+([A-Za-z\s\-&\/]+Fund(?:\s+[-–]\s+(?:Series|Class)\s+[IVX\d]+)?)/i);
+        if (m2) fname = ('Sundaram ' + m2[1]).replace(/\s+/g,' ').trim();
+      }
       if (!fname) return;
 
-      // Extract holdings: lines ending with a percentage
-      // Pattern: optional_rank + Name + optional_rank + weight
-      // e.g. "HDFC Bank Ltd 1 8.7" or "Marico Ltd 2.3"
-      const SECTOR_WORDS = /^(Banks|Insurance|Telecom|IT[-\s]|Software|Services|Pharmaceut|Automobiles|Auto\s*Comp|Construction|Capital\s*Good|Industrial|Consumer|FMCG|Retailing|Leisure|Power|Electrical|Cement|Metal|Oil|Petroleum|Gas|Finance|Fintech|Capital\s*Market|Healthcare|Beverage|Chemical|Realty|Aerospace|Defence|Transport|Logistic|Textile|Media|Infra|Diversif|Fertilizer|Personal\s*Prod)/i;
+      // ── Parse holdings line by line ──
+      // Sundaram format per line:
+      //   "HDFC Bank Ltd 1 8.7"       name [rank] pct
+      //   "Marico Ltd 2.3"            name pct
+      //   "TVS Motor Company Ltd 10 3.3"  name rank pct
+      // Sector headers (skip):
+      //   "Banks 1 32.5"
+      //   "IT-Software 2 7.8"
+      //   "Pharmaceuticals & Biotechnology 4 6.8"
 
-      const equityStocks = [], debtItems = [];
+      const SKIP_PATTERNS = /^(equity|cash\s*and\s*others|grand\s*total|no\.?\s*of\s*stocks|large\s*cap|mid\s*cap|small\s*cap|mf\/etf|fixed\s*income|mutual\s*fund\s*units|derivatives|government\s*sec|corporate\s*bond|unlisted|past\s*performance|www\.|powered|march|page\s*\d|sundaram\s+mutual|an\s+open)/i;
+
+      // Known sector words — lines that are ONLY a sector name + optional rank + pct
+      const SECTOR_ONLY = /^(Banks|Insurance|Telecom|IT[-–\s]|IT Software|Software|Services|Pharmaceut|Automobiles|Auto\s*Comp|Construction|Capital\s*Good|Industrial|Consumer|Diversified\s*Fmcg|FMCG|Retailing|Leisure|Power|Electrical|Cement|Metal|Oil|Petroleum|Gas|Finance\s|Fintech|Financial\s*Tech|Capital\s*Market|Healthcare|Beverages|Chemical|Realty|Aerospace|Defence|Transport|Logistic|Textile|Media|Infrastructure\s*Adv|Diversif|Fertilizer|Personal\s*Prod|Food\s*Prod|Non.Ferrous|Ferrous\s*Met|Consumable|Engineering|Agri|Household|Other\s*Util|Other\s*Consumer|Paper|Retailing|Entertainment|Unlisted)/i;
+
+      const equityStocks = [];
       const seenEq = new Set();
 
-      // Split by known patterns to reconstruct individual lines
-      // Each stock line is: "Name Ltd optional_rank weight"
-      // We look for sequences ending in \d+\.\d+ preceded by a company name
-      const holdingRx = /([A-Z][A-Za-z\s\.\&\(\)\']+?(?:Ltd|Limited|LTD|Corporation|Corp|Company|Co\.)?)\s+(?:\d+\s+)?(\d{1,2}\.\d{1,2})(?=\s|$)/g;
-      let m;
-      while ((m = holdingRx.exec(text)) !== null) {
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t || t.length < 3) continue;
+        if (SKIP_PATTERNS.test(t)) continue;
+
+        // Match: text [optional_single_digit_rank] decimal_pct
+        // e.g. "HDFC Bank Ltd 1 8.7" or "Marico Ltd 2.3" or "Tech Mahindra Ltd 2.5"
+        const m = t.match(/^(.+?)\s+(?:(\d{1,2})\s+)?(\d{1,2}\.\d{1,2})$/);
+        if (!m) continue;
+
         const rawName = m[1].trim();
-        const pct = parseFloat(m[2]);
+        const pct     = parseFloat(m[3]);
+
         if (pct <= 0 || pct > 35) continue;
-        if (SECTOR_WORDS.test(rawName)) continue; // skip sector headers
-        if (/grand\s*total|cash\s*and\s*other|net\s*asset|no\s*of\s*stock|performance|large\s*cap|small\s*cap|mid\s*cap/i.test(rawName)) continue;
-        if (rawName.length < 3 || rawName.length > 70) continue;
-        if (/^\d/.test(rawName)) continue;
+        if (rawName.length < 3 || rawName.length > 80) continue;
+        if (/^\d/.test(rawName)) continue; // starts with number = skip
+        if (SECTOR_ONLY.test(rawName)) continue;
+
+        // Skip lines that are clearly not company names
+        if (/ratio|return|period|benchmark|expense|inception|nav|turnover|deviation|beta|sharpe|fund\s*manager|duration|ytm|aum/i.test(rawName)) continue;
+        // Skip if name is all uppercase single word (likely a metric label)
+        if (/^[A-Z]{3,}$/.test(rawName)) continue;
 
         const cleanName = rawName
           .replace(/\s*Ltd\.?\s*$/i,'').replace(/\s*Limited\s*$/i,'')
-          .replace(/\s*LTD\.?\s*$/,'').trim();
+          .replace(/\s*LTD\s*$/,'').trim();
         if (cleanName.length < 3) continue;
 
         const key = cleanName.toLowerCase().replace(/\s+/g,'');
@@ -3251,7 +3479,7 @@ function parseFunds(pages, amcName) {
         }
       }
 
-      if (!equityStocks.length) return;
+      if (equityStocks.length < 3) return;
 
       // Classify caps
       let lc=0, mc=0, sc=0;
@@ -3261,8 +3489,8 @@ function parseFunds(pages, amcName) {
         else if (c==='mid') mc+=s.pct;
         else sc+=s.pct;
       });
-      const eqTotal=lc+mc+sc;
-      const eqOther=Math.max(0,100-eqTotal);
+      const eqTotal = lc+mc+sc;
+      const eqOther = Math.max(0, 100-eqTotal);
       if (eqTotal>0) { const k=(100-eqOther)/eqTotal; lc*=k; mc*=k; sc*=k; }
 
       funds[fname] = {
@@ -3870,65 +4098,689 @@ const KNOWN = {
 
 function sid(s){ return s.replace(/[^a-z0-9]/gi,'_'); }
 
-function buildAllocTable() {
-  const tbody = document.getElementById('alloc-body');
-  const funds = allFunds();
+// ── Fund Universe (AMC → Category → Schemes) ─────────────────
+// Used by the allocation page dropdowns
+const FUND_UNIVERSE = {
+  'SBI': {
+    'Large Cap': ['SBI Large & Midcap Fund','SBI Bluechip Fund','SBI Nifty Index Fund'],
+    'Mid Cap': ['SBI Magnum Midcap Fund'],
+    'Small Cap': ['SBI Small Cap Fund'],
+    'Flexi Cap': ['SBI Flexicap Fund'],
+    'Multi Cap': ['SBI Multicap Fund'],
+    'ELSS': ['SBI Long Term Equity Fund'],
+    'Hybrid - Aggressive': ['SBI Equity Hybrid Fund'],
+    'Hybrid - Balanced Advantage': ['SBI Balanced Advantage Fund'],
+    'Debt - Liquid': ['SBI Liquid Fund'],
+    'Debt - Short Duration': ['SBI Short Term Debt Fund'],
+    'Debt - Corporate Bond': ['SBI Corporate Bond Fund'],
+    'Sectoral - Technology': ['SBI Technology Opportunities Fund'],
+    'Sectoral - Healthcare': ['SBI Healthcare Opportunities Fund'],
+    'Sectoral - Consumption': ['SBI Consumption Opportunities Fund'],
+    'Sectoral - Infrastructure': ['SBI Infrastructure Fund'],
+    'Contra': ['SBI Contra Fund'],
+    'Dividend Yield': ['SBI Dividend Yield Fund'],
+    'Focused': ['SBI Focused Equity Fund'],
+  },
+  'ICICI Prudential': {
+    'Large Cap': ['ICICI Prudential Bluechip Fund','ICICI Prudential Nifty 50 Index Fund','ICICI Prudential Nifty Next 50 Index Fund'],
+    'Mid Cap': ['ICICI Prudential Midcap Fund'],
+    'Small Cap': ['ICICI Prudential Smallcap Fund'],
+    'Flexi Cap': ['ICICI Prudential Flexicap Fund'],
+    'Multi Cap': ['ICICI Prudential Multicap Fund'],
+    'Large & Mid Cap': ['ICICI Prudential Large & Mid Cap Fund'],
+    'ELSS': ['ICICI Prudential Long Term Equity Fund'],
+    'Focused': ['ICICI Prudential Focused Equity Fund'],
+    'Value': ['ICICI Prudential Value Discovery Fund'],
+    'Hybrid - Aggressive': ['ICICI Prudential Equity & Debt Fund'],
+    'Hybrid - Balanced Advantage': ['ICICI Prudential Balanced Advantage Fund'],
+    'Debt - Liquid': ['ICICI Prudential Liquid Fund'],
+    'Debt - Short Duration': ['ICICI Prudential Short Term Fund'],
+    'Debt - Corporate Bond': ['ICICI Prudential Corporate Bond Fund'],
+    'Debt - Banking & PSU': ['ICICI Prudential Banking & PSU Debt Fund'],
+    'Sectoral - Technology': ['ICICI Prudential Technology Fund'],
+    'Sectoral - Infrastructure': ['ICICI Prudential Infrastructure Fund'],
+    'Sectoral - Banking': ['ICICI Prudential Banking & Financial Services Fund'],
+    'Sectoral - FMCG': ['ICICI Prudential FMCG Fund'],
+    'Debt - Medium Duration': ['ICICI Prudential Medium Term Bond Fund'],
+  },
+  'HDFC': {
+    'Large Cap': ['HDFC Top 100 Fund','HDFC Index Fund Nifty 50','HDFC Index Fund Nifty Next 50'],
+    'Mid Cap': ['HDFC Mid-Cap Opportunities Fund'],
+    'Small Cap': ['HDFC Small Cap Fund'],
+    'Flexi Cap': ['HDFC Flexi Cap Fund'],
+    'Multi Cap': ['HDFC Multi Cap Fund'],
+    'Large & Mid Cap': ['HDFC Large and Mid Cap Fund'],
+    'ELSS': ['HDFC ELSS Tax Saver'],
+    'Focused': ['HDFC Focused 30 Fund'],
+    'Dividend Yield': ['HDFC Dividend Yield Fund'],
+    'Value': ['HDFC Capital Builder Value Fund'],
+    'Contra': ['HDFC Contra Fund'],
+    'Hybrid - Aggressive': ['HDFC Balanced Advantage Fund','HDFC Equity Savings Fund'],
+    'Hybrid - Balanced Advantage': ['HDFC Balanced Advantage Fund'],
+    'Debt - Liquid': ['HDFC Liquid Fund'],
+    'Debt - Short Duration': ['HDFC Short Term Debt Fund'],
+    'Debt - Corporate Bond': ['HDFC Corporate Bond Fund'],
+    'Debt - Banking & PSU': ['HDFC Banking and PSU Debt Fund'],
+    'Sectoral - Infrastructure': ['HDFC Infrastructure Fund'],
+  },
+  'Nippon': {
+    'Large Cap': ['Nippon India Large Cap Fund'],
+    'Mid Cap': ['Nippon India Growth Fund'],
+    'Small Cap': ['Nippon India Small Cap Fund'],
+    'Flexi Cap': ['Nippon India Flexi Cap Fund'],
+    'Multi Cap': ['Nippon India Multi Cap Fund'],
+    'Large & Mid Cap': ['Nippon India Vision Fund'],
+    'ELSS': ['Nippon India Tax Saver Fund'],
+    'Focused': ['Nippon India Focused Equity Fund'],
+    'Value': ['Nippon India Value Fund'],
+    'Hybrid - Aggressive': ['Nippon India Equity Hybrid Fund'],
+    'Hybrid - Balanced Advantage': ['Nippon India Balanced Advantage Fund'],
+    'Debt - Liquid': ['Nippon India Liquid Fund'],
+    'Debt - Short Duration': ['Nippon India Short Term Fund'],
+    'Sectoral - Technology': ['Nippon India Technology Fund'],
+    'Sectoral - Pharma': ['Nippon India Pharma Fund'],
+    'Sectoral - Banking': ['Nippon India Banking & Financial Services Fund'],
+  },
+  'Kotak': {
+    'Large Cap': ['Kotak Bluechip Fund','Kotak Nifty 50 Index Fund'],
+    'Mid Cap': ['Kotak Emerging Equity Fund'],
+    'Small Cap': ['Kotak Small Cap Fund'],
+    'Flexi Cap': ['Kotak Flexicap Fund'],
+    'Multi Cap': ['Kotak Multicap Fund'],
+    'Large & Mid Cap': ['Kotak Equity Opportunities Fund'],
+    'ELSS': ['Kotak ELSS Tax Saver Fund'],
+    'Focused': ['Kotak Focused Equity Fund'],
+    'Hybrid - Aggressive': ['Kotak Equity Hybrid Fund'],
+    'Hybrid - Balanced Advantage': ['Kotak Balanced Advantage Fund'],
+    'Debt - Liquid': ['Kotak Liquid Fund'],
+    'Debt - Short Duration': ['Kotak Bond Short Term Fund'],
+    'Debt - Corporate Bond': ['Kotak Corporate Bond Fund'],
+    'Sectoral - Infrastructure': ['Kotak Infrastructure & Economic Reform Fund'],
+    'Sectoral - Banking': ['Kotak Banking & Financial Services Fund'],
+    'Sectoral - PSU': ['Kotak PSU Fund'],
+  },
+  'Mirae Asset': {
+    'Large Cap': ['Mirae Asset Large Cap Fund','Mirae Asset Nifty 50 ETF FoF'],
+    'Mid Cap': ['Mirae Asset Midcap Fund'],
+    'Small Cap': ['Mirae Asset Small Cap Fund'],
+    'Flexi Cap': ['Mirae Asset Flexi Cap Fund'],
+    'Multi Cap': ['Mirae Asset Multicap Fund'],
+    'Large & Mid Cap': ['Mirae Asset Emerging Bluechip Fund'],
+    'ELSS': ['Mirae Asset ELSS Tax Saver Fund'],
+    'Focused': ['Mirae Asset Focused Fund'],
+    'Hybrid - Aggressive': ['Mirae Asset Aggressive Hybrid Fund'],
+    'Hybrid - Balanced Advantage': ['Mirae Asset Balanced Advantage Fund'],
+    'Sectoral - Healthcare': ['Mirae Asset Healthcare Fund'],
+    'Sectoral - Banking': ['Mirae Asset Banking & Financial Services Fund'],
+    'Sectoral - Technology': ['Mirae Asset NYSE FANG+ ETF FoF'],
+  },
+  'Axis': {
+    'Large Cap': ['Axis Bluechip Fund','Axis Nifty 100 Index Fund'],
+    'Mid Cap': ['Axis Midcap Fund'],
+    'Small Cap': ['Axis Small Cap Fund'],
+    'Flexi Cap': ['Axis Flexi Cap Fund'],
+    'Multi Cap': ['Axis Multicap Fund'],
+    'Large & Mid Cap': ['Axis Growth Opportunities Fund'],
+    'ELSS': ['Axis Long Term Equity Fund'],
+    'Focused': ['Axis Focused 25 Fund'],
+    'Hybrid - Aggressive': ['Axis Equity Hybrid Fund'],
+    'Hybrid - Balanced Advantage': ['Axis Balanced Advantage Fund'],
+    'Debt - Liquid': ['Axis Liquid Fund'],
+    'Debt - Short Duration': ['Axis Short Term Fund'],
+    'Debt - Corporate Bond': ['Axis Corporate Debt Fund'],
+    'Sectoral - Banking': ['Axis Banking & PSU Debt Fund'],
+  },
+  'UTI': {
+    'Large Cap': ['UTI Nifty 50 Index Fund','UTI Nifty Next 50 Index Fund','UTI Large Cap Fund'],
+    'Mid Cap': ['UTI Mid Cap Fund'],
+    'Small Cap': ['UTI Small Cap Fund'],
+    'Flexi Cap': ['UTI Flexi Cap Fund'],
+    'Multi Cap': ['UTI Multicap Fund'],
+    'ELSS': ['UTI Long Term Equity Fund'],
+    'Focused': ['UTI Focused Equity Fund'],
+    'Hybrid - Aggressive': ['UTI Aggressive Hybrid Fund'],
+    'Hybrid - Balanced Advantage': ['UTI Balanced Advantage Fund'],
+    'Debt - Liquid': ['UTI Liquid Cash Plan'],
+    'Sectoral - Banking': ['UTI Banking & Financial Services Fund'],
+    'Sectoral - Healthcare': ['UTI Healthcare Fund'],
+    'Dividend Yield': ['UTI Dividend Yield Fund'],
+  },
+  'Aditya Birla Sun Life': {
+    'Large Cap': ['ABSL Frontline Equity Fund','ABSL Nifty 50 Index Fund'],
+    'Mid Cap': ['ABSL Midcap Fund'],
+    'Small Cap': ['ABSL Small Cap Fund'],
+    'Flexi Cap': ['ABSL Flexi Cap Fund'],
+    'Multi Cap': ['ABSL Multicap Fund'],
+    'Large & Mid Cap': ['ABSL Equity Advantage Fund'],
+    'ELSS': ['ABSL Tax Relief 96'],
+    'Focused': ['ABSL Focused Fund'],
+    'Value': ['ABSL Pure Value Fund'],
+    'Contra': ['ABSL Balanced Advantage Fund'],
+    'Hybrid - Aggressive': ['ABSL Equity Hybrid 95 Fund'],
+    'Hybrid - Balanced Advantage': ['ABSL Balanced Advantage Fund'],
+    'Debt - Liquid': ['ABSL Liquid Fund'],
+    'Debt - Short Duration': ['ABSL Short Term Fund'],
+    'Debt - Corporate Bond': ['ABSL Corporate Bond Fund'],
+    'Sectoral - Banking': ['ABSL Banking & Financial Services Fund'],
+    'Sectoral - Infrastructure': ['ABSL Infrastructure Fund'],
+  },
+  'Franklin Templeton': {
+    'Large Cap': ['Franklin India Bluechip Fund'],
+    'Flexi Cap': ['Franklin India Flexi Cap Fund'],
+    'Multi Cap': ['Franklin India Equity Fund'],
+    'Small Cap': ['Franklin India Smaller Companies Fund'],
+    'ELSS': ['Franklin India ELSS Tax Saver Fund'],
+    'Focused': ['Franklin India Focused Equity Fund'],
+    'Value': ['Franklin India Opportunities Fund'],
+    'Hybrid - Aggressive': ['Franklin India Equity Hybrid Fund'],
+    'Debt - Liquid': ['Franklin India Liquid Fund'],
+    'Debt - Short Duration': ['Franklin India Short Term Income Plan'],
+  },
+  'DSP': {
+    'Large Cap': ['DSP Top 100 Equity Fund','DSP Nifty 50 Index Fund'],
+    'Mid Cap': ['DSP Midcap Fund'],
+    'Small Cap': ['DSP Small Cap Fund'],
+    'Flexi Cap': ['DSP Flexi Cap Fund'],
+    'Multi Cap': ['DSP Multicap Fund'],
+    'Large & Mid Cap': ['DSP Equity Opportunities Fund'],
+    'ELSS': ['DSP ELSS Tax Saver Fund'],
+    'Value': ['DSP Value Fund'],
+    'Focused': ['DSP Focus Fund'],
+    'Hybrid - Balanced Advantage': ['DSP Dynamic Asset Allocation Fund'],
+    'Debt - Liquid': ['DSP Liquidity Fund'],
+    'Debt - Short Duration': ['DSP Short Term Fund'],
+    'Sectoral - Natural Resources': ['DSP Natural Resources & New Energy Fund'],
+    'Sectoral - Healthcare': ['DSP Healthcare Fund'],
+  },
+  'Motilal Oswal': {
+    'Large Cap': ['Motilal Oswal Large Cap Fund','Motilal Oswal Nifty 50 Index Fund'],
+    'Mid Cap': ['Motilal Oswal Midcap Fund'],
+    'Small Cap': ['Motilal Oswal Small Cap Fund'],
+    'Flexi Cap': ['Motilal Oswal Flexi Cap Fund'],
+    'Multi Cap': ['Motilal Oswal Multicap Fund'],
+    'Large & Mid Cap': ['Motilal Oswal Large & Midcap Fund'],
+    'ELSS': ['Motilal Oswal ELSS Tax Saver Fund'],
+    'Focused': ['Motilal Oswal Focused Fund'],
+    'Hybrid - Balanced Advantage': ['Motilal Oswal Dynamic Fund'],
+    'Sectoral - Business Cycle': ['Motilal Oswal Business Cycle Fund'],
+  },
+  'Sundaram': {
+    'Large Cap': ['Sundaram Large Cap Fund'],
+    'Mid Cap': ['Sundaram Mid Cap Fund'],
+    'Small Cap': ['Sundaram Small Cap Fund'],
+    'Large & Mid Cap': ['Sundaram Large and Mid Cap Fund'],
+    'Multi Cap': ['Sundaram Multi Cap Fund','Sundaram Multi-Factor Fund'],
+    'Flexi Cap': ['Sundaram Flexi Cap Fund'],
+    'Focused': ['Sundaram Focused Fund'],
+    'ELSS': ['Sundaram ELSS Tax Saver Fund'],
+    'Value': ['Sundaram Value Fund'],
+    'Dividend Yield': ['Sundaram Dividend Yield Fund'],
+    'Hybrid - Aggressive': ['Sundaram Aggressive Hybrid Fund'],
+    'Hybrid - Balanced Advantage': ['Sundaram Balanced Advantage Fund'],
+    'Hybrid - Equity Savings': ['Sundaram Equity Savings Fund'],
+    'Hybrid - Multi Asset': ['Sundaram Multi Asset Allocation Fund'],
+    'Sectoral - Consumption': ['Sundaram Consumption Fund'],
+    'Sectoral - Services': ['Sundaram Services Fund'],
+    'Sectoral - Infrastructure': ['Sundaram Infrastructure Advantage Fund'],
+    'Sectoral - Banking': ['Sundaram Financial Services Opportunities Fund'],
+    'Debt - Liquid': ['Sundaram Liquid Fund'],
+    'Debt - Short Duration': ['Sundaram Short Duration Fund'],
+    'Debt - Corporate Bond': ['Sundaram Corporate Bond Fund'],
+  },
+  'PPFAS': {
+    'Flexi Cap': ['Parag Parikh Flexi Cap Fund'],
+    'ELSS': ['Parag Parikh ELSS Tax Saver Fund'],
+    'Hybrid - Conservative': ['Parag Parikh Conservative Hybrid Fund'],
+    'Debt - Liquid': ['Parag Parikh Liquid Fund'],
+  },
+  'Quant': {
+    'Large Cap': ['Quant Large Cap Fund'],
+    'Mid Cap': ['Quant Mid Cap Fund'],
+    'Small Cap': ['Quant Small Cap Fund'],
+    'Flexi Cap': ['Quant Flexi Cap Fund'],
+    'Multi Cap': ['Quant Active Fund'],
+    'ELSS': ['Quant ELSS Tax Saver Fund'],
+    'Value': ['Quant Value Fund'],
+    'Focused': ['Quant Focused Fund'],
+    'Hybrid - Aggressive': ['Quant Absolute Fund'],
+    'Hybrid - Multi Asset': ['Quant Multi Asset Fund'],
+  },
+  'WhiteOak Capital': {
+    'Large Cap': ['WhiteOak Capital Large Cap Fund'],
+    'Mid Cap': ['WhiteOak Capital Mid Cap Fund'],
+    'Small Cap': ['WhiteOak Capital Small Cap Fund'],
+    'Large & Mid Cap': ['WhiteOak Capital Large & Mid Cap Fund'],
+    'Multi Cap': ['WhiteOak Capital Multicap Fund'],
+    'Flexi Cap': ['WhiteOak Capital Flexi Cap Fund'],
+    'ELSS': ['WhiteOak Capital ELSS Tax Saver Fund'],
+    'Focused': ['WhiteOak Capital Focused Fund'],
+  },
+  'Tata': {
+    'Large Cap': ['Tata Large Cap Fund','Tata Nifty 50 Index Fund'],
+    'Mid Cap': ['Tata Mid Cap Growth Fund'],
+    'Small Cap': ['Tata Small Cap Fund'],
+    'Flexi Cap': ['Tata Flexi Cap Fund'],
+    'Multi Cap': ['Tata Multicap Fund'],
+    'Large & Mid Cap': ['Tata Large & Mid Cap Fund'],
+    'ELSS': ['Tata India Tax Savings Fund'],
+    'Focused': ['Tata Focused Equity Fund'],
+    'Value': ['Tata Equity PE Fund'],
+    'Hybrid - Balanced Advantage': ['Tata Balanced Advantage Fund'],
+    'Sectoral - Digital India': ['Tata Digital India Fund'],
+    'Sectoral - Infrastructure': ['Tata Infrastructure Fund'],
+    'Sectoral - Banking': ['Tata Banking & Financial Services Fund'],
+  },
+  'Canara Robeco': {
+    'Large Cap': ['Canara Robeco Bluechip Equity Fund'],
+    'Flexi Cap': ['Canara Robeco Flexi Cap Fund'],
+    'Multi Cap': ['Canara Robeco Multi Cap Fund'],
+    'Small Cap': ['Canara Robeco Small Cap Fund'],
+    'ELSS': ['Canara Robeco Equity Tax Saver Fund'],
+    'Hybrid - Aggressive': ['Canara Robeco Equity Hybrid Fund'],
+    'Debt - Short Duration': ['Canara Robeco Short Duration Fund'],
+  },
+  'HSBC': {
+    'Large Cap': ['HSBC Large Cap Fund'],
+    'Mid Cap': ['HSBC Mid Cap Fund'],
+    'Small Cap': ['HSBC Small Cap Fund'],
+    'Flexi Cap': ['HSBC Flexi Cap Fund'],
+    'Multi Cap': ['HSBC Multi Cap Fund'],
+    'ELSS': ['HSBC ELSS Tax Saver Fund'],
+    'Hybrid - Balanced Advantage': ['HSBC Balanced Advantage Fund'],
+    'Debt - Short Duration': ['HSBC Short Duration Fund'],
+  },
+  'Bandhan': {
+    'Large Cap': ['Bandhan Large Cap Fund'],
+    'Mid Cap': ['Bandhan Core Equity Fund'],
+    'Small Cap': ['Bandhan Small Cap Fund'],
+    'Flexi Cap': ['Bandhan Flexi Cap Fund'],
+    'ELSS': ['Bandhan ELSS Tax Saver Fund'],
+    'Hybrid - Balanced Advantage': ['Bandhan Balanced Advantage Fund'],
+    'Debt - Short Duration': ['Bandhan Bond Fund Short Term Plan'],
+  },
+  'PGIM India': {
+    'Large Cap': ['PGIM India Large Cap Fund'],
+    'Mid Cap': ['PGIM India Midcap Opportunities Fund'],
+    'Small Cap': ['PGIM India Small Cap Fund'],
+    'Flexi Cap': ['PGIM India Flexi Cap Fund'],
+    'Multi Cap': ['PGIM India Multi Cap Fund'],
+    'ELSS': ['PGIM India ELSS Tax Saver Fund'],
+    'Hybrid - Balanced Advantage': ['PGIM India Balanced Advantage Fund'],
+  },
+  'Edelweiss': {
+    'Large Cap': ['Edelweiss Large Cap Fund'],
+    'Mid Cap': ['Edelweiss Mid Cap Fund'],
+    'Small Cap': ['Edelweiss Small Cap Fund'],
+    'Flexi Cap': ['Edelweiss Flexi Cap Fund'],
+    'Multi Cap': ['Edelweiss Multi Cap Fund'],
+    'ELSS': ['Edelweiss Long Term Equity Fund'],
+    'Hybrid - Balanced Advantage': ['Edelweiss Balanced Advantage Fund'],
+    'Debt - Short Duration': ['Edelweiss Short Term Fund'],
+  },
+  'Invesco': {
+    'Large Cap': ['Invesco India Large Cap Fund'],
+    'Mid Cap': ['Invesco India Mid Cap Fund'],
+    'Small Cap': ['Invesco India Smallcap Fund'],
+    'Flexi Cap': ['Invesco India Flexi Cap Fund'],
+    'Multi Cap': ['Invesco India Multicap Fund'],
+    'ELSS': ['Invesco India ELSS Tax Saver Fund'],
+    'Focused': ['Invesco India Focused Fund'],
+    'Sectoral - Technology': ['Invesco India Technology Fund'],
+    'Hybrid - Balanced Advantage': ['Invesco India Balanced Advantage Fund'],
+  },
+  'Groww': {
+    'Large Cap': ['Groww Large Cap Fund','Groww Nifty 50 ETF'],
+    'Mid Cap': ['Groww Midcap Fund'],
+    'Flexi Cap': ['Groww Flexi Cap Fund'],
+    'ELSS': ['Groww ELSS Tax Saver Fund'],
+    'Hybrid - Balanced Advantage': ['Groww Balanced Advantage Fund'],
+    'Debt - Liquid': ['Groww Liquid Fund'],
+  },
+  'Baroda BNP Paribas': {
+    'Large Cap': ['Baroda BNP Paribas Large Cap Fund'],
+    'Mid Cap': ['Baroda BNP Paribas Mid Cap Fund'],
+    'Multi Cap': ['Baroda BNP Paribas Multi Cap Fund'],
+    'Flexi Cap': ['Baroda BNP Paribas Flexi Cap Fund'],
+    'ELSS': ['Baroda BNP Paribas ELSS Fund'],
+    'Hybrid - Aggressive': ['Baroda BNP Paribas Aggressive Hybrid Fund'],
+  },
+  'Mahindra Manulife': {
+    'Large Cap': ['Mahindra Manulife Large Cap Fund'],
+    'Mid Cap': ['Mahindra Manulife Mid Cap Fund'],
+    'Multi Cap': ['Mahindra Manulife Multi Cap Fund'],
+    'Flexi Cap': ['Mahindra Manulife Flexi Cap Fund'],
+    'ELSS': ['Mahindra Manulife ELSS Fund'],
+  },
+  'Bajaj Finserv': {
+    'Large Cap': ['Bajaj Finserv Large Cap Fund'],
+    'Flexi Cap': ['Bajaj Finserv Flexi Cap Fund'],
+    'Multi Cap': ['Bajaj Finserv Multi Cap Fund'],
+    'ELSS': ['Bajaj Finserv ELSS Tax Saver Fund'],
+    'Hybrid - Balanced Advantage': ['Bajaj Finserv Balanced Advantage Fund'],
+    'Debt - Liquid': ['Bajaj Finserv Liquid Fund'],
+  },
+  '360 ONE': {
+    'Flexi Cap': ['360 ONE Flexi Cap Fund'],
+    'Multi Cap': ['360 ONE Multi Cap Fund'],
+    'Focused': ['360 ONE Focused Equity Fund'],
+    'ELSS': ['360 ONE ELSS Nifty 50 Tax Saver Index Fund'],
+  },
+  'Old Bridge': {
+    'Multi Cap': ['Old Bridge Multicap Fund'],
+    'Focused': ['Old Bridge Focused Equity Fund'],
+  },
+  'Helios': {
+    'Flexi Cap': ['Helios Flexi Cap Fund'],
+    'Mid Cap': ['Helios Midcap 100 ETF FoF'],
+  },
+  'Zerodha': {
+    'Large Cap': ['Zerodha Nifty LargeMidcap 250 Index Fund'],
+    'Debt - Liquid': ['Zerodha Liquid Fund'],
+  },
+  'Quantum': {
+    'Large Cap': ['Quantum Long Term Equity Value Fund'],
+    'Focused': ['Quantum Focused Fund'],
+    'Multi Asset': ['Quantum Multi Asset Fund of Funds'],
+    'Debt - Liquid': ['Quantum Liquid Fund'],
+  },
+};
 
-  // Show active portfolio indicator
-  const ind     = document.getElementById('active-port-indicator');
-  const indName = document.getElementById('active-port-indicator-name');
-  if (activePortId && ind && indName) {
-    const port = portfolios.find(p=>p.id===activePortId);
-    if (port) { ind.style.display='block'; indName.textContent=port.name; }
-  }
+// ── CATEGORY ORDER for display ───────────────────────────────
+const CAT_ORDER = [
+  'Large Cap','Mid Cap','Small Cap','Large & Mid Cap','Flexi Cap','Multi Cap',
+  'Focused','ELSS','Value','Contra','Dividend Yield',
+  'Hybrid - Aggressive','Hybrid - Balanced Advantage','Hybrid - Equity Savings',
+  'Hybrid - Conservative','Hybrid - Multi Asset','Multi Asset',
+  'Sectoral - Banking','Sectoral - Technology','Sectoral - Healthcare',
+  'Sectoral - Infrastructure','Sectoral - Consumption','Sectoral - Services',
+  'Sectoral - Pharma','Sectoral - FMCG','Sectoral - PSU',
+  'Sectoral - Natural Resources','Sectoral - Digital India','Sectoral - Business Cycle',
+  'Debt - Liquid','Debt - Short Duration','Debt - Corporate Bond',
+  'Debt - Banking & PSU','Debt - Medium Duration',
+];
 
-  if (!funds.length) {
-    tbody.innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:2rem;font-size:.65rem">No funds loaded. Upload factsheets first.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = funds.map(({name,amc})=>{
-    return `<tr>
-      <td>${name}</td>
-      <td class="c-dim" style="font-size:.6rem">${amc}</td>
-      <td class="r"><input type="number" class="ai" id="ai-${sid(name)}" value="" min="0" max="100" step="0.1" placeholder="0" oninput="updateAllocTot();saveAllocations();saveCurrentAllocToPortfolio()"></td>
-    </tr>`;
-  }).join('');
-  updateAllocTot();
+// ── Allocation page state ─────────────────────────────────────
+// allocRows: [{key, fundName, amcName, pct, isUploaded}]
+let allocRows = [];
 
-  // Priority: active portfolio allocations > saved allocations > KNOWN prefills
+function buildAllocPage() {
+  // ── Populate portfolio dropdown ───────────────────────────────
+  const portSel = document.getElementById('alloc-port-sel');
+  if (!portSel) return;
+  portSel.innerHTML = '<option value="">Select portfolio…</option>' +
+    portfolios.map(p => `<option value="${p.id}">${p.name}${p.client ? ' — '+p.client : ''}</option>`).join('');
+
+  // Set to active portfolio
   if (activePortId) {
-    syncAllocsFromPortfolio(activePortId);
+    portSel.value = activePortId;
+    allocLoadPortfolio(activePortId);
   } else {
-    loadAllocations();
-    // Apply KNOWN prefills only where no value set
-    funds.forEach(({name}) => {
-      const el = document.getElementById('ai-'+sid(name));
-      if (el && !el.value) {
-        const k = name.toLowerCase();
-        const pre = Object.entries(KNOWN).find(([p])=>k.includes(p));
-        if (pre) el.value = pre[1];
-      }
+    document.getElementById('alloc-port-label').textContent = '—';
+    allocRows = [];
+    renderAllocRows();
+  }
+
+  // ── Populate AMC dropdown ─────────────────────────────────────
+  const amcSel = document.getElementById('alloc-amc-sel');
+  if (amcSel && amcSel.options.length <= 1) {
+    Object.keys(FUND_UNIVERSE).sort().forEach(amc => {
+      amcSel.innerHTML += `<option value="${amc}">${amc}</option>`;
     });
-    updateAllocTot();
   }
 }
 
+function allocOnPortChange() {
+  const portId = document.getElementById('alloc-port-sel').value;
+  if (!portId) {
+    activePortId = null;
+    document.getElementById('alloc-port-label').textContent = '—';
+    allocRows = [];
+    renderAllocRows();
+    document.getElementById('alloc-analyse-shortcut').style.display = 'none';
+    return;
+  }
+  setActivePortfolio(portId);
+  allocLoadPortfolio(portId);
+}
+
+function allocLoadPortfolio(portId) {
+  const port = portfolios.find(p => p.id === portId);
+  if (!port) return;
+
+  // Update label
+  const lbl = document.getElementById('alloc-port-label');
+  if (lbl) lbl.textContent = port.name + (port.client ? ' — ' + port.client : '');
+
+  // Build allocRows from saved allocations only — clean, no auto-injection of uploads
+  const saved = port.allocations || {};
+  allocRows = Object.entries(saved).map(([name, pct]) => {
+    const f = allFunds().find(f => f.name === name);
+    return { key: sid(name), fundName: name, amcName: f?.amc || '', pct, isUploaded: !!f };
+  });
+
+  renderAllocRows();
+  refreshAllocShortcut();
+}
+
+function allocOnAmcChange() {
+  const amc = document.getElementById('alloc-amc-sel').value;
+  const catSel = document.getElementById('alloc-cat-sel');
+  const schemeSel = document.getElementById('alloc-scheme-sel');
+  catSel.innerHTML = '<option value="">Select category…</option>';
+  schemeSel.innerHTML = '<option value="">Select scheme…</option>';
+  schemeSel.disabled = true;
+
+  if (!amc) { catSel.disabled = true; catSel.style.opacity='.6'; return; }
+
+  const cats = FUND_UNIVERSE[amc] ? Object.keys(FUND_UNIVERSE[amc]) : [];
+  const sorted = CAT_ORDER.filter(c => cats.includes(c)).concat(cats.filter(c => !CAT_ORDER.includes(c)));
+  sorted.forEach(cat => { catSel.innerHTML += `<option value="${cat}">${cat}</option>`; });
+  catSel.disabled = false;
+  catSel.style.opacity = '1';
+}
+
+function allocOnCatChange() {
+  const amc = document.getElementById('alloc-amc-sel').value;
+  const cat = document.getElementById('alloc-cat-sel').value;
+  const schemeSel = document.getElementById('alloc-scheme-sel');
+  schemeSel.innerHTML = '<option value="">Select scheme…</option>';
+
+  if (!amc || !cat) { schemeSel.disabled=true; schemeSel.style.opacity='.6'; return; }
+
+  const schemes = FUND_UNIVERSE[amc]?.[cat] || [];
+  schemes.forEach(s => { schemeSel.innerHTML += `<option value="${s}">${s}</option>`; });
+  schemeSel.disabled = false;
+  schemeSel.style.opacity = '1';
+  if (schemes.length === 1) { schemeSel.value = schemes[0]; }
+  document.getElementById('alloc-pct-inp').focus();
+}
+
+function allocOnSchemeChange() {
+  document.getElementById('alloc-pct-inp').focus();
+}
+
+function allocAddFund() {
+  // Guard: portfolio must be selected
+  if (!activePortId) {
+    const w = document.getElementById('alloc-port-warning');
+    if (w) { w.style.display='block'; setTimeout(()=>w.style.display='none',2500); }
+    return;
+  }
+
+  const amc    = document.getElementById('alloc-amc-sel').value;
+  const scheme = document.getElementById('alloc-scheme-sel').value;
+  const pctRaw = document.getElementById('alloc-pct-inp').value;
+  const pct    = parseFloat(pctRaw);
+
+  if (!scheme) { showToast('Select a scheme first'); return; }
+  if (isNaN(pct) || pct <= 0) { showToast('Enter allocation %'); return; }
+  if (pct > 100) { showToast('Cannot exceed 100%'); return; }
+
+  const key = sid(scheme);
+  const existing = allocRows.find(r => r.key === key);
+  if (existing) {
+    existing.pct = pct;
+    showToast(`Updated → ${pct}%`);
+  } else {
+    allocRows.push({ key, fundName: scheme, amcName: amc, pct, isUploaded: false });
+  }
+
+  // Reset scheme + pct only (keep AMC+category for quick multi-add)
+  document.getElementById('alloc-scheme-sel').value = '';
+  document.getElementById('alloc-pct-inp').value = '';
+  document.getElementById('alloc-pct-inp').focus();
+
+  renderAllocRows();
+  saveAllocations();
+  saveCurrentAllocToPortfolio();
+  refreshAllocShortcut();
+}
+
+function allocClearAll() {
+  allocRows = [];
+  renderAllocRows();
+  saveAllocations();
+  saveCurrentAllocToPortfolio();
+  refreshAllocShortcut();
+}
+
+function refreshAllocShortcut() {
+  const shortcut = document.getElementById('alloc-analyse-shortcut');
+  const btn = document.getElementById('alloc-analyse-btn');
+  const hasRows = allocRows.some(r => r.pct > 0);
+  if (shortcut) shortcut.style.display = hasRows ? 'block' : 'none';
+  if (btn) btn.disabled = !hasRows;
+}
+
+function renderAllocRows() {
+  const container = document.getElementById('alloc-fund-rows');
+  const emptyMsg  = document.getElementById('alloc-empty-msg');
+  const clearBtn  = document.getElementById('alloc-clear-btn');
+  if (!container) return;
+
+  const activeRows = allocRows.filter(r => r.pct > 0 || true); // show all including 0
+
+  if (!activeRows.length) {
+    container.innerHTML = '';
+    if (emptyMsg) { emptyMsg.style.display='block'; container.appendChild(emptyMsg); }
+    if (clearBtn) clearBtn.style.display = 'none';
+    updateAllocTot();
+    refreshAllocShortcut();
+    return;
+  }
+
+  if (emptyMsg) emptyMsg.style.display = 'none';
+  if (clearBtn) clearBtn.style.display = 'inline-block';
+
+  container.innerHTML = allocRows.map(r => `
+    <div style="display:flex;align-items:center;gap:.4rem;padding:.4rem 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.72rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.fundName}">${r.fundName}</div>
+        <div style="font-size:.56rem;color:var(--muted2)">${r.amcName}${r.isUploaded ? ' <span style="color:var(--green)">✓</span>' : ''}</div>
+      </div>
+      <input type="number" id="apct-${r.key}" value="${r.pct||''}" min="0" max="100" step="0.1" placeholder="0"
+        style="width:4rem;text-align:right;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.28rem .4rem;font-size:.72rem;color:var(--text);outline:none;font-family:'IBM Plex Mono',monospace"
+        oninput="allocRowChanged('${r.key}', this.value)">
+      <span style="font-size:.6rem;color:var(--muted)">%</span>
+      <button onclick="allocRemoveRow('${r.key}')"
+        style="background:none;border:none;cursor:pointer;color:var(--muted2);font-size:.85rem;padding:.1rem .2rem;line-height:1;border-radius:3px"
+        onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted2)'">✕</button>
+    </div>
+  `).join('');
+
+  updateAllocTot();
+  refreshAllocShortcut();
+}
+
+function allocRowChanged(key, val) {
+  const row = allocRows.find(r => r.key === key);
+  if (row) { row.pct = parseFloat(val) || 0; }
+  updateAllocTot();
+  saveAllocations();
+  saveCurrentAllocToPortfolio();
+}
+
+function allocRemoveRow(key) {
+  allocRows = allocRows.filter(r => r.key !== key);
+  renderAllocRows();
+  saveAllocations();
+  saveCurrentAllocToPortfolio();
+}
+
+function buildAllocTable() {
+  buildAllocPage();
+}
+
 function updateAllocTot() {
-  let t=0;
-  allFunds().forEach(({name})=>{ t+=parseFloat(document.getElementById('ai-'+sid(name))?.value||0); });
-  const el=document.getElementById('alloc-tot');
-  el.textContent=`Total: ${t.toFixed(1)}%`;
-  el.className='tot-row'+(t>100?' over':'');
+  const total = allocRows.reduce((s, r) => s + (parseFloat(r.pct) || 0), 0);
+  const el  = document.getElementById('alloc-tot');
+  const bar = document.getElementById('alloc-bar');
+  if (el) {
+    el.textContent = total.toFixed(1) + '%';
+    el.style.color = total > 100 ? 'var(--red)' : total >= 99 ? 'var(--green)' : 'var(--accent)';
+  }
+  if (bar) {
+    bar.style.width = Math.min(total, 100) + '%';
+    bar.style.background = total > 100 ? 'var(--red)' : total >= 95 ? 'var(--green)' : 'var(--blue)';
+  }
+}
+
+function saveAllocations() {
+  // Save allocRows as the allocations object for compatibility
+  if (!activePortId) return;
+  const port = portfolios.find(p=>p.id===activePortId);
+  if (!port) return;
+  port.allocations = {};
+  allocRows.forEach(r => { if (r.pct > 0) port.allocations[r.fundName] = r.pct; });
+}
+
+function saveCurrentAllocToPortfolio() {
+  saveAllocations();
+  saveToStorage();
+  if (window._fb?.currentUser) window._fbSaveCloud();
+}
+
+function syncAllocsFromPortfolio(portId) {
+  allocLoadPortfolio(portId);
+}
+
+// Helper — read weight from allocRows (replaces DOM ai- input reads everywhere)
+function getAllocWeight(name) {
+  // First check allocRows
+  const row = allocRows.find(r => r.fundName === name);
+  if (row) return row.pct || 0;
+  // Fallback: check active portfolio allocations
+  if (activePortId) {
+    const port = portfolios.find(p=>p.id===activePortId);
+    return port?.allocations?.[name] || 0;
+  }
+  return 0;
 }
 
 // ═══════════════════════════════════════════════════════════════
 // PORTFOLIO SUMMARY — the main dashboard
 function buildSummary() {
   const items = [];
-  allFunds().forEach(({name,amc,data}) => {
-    const wt = parseFloat(document.getElementById('ai-'+sid(name))?.value||0);
-    if (wt>0) items.push({name, amc, wt, ...data});
+  // First: funds from allocRows that have uploaded data
+  const uploadedFunds = allFunds();
+  allocRows.forEach(r => {
+    if (r.pct <= 0) return;
+    const f = uploadedFunds.find(f => f.name === r.fundName);
+    if (f) {
+      items.push({name: r.fundName, amc: r.amcName || f.amc, wt: r.pct, ...f.data});
+    }
+    // manually added funds without data — include with zero breakdown (will show in count but not analysis)
   });
+  // Fallback: if allocRows is empty, check active portfolio
+  if (!items.length && activePortId) {
+    const port = portfolios.find(p=>p.id===activePortId);
+    if (port?.allocations) {
+      uploadedFunds.forEach(({name,amc,data}) => {
+        const wt = port.allocations[name] || 0;
+        if (wt>0) items.push({name, amc, wt, ...data});
+      });
+    }
+  }
   if (!items.length) return;
 
   const tw  = items.reduce((s,f)=>s+f.wt, 0);
@@ -4080,7 +4932,7 @@ function buildSummary() {
 function buildMetrics() {
   const items = [];
   allFunds().forEach(({name,amc,data}) => {
-    const wt = parseFloat(document.getElementById('ai-'+sid(name))?.value||0);
+    const wt = getAllocWeight(name);
     if (wt>0) items.push({name, amc, wt, ...data});
   });
   if (!items.length) {
@@ -4239,7 +5091,7 @@ function buildMetrics() {
 function runAnalysis() {
   const items=[];
   allFunds().forEach(({name,amc,data})=>{
-    const wt=parseFloat(document.getElementById('ai-'+sid(name))?.value||0);
+    const wt=getAllocWeight(name);
     if (wt>0) items.push({name,amc,wt,...data});
   });
   if (!items.length){showToast('Enter allocation for at least one fund.');return;}
