@@ -2374,10 +2374,20 @@ function runAnalysisForPortfolio(port) {
 }
 
 function getActiveItems() {
-  const items=[];
-  allFunds().forEach(({name,amc,data})=>{
-    const wt=getAllocWeight(name);
-    if(wt>0) items.push({name,amc,wt,...data});
+  const uploadedMap = {};
+  allFunds().forEach(({name,amc,data}) => { uploadedMap[name] = {amc,data}; });
+  const items = [];
+  allocRows.forEach(r => {
+    const wt = parseFloat(r.pct) || 0;
+    if (wt <= 0) return;
+    const uploaded = uploadedMap[r.fundName];
+    if (uploaded) {
+      items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, ...uploaded.data});
+    } else {
+      items.push({name: r.fundName, amc: r.amcName, wt,
+        large:0,mid:0,small:0,eqOther:0,gsec:0,sdl:0,aaa:0,aa:0,mkt:0,cash:0,debtTotal:0,
+        equityStocks:[],debtItems:[]});
+    }
   });
   return items;
 }
@@ -4760,27 +4770,7 @@ function getAllocWeight(name) {
 // ═══════════════════════════════════════════════════════════════
 // PORTFOLIO SUMMARY — the main dashboard
 function buildSummary() {
-  const items = [];
-  // First: funds from allocRows that have uploaded data
-  const uploadedFunds = allFunds();
-  allocRows.forEach(r => {
-    if (r.pct <= 0) return;
-    const f = uploadedFunds.find(f => f.name === r.fundName);
-    if (f) {
-      items.push({name: r.fundName, amc: r.amcName || f.amc, wt: r.pct, ...f.data});
-    }
-    // manually added funds without data — include with zero breakdown (will show in count but not analysis)
-  });
-  // Fallback: if allocRows is empty, check active portfolio
-  if (!items.length && activePortId) {
-    const port = portfolios.find(p=>p.id===activePortId);
-    if (port?.allocations) {
-      uploadedFunds.forEach(({name,amc,data}) => {
-        const wt = port.allocations[name] || 0;
-        if (wt>0) items.push({name, amc, wt, ...data});
-      });
-    }
-  }
+  const items = getActiveItems();
   if (!items.length) return;
 
   const tw  = items.reduce((s,f)=>s+f.wt, 0);
@@ -5089,12 +5079,30 @@ function buildMetrics() {
 
 
 function runAnalysis() {
-  const items=[];
-  allFunds().forEach(({name,amc,data})=>{
-    const wt=getAllocWeight(name);
-    if (wt>0) items.push({name,amc,wt,...data});
+  // Build items from allocRows (source of truth for weights)
+  // Enrich with uploaded fund data where available
+  const uploadedMap = {};
+  allFunds().forEach(({name, amc, data}) => { uploadedMap[name] = {amc, data}; });
+
+  const items = [];
+  allocRows.forEach(r => {
+    const wt = parseFloat(r.pct) || 0;
+    if (wt <= 0) return;
+    const uploaded = uploadedMap[r.fundName];
+    if (uploaded) {
+      items.push({ name: r.fundName, amc: r.amcName || uploaded.amc, wt, ...uploaded.data });
+    } else {
+      // Fund added manually — no holdings data, include with zeros
+      items.push({
+        name: r.fundName, amc: r.amcName, wt,
+        large:0, mid:0, small:0, eqOther:0,
+        gsec:0, sdl:0, aaa:0, aa:0, mkt:0, cash:0, debtTotal:0,
+        equityStocks:[], debtItems:[]
+      });
+    }
   });
-  if (!items.length){showToast('Enter allocation for at least one fund.');return;}
+
+  if (!items.length) { showToast('Add funds and set allocation % first.'); return; }
 
   const tw = items.reduce((s,f)=>s+f.wt,0);
   const bl=(k)=> items.reduce((s,f)=>s+f.wt*(f[k]||0),0)/tw;
