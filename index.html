@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <!-- Firebase -->
 <script type="module">
 import { initializeApp }                          from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
@@ -1417,14 +1418,18 @@ body {
           <div id="amc-excel-selected" style="display:none;margin-top:.5rem;padding:.4rem .65rem;background:var(--accent-dim);border-radius:var(--r-sm);font-size:.68rem;color:var(--accent)"></div>
         </div>
 
-        <div id="upload-xls-uz" class="uz" style="cursor:pointer"
+        <!-- Server status chips -->
+        <div id="server-amc-status" style="display:none;margin-bottom:.75rem">
+          <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.35rem;font-family:'IBM Plex Mono',monospace">Already on API server</div>
+          <div id="server-amc-chips" style="display:flex;flex-wrap:wrap;gap:.3rem"></div>
+        </div>
           onclick="document.getElementById('upload-xls-input').click()"
           ondragover="event.preventDefault();this.classList.add('drag')"
           ondragleave="this.classList.remove('drag')"
-          ondrop="event.preventDefault();this.classList.remove('drag');const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('upload-xls-input');const d=new DataTransfer();d.items.add(dt.files[0]);inp.files=d.files;handlePortfolioExcel({target:inp})}">
-          <input type="file" accept=".xlsx,.xls,.csv" id="upload-xls-input" style="display:none" onchange="handlePortfolioExcel(event)">
+          ondrop="event.preventDefault();this.classList.remove('drag');const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('upload-xls-input');const d=new DataTransfer();Array.from(dt.files).forEach(f=>d.items.add(f));inp.files=d.files;handlePortfolioExcel({target:inp})}">
+          <input type="file" accept=".xlsx,.xls,.zip" id="upload-xls-input" style="display:none" multiple onchange="handlePortfolioExcel(event)">
           <div class="uz-icon" id="upload-xls-icon">📊</div>
-          <div class="uz-text" id="upload-xls-text">Drop AMC portfolio Excel here<br>or click to browse</div>
+          <div class="uz-text" id="upload-xls-text">Drop Excel(s) or ZIP here<br><span style="font-size:.62rem;color:var(--muted)">Multiple files OK · ZIP of Excels OK</span></div>
           <div class="uz-st" id="upload-xls-st"></div>
         </div>
 
@@ -3070,6 +3075,16 @@ function initApiConfigBar() {
   if (inp) inp.value = getMfApiUrl();
   if (sec) sec.value = localStorage.getItem('mf_api_secret') || '';
   if (st)  st.textContent = getMfApiUrl() ? '✓ configured' : '';
+  // Auto-fetch server status silently
+  if (getMfApiUrl()) {
+    fetch(`${getMfApiUrl()}/health`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(json => {
+        if (st) st.textContent = `✓ ${json.funds} funds`;
+        loadServerAmcStatus(json);
+      })
+      .catch(() => {});
+  }
 }
 
 async function testApiUrl() {
@@ -3078,11 +3093,12 @@ async function testApiUrl() {
   if (!url) { showToast('Enter an API URL first'); return; }
   if (st) st.textContent = 'Testing…';
   try {
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(6000) });
+    const res  = await fetch(`${url}/health`, { signal: AbortSignal.timeout(6000) });
     const json = await res.json();
-    if (res.ok && json.funds >= 0) {
-      if (st) st.textContent = `✓ ${json.funds} funds loaded`;
-      showToast(`API connected — ${json.funds} funds available`);
+    if (res.ok) {
+      if (st) st.textContent = `✓ ${json.funds} funds`;
+      showToast(`API connected — ${json.funds} funds, ${json.amcs?.length||0} AMCs`);
+      loadServerAmcStatus(json);
     } else {
       if (st) st.textContent = '⚠ unexpected response';
     }
@@ -3090,6 +3106,18 @@ async function testApiUrl() {
     if (st) st.textContent = '✗ unreachable';
     showToast('API unreachable — check the URL');
   }
+}
+
+async function loadServerAmcStatus(healthData) {
+  const el    = document.getElementById('server-amc-status');
+  const chips = document.getElementById('server-amc-chips');
+  if (!el || !chips) return;
+  const amcs = healthData?.amcs || [];
+  if (!amcs.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  chips.innerHTML = amcs.map(amc =>
+    `<span style="font-size:.62rem;padding:.2rem .5rem;border-radius:3px;background:var(--s3);border:1px solid var(--border2);color:var(--green)">✓ ${amc}</span>`
+  ).join('');
 }
 
 function highlightSelectedAmc(name) {
@@ -3106,257 +3134,417 @@ function highlightSelectedAmc(name) {
 // Handles AMC portfolio Excel/CSV files
 // Typical columns: Name, ISIN, Rating/Sector, Market Value, % of NAV
 let _xlsParsedFunds = []; // [{name, isin, pct, sector}]
-let _lastXlsFile    = null; // keep reference for API push
+let _lastXlsFile    = null;
+let _lastXlsFiles   = [];  // all files for API push
 
-async function pushExcelToApiServer(file, amcName) {
-  const url = getMfApiUrl();
-  if (!url || !file) return;
+async function pushFilesToApiServer(files, amcName) {
+  const url    = getMfApiUrl();
   const secret = localStorage.getItem('mf_api_secret') || '';
+  if (!url || !files?.length) return 0;
   try {
     const fd = new FormData();
-    fd.append('file',   file, file.name);
+    for (const f of files) fd.append('files', f, f.name);
     fd.append('amc',    amcName);
     fd.append('secret', secret);
-    const res = await fetch(`${url}/upload`, { method: 'POST', body: fd,
-      signal: AbortSignal.timeout(30000) });
+    const res  = await fetch(`${url}/upload`, { method:'POST', body:fd, signal:AbortSignal.timeout(60000) });
     const json = await res.json();
     if (res.ok) {
       showToast(`☁ ${json.funds_added} funds pushed to API server`);
       const st = document.getElementById('api-url-status');
       if (st) st.textContent = `✓ ${json.funds_total} funds on server`;
+      return json.funds_added;
     } else {
       console.warn('[API push]', json);
+      return 0;
     }
   } catch(e) {
     console.warn('[API push failed]', e.message);
+    return 0;
   }
 }
 
+async function pushExcelToApiServer(file, amcName) {
+  return pushFilesToApiServer([file], amcName);
+}
+
 async function handlePortfolioExcel(evt) {
-  const file = evt.target.files?.[0];
-  if (!file) return;
-  _lastXlsFile = file; // store for API push
+  const files = Array.from(evt.target.files || []);
+  if (!files.length) return;
+  _lastXlsFiles = files; // store all files for API push
 
   const icon = document.getElementById('upload-xls-icon');
   const st   = document.getElementById('upload-xls-st');
   const uz   = document.getElementById('upload-xls-uz');
   if (uz)   uz.className = 'uz load';
   if (icon) icon.textContent = '⏳';
-  if (st)   { st.className = 'uz-st ld'; st.textContent = 'Parsing…'; }
+  if (st)   { st.className = 'uz-st ld'; st.textContent = `Parsing ${files.length} file(s)…`; }
 
   try {
-    const buf  = await file.arrayBuffer();
-    const wb   = XLSX.read(buf, { type: 'array' });
     const results = [];
 
-    for (const sheetName of wb.SheetNames) {
-      if (/^index$/i.test(sheetName)) continue;
+    for (const file of files) {
+      const fname = file.name.toLowerCase();
 
-      const ws   = wb.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      if (rows.length < 2) continue;
-
-      // ── Detect format ──────────────────────────────────────────
-      // Format A: Client portfolio statement — Fund Name + Units + Current Value
-      // Format B: AMC disclosure Excel — ISIN column + % to AUM
-
-      // Check for client portfolio format: look for fund name col + value col
-      let clientHeaderRow = -1;
-      let clientNameCol = -1, clientValueCol = -1, clientUnitsCol = -1;
-
-      for (let r = 0; r < Math.min(10, rows.length); r++) {
-        const rowLower = rows[r].map(c => String(c).toLowerCase().trim());
-        // Name col: anything with 'fund', 'scheme', 'name'
-        const nc = rowLower.findIndex(c =>
-          c.includes('fund name') || c.includes('scheme name') ||
-          c === 'scheme' || c === 'fund' || c === 'name'
-        );
-        // Value col: current value / market value / amount
-        const vc = rowLower.findIndex(c =>
-          c.includes('current value') || c.includes('market value') ||
-          c.includes('amount') || c === 'value'
-        );
-        // Units col
-        const uc = rowLower.findIndex(c => c === 'units' || c.includes('unit'));
-        if (nc >= 0 && vc >= 0 && nc !== vc) {
-          clientHeaderRow = r;
-          clientNameCol   = nc;
-          clientValueCol  = vc;
-          clientUnitsCol  = uc;
-          break;
-        }
-      }
-
-      // Fallback: if no explicit header found, check if rows look like "fund name, number, big-number"
-      // by scanning first few data rows and inferring columns
-      if (clientHeaderRow < 0) {
-        for (let r = 0; r < Math.min(5, rows.length); r++) {
-          const row = rows[r];
-          // Find column with a string containing "Fund" and a column with a large number > 10000
-          const nameCandidates = row.map((c,i) => ({i, v: String(c).trim()}))
-            .filter(x => /fund|scheme/i.test(x.v) && x.v.length > 5);
-          const valCandidates  = row.map((c,i) => ({i, v: parseFloat(String(c).replace(/,/g,''))}))
-            .filter(x => x.v > 10000);
-          if (nameCandidates.length && valCandidates.length) {
-            clientHeaderRow = -2; // sentinel: no header row, data starts at r
-            clientNameCol   = nameCandidates[0].i;
-            clientValueCol  = valCandidates[valCandidates.length - 1].i; // largest value col = current value
-            // Parse from this row onwards
-            const rawFunds = [];
-            let totalValue = 0;
-            for (let dr = r; dr < rows.length; dr++) {
-              const drow = rows[dr];
-              const dname = String(drow[clientNameCol] || '').trim();
-              const dval  = parseFloat(String(drow[clientValueCol] || '').replace(/,/g,''));
-              if (!dname || dname.length < 3 || isNaN(dval) || dval <= 0) continue;
-              rawFunds.push({ name: dname, val: dval });
-              totalValue += dval;
-            }
-            if (rawFunds.length >= 2 && totalValue > 0) {
-              rawFunds.forEach(f => {
-                const pct = Math.round(f.val / totalValue * 10000) / 100;
-                const cleanName = f.name
-                  .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
-                  .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
-                  .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
-                results.push({ fundName: cleanName, isClientFormat: true, pct, val: f.val, units: f.units || 0 });
-              });
-            }
-            break;
+      if (fname.endsWith('.zip')) {
+        // Handle ZIP — extract Excels using JSZip if available, else skip with message
+        if (typeof JSZip !== 'undefined') {
+          const zip  = await JSZip.loadAsync(await file.arrayBuffer());
+          const xlFiles = Object.keys(zip.files).filter(n =>
+            (n.endsWith('.xlsx') || n.endsWith('.xls')) && !zip.files[n].dir
+          );
+          if (st) st.innerHTML = `<span class="spin"></span> Extracting ${xlFiles.length} files from ZIP…`;
+          for (const xlName of xlFiles) {
+            const xlBuf = await zip.files[xlName].async('arraybuffer');
+            const wb    = XLSX.read(xlBuf, { type: 'array' });
+            parseWorkbook(wb, xlName, results);
+          }
+        } else {
+          // No JSZip — send zip directly to API server, skip local parse
+          if (getMfApiUrl()) {
+            if (st) st.innerHTML = `<span class="spin"></span> Sending ZIP to API server…`;
+            const amcEl = document.getElementById('amc-search-input');
+            const amcName = amcEl?.value?.trim() || 'Unknown';
+            await pushFilesToApiServer(files, amcName);
+            if (st) { st.className='uz-st ok'; st.textContent='✓ ZIP sent to API server'; }
+            if (uz) uz.className='uz ok';
+            if (icon) icon.textContent='✓';
+            return;
+          } else {
+            showToast('ZIP upload requires API server — paste URL in the API bar above');
+            if (uz) uz.className='uz'; if (icon) icon.textContent='📊'; if (st) st.textContent='';
+            return;
           }
         }
-        continue; // move to next sheet regardless
-      }
-
-      if (clientHeaderRow >= 0 && clientNameCol >= 0 && clientValueCol >= 0) {
-        // ── FORMAT A (explicit header): Client portfolio ──
-        const rawFunds = [];
-        let totalValue = 0;
-        for (let r = clientHeaderRow + 1; r < rows.length; r++) {
-          const row  = rows[r];
-          const name = String(row[clientNameCol] || '').trim();
-          const val  = parseFloat(String(row[clientValueCol] || '').replace(/,/g,''));
-          if (!name || name.length < 3) continue;
-          if (isNaN(val) || val <= 0) continue;
-          const units = clientUnitsCol >= 0 ? parseFloat(String(row[clientUnitsCol] || '').replace(/,/g,'')) : 0;
-          rawFunds.push({ name, val, units: isNaN(units) ? 0 : units });
-          totalValue += val;
-        }
-        if (rawFunds.length && totalValue > 0) {
-          rawFunds.forEach(f => {
-            const pct = Math.round(f.val / totalValue * 10000) / 100;
-            const cleanName = f.name
-              .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
-              .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
-              .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
-            results.push({ fundName: cleanName, isClientFormat: true, pct, val: f.val });
-          });
-        }
-        continue; // done with this sheet
-      }
-      // SBI format: Row index 2 = ['SCHEME NAME :', 'Fund Name', ...]
-      // Row index 1 = ['SBI Mutual Fund', scheme_code, 'Back to Index']
-      let fundName = sheetName;
-      for (let r = 0; r < Math.min(10, rows.length); r++) {
-        const row = rows[r];
-        const c0  = String(row[0] || '').trim();
-        const c1  = String(row[1] || '').trim();
-        if (/scheme\s*name/i.test(c0) && c1.length > 3) {
-          fundName = c1; break;
-        }
-        // Fallback: row where col1 is a long fund name with 'Fund' in it
-        if (c1.length > 10 && /fund|scheme/i.test(c1) && !/mutual fund$/i.test(c1)) {
-          fundName = c1;
-        }
-      }
-
-      // ── Find header row ──
-      // Look for row with 'ISIN' and '% to AUM' or 'Name of the Instrument'
-      let headerRow = -1;
-      let nameCol = 1, isinCol = 2, sectorCol = 3, pctCol = 6;
-
-      for (let r = 0; r < Math.min(15, rows.length); r++) {
-        const row = rows[r].map(c => String(c).toLowerCase().trim());
-        if (row.some(c => c.includes('isin'))) {
-          headerRow = r;
-          // Map columns dynamically
-          nameCol   = row.findIndex(c => c.includes('name') || c.includes('instrument') || c.includes('issuer'));
-          isinCol   = row.findIndex(c => c.includes('isin'));
-          sectorCol = row.findIndex(c => c.includes('rating') || c.includes('industry') || c.includes('sector'));
-          pctCol    = row.findIndex(c => c.includes('% to') || c.includes('%to') || c.includes('% of nav') || c.includes('% to aum'));
-          if (nameCol < 0) nameCol = 1;
-          if (isinCol < 0) isinCol = 2;
-          if (sectorCol < 0) sectorCol = 3;
-          if (pctCol < 0) pctCol = 6;
-          break;
-        }
-      }
-      if (headerRow < 0) continue;
-
-      // ── Parse data rows ──
-      const holdings = [];
-      const seen = new Set();
-
-      for (let r = headerRow + 1; r < rows.length; r++) {
-        const row = rows[r];
-        const name   = String(row[nameCol] || '').trim();
-        const isin   = String(row[isinCol] || '').trim();
-        const sector = String(row[sectorCol] || '').trim();
-        const pctRaw = row[pctCol];
-        const pct    = parseFloat(String(pctRaw).replace(/,/g,''));
-
-        // Stop at grand total or notes
-        if (/grand\s*total|notes\s*&\s*symbol|scheme\s*risk/i.test(name)) break;
-        if (/grand\s*total/i.test(String(row[0]||''))) break;
-
-        // Skip section headers (only 1 meaningful cell), totals, empty rows
-        const nonEmpty = row.filter(c => String(c).trim() !== '').length;
-        if (nonEmpty <= 1) continue;
-        if (/^total$/i.test(name) || /^sub\s*total/i.test(name)) continue;
-        if (!name || name.length < 2) continue;
-
-        // Must have a valid ISIN or valid pct
-        const validISIN = /^IN[A-Z0-9]{10}$/.test(isin);
-        if (!validISIN && (isNaN(pct) || pct <= 0)) continue;
-        if (isNaN(pct) || pct <= 0 || pct > 50) continue;
-
-        // Skip cash/repo/treps rows
-        if (/trep|repo|cblo|cash|current\s*asset|margin\s*amount/i.test(name)) continue;
-
-        const cleanName = name
-          .replace(/\s*Ltd\.?\s*$/i,'').replace(/\s*Limited\s*$/i,'')
-          .replace(/\s*LTD\.?\s*$/,'').trim().toUpperCase();
-        if (cleanName.length < 2) continue;
-
-        const key = cleanName.toLowerCase().replace(/\s+/g,'');
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        holdings.push({ name: cleanName, isin, sector, pct: Math.round(pct * 100) / 100 });
-      }
-
-      if (holdings.length >= 3) {
-        results.push({ fundName, holdings });
+      } else {
+        // Single Excel
+        const buf = await file.arrayBuffer();
+        const wb  = XLSX.read(buf, { type: 'array' });
+        parseWorkbook(wb, file.name, results);
       }
     }
 
-    if (!results.length) throw new Error('No portfolio data found. Check the Excel format.');
-
+    if (!results.length) throw new Error('No portfolio data found in uploaded file(s)');
     _xlsParsedFunds = results;
-    showXlsPreview(results, file.name);
+    _lastXlsFile    = files[0]; // keep first for legacy compat
 
-    if (uz)   uz.className = 'uz ok';
-    if (icon) icon.textContent = '✅';
-    const totalHoldings = results.reduce((s,r) => s + r.holdings.length, 0);
-    if (st)   { st.className = 'uz-st ok'; st.textContent = `✓ ${totalHoldings} holdings across ${results.length} fund(s)`; }
+    // Show preview
+    showXlsPreview(results);
 
   } catch(e) {
     if (uz)   uz.className = 'uz';
     if (icon) icon.textContent = '❌';
-    if (st)   { st.className = 'uz-st err'; st.textContent = '✗ ' + (e.message || 'Parse error'); }
-    console.error(e);
+    if (st)   { st.className='uz-st err'; st.textContent = '✗ '+e.message; }
   }
 }
+
+function parseWorkbook(wb, filename, results) {
+  // ── Detect Advisorkhoj consolidated format ────────────────────
+  // Signature: has "Index" sheet mapping acronym → fund name
+  const isAdvisorkhoj = wb.SheetNames.includes('Index') && wb.SheetNames.length > 3;
+
+  if (isAdvisorkhoj) {
+    // Build index map from Index sheet
+    const indexMap = {};
+    const idxRows = XLSX.utils.sheet_to_json(wb.Sheets['Index'], {header:1, defval:''});
+    idxRows.forEach(row => {
+      if (row[1] && row[2] && row[0] !== 'ACRONYM')
+        indexMap[String(row[1]).trim()] = String(row[2]).trim();
+    });
+
+    const VALID_ISIN = /^IN[A-Z0-9]{10}$/;
+    const SKIP = /^(a\)|b\)|c\)|d\)|e\)|f\)|\(a\)|\(b\)|\(c\)|\(d\)|\(e\)|\(f\)|sub.?total|grand.?total|total.?for|treps|reverse\s*repo|margin\s*money|cash\s*and\s*other|net\s*current|at\s*the\s*beginning|direct\s*plan|regular\s*plan|riskometer|option|nav\s*per|scheme\s*name|sl\s*no)/i;
+
+    wb.SheetNames.forEach(sname => {
+      if (sname === 'Index' || /annex/i.test(sname)) return;
+      const ws   = wb.Sheets[sname];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      if (rows.length < 5) return;
+
+      const fundName = indexMap[sname] || String(rows[1]?.[0] || '').trim() || sname;
+
+      // Fixed columns: 0=SL, 1=ISIN, 2=Name, 3=Sector, 4=Qty, 5=MktVal, 6=%NAV
+      const holdings = [];
+      rows.slice(4).forEach(row => {
+        const isin   = String(row[1] || '').trim();
+        const name   = String(row[2] || '').trim();
+        const sector = String(row[3] || '').trim();
+        const pctRaw = row[6];
+        if (!VALID_ISIN.test(isin)) return;
+        if (!name || SKIP.test(name)) return;
+        const pct = parseFloat(pctRaw) * 100; // stored as decimal
+        if (isNaN(pct) || pct <= 0 || pct > 100) return;
+        holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000});
+      });
+
+      if (holdings.length >= 2) {
+        results.push({fundName, isClientFormat:false, holdings, pct:0});
+      }
+    });
+    return; // done
+  }
+
+  // ── SEBI standard format (one fund per sheet) ─────────────────
+  const isClientFormat = wb.SheetNames.some(sn => {
+    const ws = wb.Sheets[sn];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    for (let r=0; r<Math.min(10,rows.length); r++) {
+      const rl = rows[r].map(c=>String(c).toLowerCase().trim());
+      const nc = rl.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
+      const vc = rl.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value');
+      if (nc>=0 && vc>=0 && nc!==vc) return true;
+    }
+    return false;
+  });
+
+  for (const sheetName of wb.SheetNames) {
+    if (/^(index|cover|content|summary|disclaimer|back)$/i.test(sheetName)) continue;
+    const ws   = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    if (rows.length < 2) continue;
+
+    if (isClientFormat) {
+      let clientHeaderRow=-1, clientNameCol=-1, clientValueCol=-1, clientUnitsCol=-1;
+      for (let r=0; r<Math.min(10,rows.length); r++) {
+        const rl = rows[r].map(c=>String(c).toLowerCase().trim());
+        const nc=rl.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
+        const vc=rl.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value');
+        const uc=rl.findIndex(c=>c==='units'||c.includes('unit'));
+        if (nc>=0&&vc>=0&&nc!==vc){clientHeaderRow=r;clientNameCol=nc;clientValueCol=vc;clientUnitsCol=uc;break;}
+      }
+      if (clientHeaderRow>=0) {
+        const rawFunds=[]; let totalValue=0;
+        for (let r=clientHeaderRow+1;r<rows.length;r++) {
+          const row=rows[r];
+          const name=String(row[clientNameCol]||'').trim();
+          const val=parseFloat(String(row[clientValueCol]||'').replace(/,/g,''));
+          const units=clientUnitsCol>=0?parseFloat(String(row[clientUnitsCol]||'').replace(/,/g,'')):0;
+          if (!name||name.length<3||isNaN(val)||val<=0) continue;
+          rawFunds.push({name,val,units:isNaN(units)?0:units}); totalValue+=val;
+        }
+        if (rawFunds.length&&totalValue>0) {
+          rawFunds.forEach(f=>{
+            const pct=Math.round(f.val/totalValue*10000)/100;
+            const cleanName=f.name.replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+              .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
+              .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+            results.push({fundName:cleanName,isClientFormat:true,pct,val:f.val,units:f.units||0});
+          });
+        }
+        return;
+      }
+    }
+
+    // AMC disclosure format
+    let fundName = sheetName;
+    for (let r=0;r<Math.min(12,rows.length);r++) {
+      const cells=rows[r].map(c=>String(c||'').trim());
+      const c0=cells[0]||'';
+      const m=c0.match(/scheme\s*name\s*[:\-]\s*(.+)/i);
+      if (m&&m[1].trim().length>3){fundName=m[1].trim();break;}
+      if (cells.length>1&&/scheme\s*name/i.test(c0)&&cells[1].length>3){fundName=cells[1];break;}
+      for(const c of cells.slice(0,3)){
+        if(c.length>8&&/\bfund\b/i.test(c)&&!/mutual\s*fund$|asset\s*management/i.test(c)){fundName=c;break;}
+      }
+    }
+    if (fundName===sheetName&&filename) {
+      const fn=filename.replace(/\.(xlsx?|csv)$/i,'').replace(/[-_]/g,' ').trim();
+      if (fn.length>5&&/fund/i.test(fn)) fundName=fn;
+    }
+
+    let headerRow=-1,nameCol=-1,isinCol=-1,sectorCol=-1,pctCol=-1;
+    for (let r=0;r<Math.min(20,rows.length);r++) {
+      const cl=rows[r].map(c=>String(c||'').toLowerCase().trim());
+      if (!cl.includes('isin')) continue;
+      headerRow=r; isinCol=cl.indexOf('isin');
+      nameCol=cl.findIndex(c=>['name','instrument','security','company','name of instrument'].includes(c));
+      if (nameCol<0) nameCol=cl.findIndex(c=>'name' in Object(c)||c.includes('name')||c.includes('instrument'));
+      sectorCol=cl.findIndex(c=>c.includes('sector')||c.includes('industry')||c.includes('rating'));
+      pctCol=cl.findIndex(c=>/%(to|of)(aum|nav)|nav%|aum%|weight%|%\s*of\s*net\s*asset/.test(c));
+      if (pctCol<0) pctCol=cl.findIndex(c=>c.includes('%')&&c!=='isin');
+      break;
+    }
+    if (headerRow<0||nameCol<0||pctCol<0) continue;
+
+    const SKIP_SEBI=/^(equity$|cash$|grand\s*total|no\.?\s*of|large\s*cap$|mid\s*cap$|small\s*cap$|mf\/etf|total$|sub.?total|net\s*equity|cblo|repo|treps|scheme\s*name|riskometer)/i;
+    const holdings=[];
+    for (let r=headerRow+1;r<rows.length;r++) {
+      const row=rows[r]; if(row.length<=Math.max(nameCol,pctCol)) continue;
+      const name=String(row[nameCol]||'').trim();
+      const isin=isinCol>=0&&isinCol<row.length?String(row[isinCol]||'').trim():'';
+      const sector=sectorCol>=0&&sectorCol<row.length?String(row[sectorCol]||'').trim():'';
+      const rpct=pctCol<row.length?row[pctCol]:null;
+      if (!name||name.length<2||SKIP_SEBI.test(name)) continue;
+      let pct=0; try{pct=parseFloat(String(rpct).replace('%','').replace(',','').trim());}catch(e){}
+      if (pct<=0||pct>100) continue;
+      holdings.push({name,isin,sector,pct:Math.round(pct*10000)/10000});
+    }
+    if (holdings.length>=3) results.push({fundName,isClientFormat:false,holdings,pct:0});
+  }
+}
+  // ── Detect format ──────────────────────────────────────────────────────
+  // 1. Advisorkhoj: has 'Index' sheet with ACRONYM column
+  // 2. Client portfolio: fund name + market value columns
+  // 3. SEBI standard: ISIN column in header row
+
+  const hasIndex = wb.SheetNames.includes('Index') || wb.SheetNames.includes('index');
+
+  if (hasIndex) {
+    // ── FORMAT: Advisorkhoj consolidated ──────────────────────────────
+    // Index sheet maps acronym → full fund name
+    // Each fund sheet: Row 0=AMC, Row 1=Fund name, Row 3=Headers
+    // % column (index 6) is DECIMAL (0.04 = 4%) — multiply × 100
+    const idxWs = wb.Sheets['Index'] || wb.Sheets['index'];
+    const idxRows = XLSX.utils.sheet_to_json(idxWs, {header:1, defval:''});
+    const fundNames = {};
+    idxRows.forEach(row => {
+      if (row[0] && row[1] && row[2] && /^\d+$/.test(String(row[0]).trim()))
+        fundNames[String(row[1]).trim()] = String(row[2]).trim();
+    });
+
+    const SKIP_AK = /^(sub\s*total|grand\s*total|total\s*for|[a-e]\)\s*equity|[a-e]\)\s*debt|[a-e]\)\s*money|[a-e]\)\s*mutual|\([a-e]\)\s*listed|\([a-e]\)\s*cert|\([a-e]\)\s*overseas|\([a-e]\)\s*priv|\([a-e]\)\s*comm|\([a-e]\)\s*govt|\([a-e]\)\s*treas|\([a-e]\)\s*sec|\([a-e]\)\s*rev|\([a-e]\)\s*warrant|cash\s*and\s*other|riskometer|benchmark|tier\s*[ij])/i;
+    const DEBT_S = /b\)\s*debt|govt\s*sec|corporate\s*bond|securitized\s*debt/i;
+    const MMT_S  = /c\)\s*money\s*market|reverse\s*repo|trep|cblo|commercial\s*paper|treasury\s*bill|certificate\s*of\s*dep/i;
+
+    for (const sname of wb.SheetNames) {
+      if (/^(index)$/i.test(sname)) continue;
+      const ws   = wb.Sheets[sname];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      if (rows.length < 5) continue;
+
+      const fullName = fundNames[sname] || String(rows[1]?.[0] || '').trim() || sname;
+      if (!fullName || fullName === sname) continue;
+
+      const holdings = [];
+      let inDebt = false, inMkt = false;
+
+      for (let i = 4; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length < 7) continue;
+        const sl     = String(row[0] || '').trim();
+        const isin   = String(row[1] || '').trim();
+        const name   = String(row[2] || '').trim();
+        const sector = String(row[3] || '').trim();
+        const pctRaw = row[6];
+
+        if (!name || name.length < 2) continue;
+        if (DEBT_S.test(name))   { inDebt = true;  inMkt = false; continue; }
+        if (MMT_S.test(name))    { inMkt  = true;  inDebt = false; continue; }
+        if (/^[D-Z]\)|cash\s*and\s*other|mutual\s*fund\s*unit|riskometer/i.test(name))
+          { inDebt = false; inMkt = false; }
+        if (SKIP_AK.test(name)) continue;
+
+        const hasSl   = sl && /^\d+$/.test(sl);
+        const hasIsin = /^IN[A-Z0-9]{10}$/.test(isin);
+        if (!hasSl && !hasIsin) continue;
+
+        let pct = 0;
+        try { pct = parseFloat(String(pctRaw).replace(/,/g,'').trim()) * 100; } catch(e) {}
+        if (pct <= 0 || pct > 100) continue;
+
+        holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000,
+                       debt_cat: inDebt || inMkt ? 'debt' : null});
+      }
+      if (holdings.length >= 1)
+        results.push({fundName: fullName, isClientFormat: false, holdings, isAdvisorkhoj: true});
+    }
+    return; // done with Advisorkhoj
+  }
+
+  // ── FORMAT: Client portfolio or SEBI standard ──────────────────────
+  const isClientFormat = wb.SheetNames.some(sn => {
+    const ws = wb.Sheets[sn];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    for (let r=0; r<Math.min(10,rows.length); r++) {
+      const rowLower = rows[r].map(c=>String(c).toLowerCase().trim());
+      const nc = rowLower.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
+      const vc = rowLower.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value');
+      if (nc>=0 && vc>=0 && nc!==vc) return true;
+    }
+    return false;
+  });
+
+  for (const sheetName of wb.SheetNames) {
+    if (/^(index|cover|content|summary|disclaimer|back)$/i.test(sheetName)) continue;
+    const ws   = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    if (rows.length < 2) continue;
+
+    if (isClientFormat) {
+      // Client portfolio format
+      let clientHeaderRow=-1, clientNameCol=-1, clientValueCol=-1, clientUnitsCol=-1;
+      for (let r=0; r<Math.min(10,rows.length); r++) {
+        const rowLower = rows[r].map(c=>String(c).toLowerCase().trim());
+        const nc=rowLower.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
+        const vc=rowLower.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value');
+        const uc=rowLower.findIndex(c=>c==='units'||c.includes('unit'));
+        if (nc>=0&&vc>=0&&nc!==vc){clientHeaderRow=r;clientNameCol=nc;clientValueCol=vc;clientUnitsCol=uc;break;}
+      }
+      if (clientHeaderRow>=0) {
+        const rawFunds=[]; let totalValue=0;
+        for (let r=clientHeaderRow+1;r<rows.length;r++) {
+          const row=rows[r];
+          const name=String(row[clientNameCol]||'').trim();
+          const val=parseFloat(String(row[clientValueCol]||'').replace(/,/g,''));
+          const units=clientUnitsCol>=0?parseFloat(String(row[clientUnitsCol]||'').replace(/,/g,'')):0;
+          if(!name||name.length<3||isNaN(val)||val<=0) continue;
+          rawFunds.push({name,val,units:isNaN(units)?0:units}); totalValue+=val;
+        }
+        if (rawFunds.length&&totalValue>0) {
+          rawFunds.forEach(f=>{
+            const pct=Math.round(f.val/totalValue*10000)/100;
+            const cleanName=f.name.replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+              .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
+              .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+            results.push({fundName:cleanName,isClientFormat:true,pct,val:f.val,units:f.units||0});
+          });
+        }
+        return; // done — client format is whole workbook
+      }
+    }
+
+    // AMC disclosure format — detect fund name and ISIN header
+    let fundName = sheetName;
+    for (let r=0;r<Math.min(10,rows.length);r++) {
+      const row=rows[r]; const c0=String(row[0]||'').trim(); const c1=String(row[1]||'').trim();
+      if (/scheme\s*name/i.test(c0)&&c1.length>3){fundName=c1;break;}
+      if (c1.length>10&&/fund|scheme/i.test(c1)&&!/mutual fund$/i.test(c1)){fundName=c1;break;}
+      const m=c0.match(/scheme\s*name\s*:\s*(.+)/i); if(m&&m[1].trim().length>3){fundName=m[1].trim();break;}
+    }
+    // Use filename as fund name hint for single-fund Excels
+    if (fundName===sheetName&&filename) {
+      const fn=filename.replace(/\.(xlsx?|csv)$/i,'').replace(/[-_]/g,' ').trim();
+      if (fn.length>5&&/fund/i.test(fn)) fundName=fn;
+    }
+
+    let headerRow=-1, nameCol=-1, isinCol=-1, sectorCol=-1, pctCol=-1;
+    for (let r=0;r<Math.min(20,rows.length);r++) {
+      const rowLower=rows[r].map(c=>String(c).toLowerCase().trim());
+      if (!rowLower.includes('isin')) continue;
+      headerRow=r; isinCol=rowLower.indexOf('isin');
+      nameCol=rowLower.findIndex(c=>['name','instrument','security','company','name of instrument'].includes(c));
+      if (nameCol<0) nameCol=rowLower.findIndex(c=>'name'in c||'instrument' in c);
+      sectorCol=rowLower.findIndex(c=>c.includes('sector')||c.includes('industry'));
+      pctCol=rowLower.findIndex(c=>/%(to|of)(aum|nav)|nav%|aum%|weight%/.test(c));
+      if (pctCol<0) pctCol=rowLower.findIndex(c=>c.includes('%')&&c!=='isin');
+      break;
+    }
+    if (headerRow<0||nameCol<0||pctCol<0) continue;
+
+    const holdings=[];
+    const SKIP=/^(equity$|cash$|grand total|no\.?\s*of|large cap$|mid cap$|small cap$|mf\/etf|total$|sub.?total|net equity|cblo|repo|treps|scheme name|riskometer)/i;
+    for (let r=headerRow+1;r<rows.length;r++) {
+      const row=rows[r]; if(row.length<=Math.max(nameCol,pctCol)) continue;
+      const name=String(row[nameCol]||'').trim();
+      const isin=isinCol>=0&&isinCol<row.length?String(row[isinCol]||'').trim():'';
+      const sector=sectorCol>=0&&sectorCol<row.length?String(row[sectorCol]||'').trim():'';
+      const rpct=pctCol<row.length?row[pctCol]:null;
+      if (!name||name.length<2||SKIP.test(name)) continue;
+      let pct=0; try{pct=parseFloat(String(rpct).replace('%','').replace(',','').trim());}catch(e){}
+      if (pct<=0||pct>100) continue;
+      holdings.push({name,isin,sector,pct:Math.round(pct*10000)/10000});
+    }
+    if (holdings.length>=3) results.push({fundName,isClientFormat:false,holdings,pct:0});
+  }
 
 function showXlsPreview(results, filename) {
   const preview = document.getElementById('upload-xls-preview');
@@ -3478,7 +3666,7 @@ function savePortfolioExcel() {
   showToast(`✓ ${_xlsParsedFunds.reduce((s,r)=>s+r.holdings.length,0)} holdings saved to ${amc.name}`);
 
   // Push to API server so all future analyses skip upload entirely
-  pushExcelToApiServer(_lastXlsFile, amc.name);
+  pushFilesToApiServer(_lastXlsFiles.length ? _lastXlsFiles : [_lastXlsFile], amc.name);
 
   resetXlsUpload();
 }
