@@ -1628,6 +1628,27 @@ body {
   <div class="pg-header"><div class="pg-title">Portfolio Summary</div>
   <div class="pg-sub">Stock split · Industry · Debt · Top holdings</div></div>
 
+  <!-- Holdings Banner -->
+  <div class="card" id="sum-holdings-banner" style="margin-bottom:1.1rem;display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
+      <div class="card-title" style="margin-bottom:0">Holdings</div>
+      <div id="sum-holdings-total" style="font-size:.7rem;color:var(--muted)"></div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="rt" style="min-width:500px">
+        <thead>
+          <tr>
+            <th>Scheme</th>
+            <th class="r">Units</th>
+            <th class="r">Market Value</th>
+            <th class="r">% of Portfolio</th>
+          </tr>
+        </thead>
+        <tbody id="sum-holdings-body"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Row 1: Key metrics -->
   <div class="mgrid cols4" id="sum-kpi" style="margin-bottom:1.1rem"></div>
 
@@ -2869,7 +2890,7 @@ async function handlePortfolioExcel(evt) {
 
       // Check for client portfolio format: look for fund name col + value col
       let clientHeaderRow = -1;
-      let clientNameCol = -1, clientValueCol = -1;
+      let clientNameCol = -1, clientValueCol = -1, clientUnitsCol = -1;
 
       for (let r = 0; r < Math.min(10, rows.length); r++) {
         const rowLower = rows[r].map(c => String(c).toLowerCase().trim());
@@ -2883,10 +2904,13 @@ async function handlePortfolioExcel(evt) {
           c.includes('current value') || c.includes('market value') ||
           c.includes('amount') || c === 'value'
         );
+        // Units col
+        const uc = rowLower.findIndex(c => c === 'units' || c.includes('unit'));
         if (nc >= 0 && vc >= 0 && nc !== vc) {
           clientHeaderRow = r;
           clientNameCol   = nc;
           clientValueCol  = vc;
+          clientUnitsCol  = uc;
           break;
         }
       }
@@ -2923,7 +2947,7 @@ async function handlePortfolioExcel(evt) {
                   .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
                   .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
                   .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
-                results.push({ fundName: cleanName, isClientFormat: true, pct, val: f.val });
+                results.push({ fundName: cleanName, isClientFormat: true, pct, val: f.val, units: f.units || 0 });
               });
             }
             break;
@@ -2942,7 +2966,8 @@ async function handlePortfolioExcel(evt) {
           const val  = parseFloat(String(row[clientValueCol] || '').replace(/,/g,''));
           if (!name || name.length < 3) continue;
           if (isNaN(val) || val <= 0) continue;
-          rawFunds.push({ name, val });
+          const units = clientUnitsCol >= 0 ? parseFloat(String(row[clientUnitsCol] || '').replace(/,/g,'')) : 0;
+          rawFunds.push({ name, val, units: isNaN(units) ? 0 : units });
           totalValue += val;
         }
         if (rawFunds.length && totalValue > 0) {
@@ -3045,10 +3070,6 @@ async function handlePortfolioExcel(evt) {
 
     if (!results.length) throw new Error('No portfolio data found. Check the Excel format.');
 
-    console.log('[Excel] Parsed results:', results.map(r => ({
-      fundName: r.fundName, isClientFormat: r.isClientFormat, pct: r.pct
-    })));
-
     _xlsParsedFunds = results;
     showXlsPreview(results, file.name);
 
@@ -3124,8 +3145,11 @@ function savePortfolioExcel() {
     if (!port) return;
 
     port.allocations = {};
-    _xlsParsedFunds.forEach(r => { port.allocations[r.fundName] = r.pct; });
-    console.log('[Excel] Saved allocations:', port.allocations);
+    port.holdingsDetail = {};
+    _xlsParsedFunds.forEach(r => {
+      port.allocations[r.fundName] = r.pct;
+      port.holdingsDetail[r.fundName] = { val: r.val || 0, units: r.units || 0 };
+    });
 
     // Also populate allocRows for the allocation page
     allocRows = _xlsParsedFunds.map(r => ({
@@ -4773,6 +4797,38 @@ function buildSummary() {
   const items = getActiveItems();
   if (!items.length) return;
 
+  // ── Holdings Banner ──────────────────────────────────────────
+  const port = activePortId ? portfolios.find(p=>p.id===activePortId) : null;
+  const holdingsDetail = port?.holdingsDetail || {};
+  const bannerEl = document.getElementById('sum-holdings-banner');
+  const bodyEl   = document.getElementById('sum-holdings-body');
+  const totalEl  = document.getElementById('sum-holdings-total');
+
+  if (bannerEl && bodyEl && Object.keys(holdingsDetail).length) {
+    const totalVal = Object.values(holdingsDetail).reduce((s,h) => s + (h.val||0), 0);
+    bannerEl.style.display = 'block';
+    if (totalEl) totalEl.textContent = `Total: ₹${(totalVal/100000).toFixed(2)}L`;
+    bodyEl.innerHTML = items.map(f => {
+      const hd = holdingsDetail[f.name] || {};
+      const val = hd.val || 0;
+      const units = hd.units || 0;
+      return `<tr>
+        <td style="font-size:.72rem">${f.name}</td>
+        <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">${units > 0 ? units.toLocaleString('en-IN', {maximumFractionDigits:4}) : '—'}</td>
+        <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">${val > 0 ? '₹'+val.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—'}</td>
+        <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.wt.toFixed(1)}%</td>
+      </tr>`;
+    }).join('') +
+    `<tr style="border-top:2px solid var(--border);font-weight:700">
+      <td style="font-size:.72rem">Total</td>
+      <td class="r">—</td>
+      <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">₹${totalVal.toLocaleString('en-IN', {maximumFractionDigits:0})}</td>
+      <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}%</td>
+    </tr>`;
+  } else if (bannerEl) {
+    bannerEl.style.display = 'none';
+  }
+
   const tw  = items.reduce((s,f)=>s+f.wt, 0);
   const bl  = k => items.reduce((s,f)=>s+f.wt*(f[k]||0),0)/tw;
 
@@ -5079,27 +5135,24 @@ function buildMetrics() {
 
 
 function runAnalysis() {
-  console.log('[runAnalysis] allocRows:', JSON.stringify(allocRows));
-  console.log('[runAnalysis] activePortId:', activePortId);
+  // Ensure allocRows is populated — always sync from active portfolio first
   if (activePortId) {
-    const port = portfolios.find(p=>p.id===activePortId);
-    console.log('[runAnalysis] port.allocations:', port?.allocations);
-  }
-
-  // If allocRows is empty but active portfolio has allocations, reload them
-  if (!allocRows.length && activePortId) {
-    const port = portfolios.find(p=>p.id===activePortId);
+    const port = portfolios.find(p => p.id === activePortId);
     if (port?.allocations && Object.keys(port.allocations).length) {
-      allocRows = Object.entries(port.allocations).map(([name, pct]) => {
-        const f = allFunds().find(f => f.name === name);
-        return { key: sid(name), fundName: name, amcName: f?.amc || '', pct, isUploaded: !!f };
-      });
-      console.log('[runAnalysis] rebuilt allocRows from port.allocations:', allocRows.length);
+      // Only rebuild if allocRows is empty or out of sync
+      const portFunds = Object.keys(port.allocations);
+      const rowFunds  = allocRows.map(r => r.fundName);
+      const inSync    = portFunds.every(f => rowFunds.includes(f));
+      if (!allocRows.length || !inSync) {
+        allocRows = Object.entries(port.allocations).map(([name, pct]) => {
+          const f = allFunds().find(f => f.name === name);
+          return { key: sid(name), fundName: name, amcName: f?.amc || '', pct, isUploaded: !!f };
+        });
+      }
     }
   }
 
-  // Build items from allocRows (source of truth for weights)
-  // Enrich with uploaded fund data where available
+  // Build items from allocRows + uploaded factsheet data
   const uploadedMap = {};
   allFunds().forEach(({name, amc, data}) => { uploadedMap[name] = {amc, data}; });
 
