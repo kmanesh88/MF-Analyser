@@ -3291,114 +3291,169 @@ async function handlePDF(evt, amcId) {
     const pdf = await pdfjsLib.getDocument({
       data: buf,
       disableFontFace: true,
-      verbosity: 0
+      verbosity: 0,
+      useWorkerFetch: false,
+      isEvalSupported: false,
     }).promise;
 
-    const totalPages = pdf.numPages;
-    const isKotakAMC    = /kotak/i.test(amc.name);
+    const totalPages    = pdf.numPages;
+    const amcLower      = amc.name.toLowerCase();
     const isSundaramAMC = /sundaram/i.test(amc.name);
+    const isKotakAMC    = /kotak/i.test(amc.name);
     const needsHeading  = !isKotakAMC && !isSundaramAMC;
 
-    if (st) st.innerHTML = `<span class="spin"></span> Scanning ${totalPages} pages…`;
+    // ── AMC-specific page ranges ──────────────────────────────────
+    // Most AMC factsheets: pages 1-N cover page/outlook, portfolio in middle, disclosures at end
+    // Limit scan range to avoid decoding heavy image pages (charts, riskometers, fund manager photos)
+    let scanStart = 1, scanEnd = totalPages;
+    if (isSundaramAMC) { scanStart = 6;  scanEnd = Math.min(totalPages, 55); }
+    else if (/hdfc/i.test(amc.name))    { scanStart = 3;  scanEnd = Math.min(totalPages, Math.round(totalPages * 0.85)); }
+    else if (/icici/i.test(amc.name))   { scanStart = 3;  scanEnd = Math.min(totalPages, Math.round(totalPages * 0.85)); }
+    else if (/sbi/i.test(amc.name))     { scanStart = 3;  scanEnd = Math.min(totalPages, Math.round(totalPages * 0.85)); }
+    else if (/nippon/i.test(amc.name))  { scanStart = 2;  scanEnd = Math.min(totalPages, Math.round(totalPages * 0.88)); }
+    else if (/axis/i.test(amc.name))    { scanStart = 2;  scanEnd = Math.min(totalPages, Math.round(totalPages * 0.85)); }
+    else if (/mirae/i.test(amc.name))   { scanStart = 2;  scanEnd = Math.min(totalPages, Math.round(totalPages * 0.85)); }
+    else if (totalPages > 80)           { scanStart = 2;  scanEnd = Math.min(totalPages, Math.round(totalPages * 0.88)); }
 
-    // ── PASS 1: Quick scan — identify portfolio pages ──────────
-    // For each page, fetch ONLY first 40 text items (enough for trigger detection)
-    // Do NOT store full ct — saves memory and speeds up pass 2 re-fetch
+    if (st) st.innerHTML = `<span class="spin"></span> Scanning ${scanEnd - scanStart + 1} of ${totalPages} pages…`;
+
     const PORTFOLIO_TRIGGERS = /portfolio\s*(as|statement)|^PORTFOLIO\b|scheme\s*portfolio|holdings\s*as\s*on|%\s*of\s*nav|%\s*to\s*aum|\bINE[A-Z0-9]{9}\d\b|no\s*of\s*stocks|grand\s*total|% Of Net Asset/i;
 
-    // AMC-specific page ranges to scan (skip cover pages, footnotes, disclosures)
-    // Sundaram: portfolio starts p6, ends ~p54, disclosures p55+
-    const scanStart = isSundaramAMC ? 6 : 1;
-    const scanEnd   = isSundaramAMC ? Math.min(totalPages, 55) : totalPages;
+    // ── Single-pass: fetch each page once, detect + extract together ──
+    // Limit to first 120 text items per page for trigger detection speed
+    // (portfolio pages typically have triggers in first 30 items)
+    const MAX_ITEMS = 120;
 
-    const quickScan = async (pageNum) => {
+    const processPage = async (pageNum) => {
       const pg = await pdf.getPage(pageNum);
       const ct = await pg.getTextContent({ includeMarkedContent: false });
-      const sample = ct.items.slice(0, 40).map(i => i.str).join(' ');
-      // Don't store ct — pass 2 will re-fetch only matched pages
-      return { pageNum, isPortfolio: PORTFOLIO_TRIGGERS.test(sample) };
-    };
 
-    // Scan in large parallel batches — 50 at once for speed
-    const SCAN_BATCH = 50;
-    const scanResults = [];
-    for (let b = scanStart - 1; b < scanEnd; b += SCAN_BATCH) {
-      const end = Math.min(b + SCAN_BATCH, scanEnd);
-      const batch = await Promise.all(
-        Array.from({length: end - b}, (_, j) => quickScan(b + j + 1))
-      );
-      scanResults.push(...batch);
-      const pct = Math.round((end - scanStart + 1) / (scanEnd - scanStart + 1) * 100);
-      if (st) st.innerHTML = `<span class="spin"></span> Scanning… ${pct}%`;
-    }
+      const items = ct.items.length > MAX_ITEMS ? ct.items.slice(0, MAX_ITEMS) : ct.items;
 
-    // Collect matched portfolio pages + 1-page buffer each side
-    const portfolioNums = new Set();
-    scanResults.forEach((r, idx) => {
-      if (r.isPortfolio) {
-        for (let d = -1; d <= 1; d++) {
-          const n = scanResults[idx + d]?.pageNum;
-          if (n) portfolioNums.add(n);
-        }
-      }
-    });
+      // Quick trigger check on first 40 items only
+      const quickText = ct.items.slice(0, 40).map(i => i.str).join(' ');
+      const isPortfolio = PORTFOLIO_TRIGGERS.test(quickText) ||
+        (ct.items.length > 40 && PORTFOLIO_TRIGGERS.test(ct.items.slice(40, MAX_ITEMS).map(i=>i.str).join(' ')));
 
-    if (portfolioNums.size === 0) {
-      // Fallback: process all pages in range
-      for (let p = scanStart; p <= scanEnd; p++) portfolioNums.add(p);
-    }
+      // Only do expensive Y-grouping if page is portfolio or we need all pages
+      if (!isPortfolio) return { pageNum, lines: [], heading: '', isPortfolio: false };
 
-    const portfolioPageNums = [...portfolioNums].sort((a,b) => a-b);
-    if (st) st.innerHTML = `<span class="spin"></span> Reading ${portfolioPageNums.length} portfolio pages…`;
-
-    // ── PASS 2: Full extract — only portfolio pages, fetched fresh ─
-    const extractFull = async (pageNum) => {
-      const pg = await pdf.getPage(pageNum);
-      const ct = await pg.getTextContent({ includeMarkedContent: false });
       const byY = {};
-
-      ct.items.forEach(item => {
+      items.forEach(item => {
         const y = Math.round(item.transform[5]);
         if (!byY[y]) byY[y] = { parts: [], maxSize: 0 };
         byY[y].parts.push(item.str);
         if (needsHeading) {
           const fs = Math.abs(item.transform[3]);
-          byY[y].maxSize = Math.max(byY[y].maxSize, fs);
+          if (fs > byY[y].maxSize) byY[y].maxSize = fs;
         }
       });
 
-      const sortedYs = Object.keys(byY).map(Number).sort((a,b) => b-a);
-      const lines = sortedYs.map(y => ({
-        text: byY[y].parts.join(' ').trim(),
-        fontSize: byY[y].maxSize,
-        y
-      })).filter(l => l.text);
+      // If page has more items than MAX_ITEMS, fetch the rest for portfolio pages
+      let extraItems = [];
+      if (isPortfolio && ct.items.length > MAX_ITEMS) {
+        extraItems = ct.items.slice(MAX_ITEMS);
+        extraItems.forEach(item => {
+          const y = Math.round(item.transform[5]);
+          if (!byY[y]) byY[y] = { parts: [], maxSize: 0 };
+          byY[y].parts.push(item.str);
+        });
+      }
 
-      let pageHeading = '';
+      const sortedYs = Object.keys(byY).map(Number).sort((a,b) => b-a);
+      const lines = sortedYs
+        .map(y => ({ text: byY[y].parts.join(' ').trim(), fontSize: byY[y].maxSize }))
+        .filter(l => l.text);
+
+      let heading = '';
       if (needsHeading && lines.length) {
-        const pageHeight = lines[0].y;
-        const topLines = lines.filter(l => l.y > pageHeight * 0.65);
-        const maxFS = Math.max(...topLines.map(l => l.fontSize), 0);
+        const maxFS = Math.max(...lines.slice(0, 10).map(l => l.fontSize), 0);
         if (maxFS > 0) {
-          pageHeading = topLines
+          heading = lines.slice(0, 10)
             .filter(l => l.fontSize >= maxFS * 0.85)
             .map(l => l.text.trim()).filter(t => t.length > 3)
             .join(' ').replace(/\s+/g,' ').trim();
         }
       }
 
-      return { pageNum, lines: lines.map(l => l.text), heading: pageHeading };
+      return { pageNum, lines: lines.map(l => l.text), heading, isPortfolio };
     };
 
-    // Fetch portfolio pages in parallel batches of 20
-    const pages = [];
-    const EXTRACT_BATCH = 20;
-    for (let b = 0; b < portfolioPageNums.length; b += EXTRACT_BATCH) {
-      const batch = portfolioPageNums.slice(b, b + EXTRACT_BATCH);
-      const results = await Promise.all(batch.map(extractFull));
-      pages.push(...results);
+    // ── Process in large parallel batches with early-exit ──────────
+    const BATCH = 50; // larger batch = more parallelism
+    const allResults = [];
+    let foundPortfolioPages = 0;
+    let consecutiveNonPortfolio = 0;
+    const EARLY_EXIT_AFTER = 20; // stop if 20 consecutive non-portfolio pages after finding some
+
+    for (let b = scanStart - 1; b < scanEnd; b += BATCH) {
+      const end  = Math.min(b + BATCH, scanEnd);
+      const nums = Array.from({length: end - b}, (_, j) => b + j + 1);
+      const batch = await Promise.all(nums.map(processPage));
+
+      for (const r of batch) {
+        if (r.isPortfolio) {
+          foundPortfolioPages++;
+          consecutiveNonPortfolio = 0;
+        } else {
+          if (foundPortfolioPages > 3) consecutiveNonPortfolio++;
+        }
+      }
+      allResults.push(...batch);
+
+      const pct = Math.round((end - scanStart + 1) / (scanEnd - scanStart + 1) * 100);
+      if (st) st.innerHTML = `<span class="spin"></span> ${pct}% · ${foundPortfolioPages} portfolio pages`;
+
+      // Early exit if we found enough and hit a long run of non-portfolio pages
+      if (foundPortfolioPages > 3 && consecutiveNonPortfolio >= EARLY_EXIT_AFTER) break;
     }
-    pages.sort((a,b) => a.pageNum - b.pageNum);
+
+    // Filter to portfolio pages only
+    const pages = allResults
+      .filter(r => r.isPortfolio)
+      .sort((a,b) => a.pageNum - b.pageNum);
+
+    if (!pages.length) {
+      // Fallback: re-process all pages without the item limit
+      if (st) st.innerHTML = `<span class="spin"></span> Retrying full scan…`;
+      for (let b = scanStart - 1; b < scanEnd; b += BATCH) {
+        const end  = Math.min(b + BATCH, scanEnd);
+        const nums = Array.from({length: end - b}, (_, j) => b + j + 1)
+          .filter(n => !allResults.find(r => r.pageNum === n && r.lines.length > 0));
+        if (!nums.length) continue;
+        const batch = await Promise.all(nums.map(async n => {
+          const r = allResults.find(r => r.pageNum === n);
+          if (r?.lines?.length) return r;
+          // Full re-fetch without item limit
+          const pg = await pdf.getPage(n);
+          const ct = await pg.getTextContent({ includeMarkedContent: false });
+          const byY = {};
+          ct.items.forEach(item => {
+            const y = Math.round(item.transform[5]);
+            if (!byY[y]) byY[y] = { parts: [], maxSize: 0 };
+            byY[y].parts.push(item.str);
+          });
+          const sortedYs = Object.keys(byY).map(Number).sort((a,b) => b-a);
+          const lines = sortedYs.map(y => byY[y].parts.join(' ').trim()).filter(Boolean);
+          const fullText = lines.join(' ');
+          return { pageNum: n, lines, heading: '', isPortfolio: PORTFOLIO_TRIGGERS.test(fullText) };
+        }));
+        batch.forEach(r => {
+          const idx = allResults.findIndex(x => x.pageNum === r.pageNum);
+          if (idx >= 0) allResults[idx] = r; else allResults.push(r);
+        });
+      }
+      const retryPages = allResults.filter(r => r.isPortfolio).sort((a,b) => a.pageNum - b.pageNum);
+      pages.push(...retryPages);
+    }
+
+    if (!pages.length) {
+      // Final fallback: use all pages
+      allResults.sort((a,b) => a.pageNum - b.pageNum);
+      pages.push(...allResults);
+    }
+
+    if (st) st.innerHTML = `<span class="spin"></span> Parsing ${pages.length} pages…`;
 
     const funds = parseFunds(pages, amc.name);
     const cnt = Object.keys(funds).length;
@@ -3413,7 +3468,7 @@ async function handlePDF(evt, amcId) {
         debugEl.className = 'uz-st err';
         debugEl.innerHTML = `✗ No funds detected.<br>
           <details style="margin-top:.5rem;font-size:.65rem">
-            <summary style="cursor:pointer;color:var(--blue)">▶ Show raw text (paste this to Manesh)</summary>
+            <summary style="cursor:pointer;color:var(--blue)">▶ Show raw text</summary>
             <pre style="margin-top:.5rem;padding:.75rem;background:var(--s3);border-radius:4px;font-size:.6rem;max-height:300px;overflow-y:auto;white-space:pre-wrap;color:var(--text2)">${debug.replace(/</g,'&lt;')}</pre>
           </details>`;
       }
