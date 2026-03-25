@@ -5079,6 +5079,25 @@ function buildMetrics() {
 
 
 function runAnalysis() {
+  console.log('[runAnalysis] allocRows:', JSON.stringify(allocRows));
+  console.log('[runAnalysis] activePortId:', activePortId);
+  if (activePortId) {
+    const port = portfolios.find(p=>p.id===activePortId);
+    console.log('[runAnalysis] port.allocations:', port?.allocations);
+  }
+
+  // If allocRows is empty but active portfolio has allocations, reload them
+  if (!allocRows.length && activePortId) {
+    const port = portfolios.find(p=>p.id===activePortId);
+    if (port?.allocations && Object.keys(port.allocations).length) {
+      allocRows = Object.entries(port.allocations).map(([name, pct]) => {
+        const f = allFunds().find(f => f.name === name);
+        return { key: sid(name), fundName: name, amcName: f?.amc || '', pct, isUploaded: !!f };
+      });
+      console.log('[runAnalysis] rebuilt allocRows from port.allocations:', allocRows.length);
+    }
+  }
+
   // Build items from allocRows (source of truth for weights)
   // Enrich with uploaded fund data where available
   const uploadedMap = {};
