@@ -1964,62 +1964,87 @@ const MID_SET = new Set([
 
 // ═══════════════════════════════════════════════════════════════
 // AMFI LIVE CAP DATA — fetched on load, cached in localStorage
-// Source: amfiindia.com bi-annual market cap PDF (Jan + Jul)
-let amfiCapData = {}; // { "STOCK NAME": "large"|"mid"|"small" }
-const AMFI_CAP_LS = 'mf_analyser_amfi_cap';
+// Source: amfiindia.com bi-annual Excel (Jan + Jul), parsed with SheetJS
+let amfiCapData = {}; // { "NORMALIZED STOCK NAME": "large"|"mid"|"small" }
+const AMFI_CAP_LS  = 'mf_analyser_amfi_cap';
+const AMFI_CAP_VER = '2';  // bump to invalidate old cache format
+
+// Two URLs — try Dec 2025 first (most current), fall back to Jun 2025
+const AMFI_XLSX_URLS = [
+  'https://www.amfiindia.com/Themes/Theme1/downloads/AverageMarketCapitalization31Dec2025.xlsx',
+  'https://www.amfiindia.com/Themes/Theme1/downloads/AverageMarketCapitalization30Jun2025.xlsx',
+];
 
 async function fetchAmfiCapData() {
-  // Try localStorage cache first (valid for 30 days)
+  // ── Check localStorage cache (valid 60 days, version-stamped) ──
   try {
     const cached = localStorage.getItem(AMFI_CAP_LS);
     if (cached) {
-      const { data, fetchedAt } = JSON.parse(cached);
-      const age = (Date.now() - new Date(fetchedAt)) / (1000*60*60*24);
-      if (age < 30 && Object.keys(data).length > 400) {
+      const { data, fetchedAt, ver } = JSON.parse(cached);
+      const ageDays = (Date.now() - new Date(fetchedAt)) / 86400000;
+      if (ver === AMFI_CAP_VER && ageDays < 60 && Object.keys(data).length > 500) {
         amfiCapData = data;
-        updateAmfiStatus(`✓ AMFI cap data loaded (${Object.keys(data).length} stocks, cached)`);
+        updateAmfiStatus(`✓ Cap list: ${Object.keys(data).length} stocks (cached)`);
         return;
       }
     }
   } catch(e) {}
 
-  // Fetch live from AMFI
-  const AMFI_URL = 'https://www.amfiindia.com/Themes/Theme1/downloads/AverageMarketCapitalization30Jun2025.pdf';
-  try {
-    updateAmfiStatus('<span class="spin"></span> Fetching AMFI cap list…');
-    const res = await fetch(AMFI_URL);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const buf = await res.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({data: buf}).promise;
-    const parsed = {};
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const pg  = await pdf.getPage(i);
-      const ct  = await pg.getTextContent();
-      const txt = ct.items.map(x=>x.str).join(' ');
-      // Pattern: "Company Name Ltd INE... SYMBOL 1,23,456.78 ... Large Cap / Mid Cap / Small Cap"
-      const rows = txt.split(/\d+\s+(?=[A-Z])/);
-      rows.forEach(row => {
-        const capMatch = row.match(/\b(Large Cap|Mid Cap|Small Cap)\s*$/i);
-        if (!capMatch) return;
-        const cap = capMatch[1].toLowerCase().replace(' cap','');
-        // Extract company name — everything before the ISIN (starts with INE)
-        const nameMatch = row.match(/^(.+?)\s+INE[A-Z0-9]+/);
-        if (!nameMatch) return;
-        const name = normStockKey(nameMatch[1]);
-        parsed[name] = cap;
-      });
+  // ── Fetch AMFI Excel — fastest possible approach ──
+  updateAmfiStatus('<span class="spin"></span> Fetching AMFI cap list…');
+
+  for (const url of AMFI_XLSX_URLS) {
+    try {
+      const res = await fetch(url, { cache: 'force-cache' });
+      if (!res.ok) continue;
+      const buf  = await res.arrayBuffer();
+      const wb   = XLSX.read(new Uint8Array(buf), { type: 'array', sheetRows: 2000 });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      // Find header row — look for "Company name" and "Categorization"
+      let nameCol = -1, catCol = -1, headerRow = -1;
+      for (let r = 0; r < Math.min(10, rows.length); r++) {
+        const row = rows[r].map(c => String(c).toLowerCase().trim());
+        const nc  = row.findIndex(c => c.includes('company name') || c === 'name');
+        const cc  = row.findIndex(c => c.includes('categor') || c.includes('large cap') || c.includes('sebi'));
+        if (nc >= 0 && cc >= 0) { nameCol = nc; catCol = cc; headerRow = r; break; }
+      }
+      if (nameCol < 0) continue; // wrong sheet format
+
+      const parsed = {};
+      for (let r = headerRow + 1; r < rows.length; r++) {
+        const row  = rows[r];
+        const name = String(row[nameCol] || '').trim();
+        const cat  = String(row[catCol]  || '').trim().toLowerCase();
+        if (!name || name.length < 3) continue;
+        const key = normStockKey(name);
+        if (!key) continue;
+        if      (cat.includes('large')) parsed[key] = 'large';
+        else if (cat.includes('mid'))   parsed[key] = 'mid';
+        else if (cat.includes('small')) parsed[key] = 'small';
+      }
+
+      if (Object.keys(parsed).length > 500) {
+        amfiCapData = parsed;
+        localStorage.setItem(AMFI_CAP_LS, JSON.stringify({
+          data: parsed, fetchedAt: new Date().toISOString(), ver: AMFI_CAP_VER
+        }));
+        const large = Object.values(parsed).filter(v=>v==='large').length;
+        const mid   = Object.values(parsed).filter(v=>v==='mid').length;
+        updateAmfiStatus(`✓ AMFI: ${large}L · ${mid}M · ${Object.keys(parsed).length - large - mid}S stocks loaded`);
+        return;
+      }
+    } catch(e) {
+      console.warn('AMFI Excel fetch failed:', url, e.message);
     }
-    if (Object.keys(parsed).length > 400) {
-      amfiCapData = parsed;
-      localStorage.setItem(AMFI_CAP_LS, JSON.stringify({ data: parsed, fetchedAt: new Date().toISOString() }));
-      updateAmfiStatus(`✓ AMFI live: ${Object.keys(parsed).length} stocks`);
-    } else {
-      throw new Error('Too few stocks parsed: ' + Object.keys(parsed).length);
-    }
-  } catch(e) {
-    updateAmfiStatus(`⚠ AMFI fetch failed — using hardcoded list`);
-    console.warn('AMFI fetch failed:', e.message);
   }
+
+  // ── Fallback: hardcoded sets already loaded as LARGE_SET / MID_SET ──
+  // Populate amfiCapData from them so classifyEquity has one unified lookup
+  LARGE_SET.forEach(n => { amfiCapData[normStockKey(n)] = 'large'; });
+  MID_SET.forEach(n   => { amfiCapData[normStockKey(n)] = 'mid'; });
+  updateAmfiStatus(`⚠ AMFI fetch failed — using built-in list (${Object.keys(amfiCapData).length} stocks)`);
 }
 
 function updateAmfiStatus(msg) {
@@ -2028,45 +2053,33 @@ function updateAmfiStatus(msg) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MULTI-PATHWAY CAP CLASSIFICATION
-// Confidence levels: 3=AMFI live, 2=hardcoded set, 1=partial match, 0=inferred
+// CAP CLASSIFICATION — single lookup into amfiCapData (populated from AMFI Excel or hardcoded sets)
 function classifyEquity(raw) {
-  const result = classifyEquityWithConfidence(raw);
-  return result.cap;
+  return classifyEquityWithConfidence(raw).cap;
 }
 
 function classifyEquityWithConfidence(raw) {
+  if (!raw) return { cap: 'small', src: 'Default', conf: 0 };
   const n = normStockKey(raw);
-  const rawUp = raw.toUpperCase();
 
-  // ── Pathway 1: AMFI live PDF (highest authority, updated Jan+Jul) ──
-  if (amfiCapData[n])       return { cap: amfiCapData[n],   src: 'AMFI live',   conf: 3 };
-  // Try partial AMFI match
-  for (const [k, cap] of Object.entries(amfiCapData)) {
-    if (k.length > 8 && n.length > 8 && (k.startsWith(n.slice(0,12)) || n.startsWith(k.slice(0,12))))
-      return { cap, src: 'AMFI live (partial)', conf: 3 };
+  // ── Direct lookup in amfiCapData (AMFI Excel Jul-Dec 2025, ~1800 stocks) ──
+  if (amfiCapData[n]) return { cap: amfiCapData[n], src: 'AMFI', conf: 3 };
+
+  // ── Prefix match (handles "Reliance Industries Ltd" vs "Reliance Industries") ──
+  if (n.length > 8) {
+    const prefix12 = n.slice(0, 12);
+    for (const [k, cap] of Object.entries(amfiCapData)) {
+      if (k.length > 8 && (k.startsWith(prefix12) || prefix12.startsWith(k.slice(0, 12))))
+        return { cap, src: 'AMFI (partial)', conf: 2 };
+    }
   }
 
-  // ── Pathway 2: Hardcoded SEBI sets (Jan 2025 snapshot) ──
-  if (LARGE_SET.has(n) || LARGE_SET.has(rawUp)) return { cap: 'large', src: 'Hardcoded (Jan 25)', conf: 2 };
-  if (MID_SET.has(n)   || MID_SET.has(rawUp))   return { cap: 'mid',   src: 'Hardcoded (Jan 25)', conf: 2 };
-  // Partial hardcoded match
-  for (const e of LARGE_SET) {
-    if (n.length>8 && (e.startsWith(n.slice(0,12)) || n.startsWith(e.slice(0,12))))
-      return { cap: 'large', src: 'Hardcoded (partial)', conf: 1 };
-  }
-  for (const e of MID_SET) {
-    if (n.length>8 && (e.startsWith(n.slice(0,12)) || n.startsWith(e.slice(0,12))))
-      return { cap: 'mid', src: 'Hardcoded (partial)', conf: 1 };
-  }
+  // ── Name-pattern heuristics for well-known names that appear under variants ──
+  if (/^(LIFE INSURANCE CORP|LIC OF INDIA|LIC INDIA|HINDUSTAN ZINC|BHARAT PETROLEUM|INDIAN OIL|HINDUSTAN PETROLEUM)\b/.test(n))
+    return { cap: 'large', src: 'Heuristic', conf: 1 };
 
-  // ── Pathway 3: Name-pattern heuristics ──
-  // Well-known large-cap subsidiaries / brands not in lists
-  if (/^(LIFE INSURANCE CORPORATION|LIC OF INDIA|LIC INDIA|JYOTHY|HINDUSTAN ZINC|BHARAT PETROLEUM|INDIAN OIL|HINDUSTAN PETROLEUM)\b/.test(n))
-    return { cap: 'large', src: 'Name heuristic', conf: 1 };
-
-  // ── Pathway 4: Default — small cap (251+) ──
-  return { cap: 'small', src: 'Default (unverified)', conf: 0 };
+  // ── Default: small cap (251+) ──
+  return { cap: 'small', src: 'Default (unclassified)', conf: 0 };
 }
 
 // ═══════════════════════════════════════════════════════════════
