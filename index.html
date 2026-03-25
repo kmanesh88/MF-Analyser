@@ -1348,6 +1348,25 @@ body {
     <div class="pg-sub">Download AMC Excel → upload → fast analysis</div>
   </div>
 
+  <!-- API URL config bar -->
+  <div id="api-config-bar" style="margin-bottom:1rem;background:var(--s2);border:1px solid var(--border);border-radius:var(--r-sm);padding:.5rem .85rem">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.3rem">
+      <div style="font-size:.6rem;color:var(--muted);font-family:'IBM Plex Mono',monospace;white-space:nowrap;flex-shrink:0">API URL</div>
+      <input id="api-url-input" type="text" placeholder="https://mf-holdings-api.onrender.com"
+        style="flex:1;background:transparent;border:none;outline:none;font-size:.72rem;color:var(--text);min-width:0"
+        oninput="setMfApiUrl(this.value)" value="">
+      <div id="api-url-status" style="font-size:.65rem;white-space:nowrap;color:var(--green)"></div>
+      <button onclick="testApiUrl()" style="background:none;border:1px solid var(--border2);border-radius:var(--r-sm);padding:.25rem .55rem;font-size:.65rem;cursor:pointer;color:var(--blue);white-space:nowrap">Test</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:.6rem">
+      <div style="font-size:.6rem;color:var(--muted);font-family:'IBM Plex Mono',monospace;white-space:nowrap;flex-shrink:0">SECRET</div>
+      <input id="api-secret-input" type="password" placeholder="UPLOAD_SECRET from Render env vars"
+        style="flex:1;background:transparent;border:none;outline:none;font-size:.72rem;color:var(--text);min-width:0"
+        oninput="localStorage.setItem('mf_api_secret',this.value)" value="">
+      <div style="font-size:.6rem;color:var(--muted2)">needed for uploads</div>
+    </div>
+  </div>
+
   <div style="display:grid;grid-template-columns:minmax(220px,280px) 1fr;gap:1.25rem;align-items:start;min-width:0">
 
     <!-- Left: AMC selector + loaded list -->
@@ -1971,6 +1990,121 @@ let amfiCapData = {}; // { "NORMALIZED STOCK NAME": "large"|"mid"|"small" }
 const AMFI_CAP_LS  = 'mf_analyser_amfi_cap';
 const AMFI_CAP_VER = '2';  // bump to invalidate old cache format
 
+// ═══════════════════════════════════════════════════════════════
+// MF HOLDINGS API — fetch stock holdings without any upload
+// Set MF_API_URL in localStorage or via Settings to your deployed server.
+// Format: https://mf-holdings-api.onrender.com
+const MF_API_LS  = 'mf_analyser_api_url';
+let mfApiUrl     = localStorage.getItem(MF_API_LS) || '';
+let mfApiCache   = {}; // { norm(fundName): fundData } — session cache
+
+function getMfApiUrl() { return mfApiUrl.replace(/\/$/, ''); }
+function setMfApiUrl(url) {
+  mfApiUrl = (url || '').trim().replace(/\/$/, '');
+  if (mfApiUrl) localStorage.setItem(MF_API_LS, mfApiUrl);
+  else localStorage.removeItem(MF_API_LS);
+}
+
+// Convert API response → same shape as parseFunds output
+function apiResponseToFundData(apiResp) {
+  const holdings = apiResp.holdings || [];
+  const equityStocks = [];
+  const debtItems    = [];
+
+  holdings.forEach(h => {
+    const name   = h.name || '';
+    const sector = h.sector || '';
+    const pct    = parseFloat(h.pct) || 0;
+    if (pct <= 0) return;
+
+    // Classify as equity or debt by sector/name keywords
+    const combined = (name + ' ' + sector).toLowerCase();
+    const isDebt = /g[\-.]?sec|sovereign|government sec|gilt|sdl|state dev|state government|corporate bond|commercial paper|treasury bill|t[\-.]?bill|certificate of deposit|money market|ncd|debenture|repo|treps|cblo|cash equivalent/i.test(combined);
+    if (isDebt) {
+      let cat = 'cash';
+      if (/g[\-.]?sec|sovereign|government sec|gilt/.test(combined))      cat = 'gsec';
+      else if (/sdl|state dev|state government/.test(combined))           cat = 'sdl';
+      else if (/\baaa\b/.test(combined))                                  cat = 'aaa';
+      else if (/\baa[\+\-]?\b/.test(combined))                            cat = 'aa';
+      else if (/money market|commercial paper|treasury bill|t[\-.]?bill|\bcd\b|\bcp\b|certificate of deposit/.test(combined)) cat = 'mkt';
+      debtItems.push({ name, sector, pct, cat });
+    } else {
+      equityStocks.push({ name, sector, pct });
+    }
+  });
+
+  // Cap classification for equity
+  let lc=0, mc=0, sc=0;
+  equityStocks.forEach(s => {
+    const c = classifyEquity(s.name);
+    if (c==='large') lc+=s.pct;
+    else if (c==='mid') mc+=s.pct;
+    else sc+=s.pct;
+  });
+  const eqTotal = lc+mc+sc;
+  const eqOther = Math.max(0, 100-eqTotal);
+  if (eqTotal>0) { const k=(100-eqOther)/eqTotal; lc*=k; mc*=k; sc*=k; }
+
+  // Debt totals
+  let gsec=0, sdl=0, aaa=0, aa=0, mkt=0, cash=0;
+  debtItems.forEach(d => {
+    if (d.cat==='gsec') gsec+=d.pct;
+    else if (d.cat==='sdl') sdl+=d.pct;
+    else if (d.cat==='aaa') aaa+=d.pct;
+    else if (d.cat==='aa')  aa+=d.pct;
+    else if (d.cat==='mkt') mkt+=d.pct;
+    else cash+=d.pct;
+  });
+
+  return {
+    equityStocks, debtItems,
+    large:lc, mid:mc, small:sc, eqOther,
+    gsec, sdl, aaa, aa, mkt, cash,
+    debtTotal: gsec+sdl+aaa+aa+mkt+cash,
+    amc: apiResp.amc || '',
+    source: 'api',
+  };
+}
+
+// Fetch holdings for a single fund from the API (with session cache)
+async function fetchFundFromApi(fundName) {
+  const url = getMfApiUrl();
+  if (!url) return null;
+  const key = fundName.toLowerCase().trim();
+  if (mfApiCache[key]) return mfApiCache[key];
+  try {
+    const res = await fetch(`${url}/holdings?fund=${encodeURIComponent(fundName)}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.holdings?.length) return null;
+    const parsed = apiResponseToFundData(data);
+    mfApiCache[key] = parsed;
+    return parsed;
+  } catch(e) {
+    console.warn('[MF API]', fundName, e.message);
+    return null;
+  }
+}
+
+// Fetch holdings for multiple funds in parallel, merge into uploadedMap
+async function enrichFromApi(funds, uploadedMap) {
+  const url = getMfApiUrl();
+  if (!url) return 0;
+  const missing = funds.filter(f => !uploadedMap[f]);
+  if (!missing.length) return 0;
+  const results = await Promise.all(missing.map(f => fetchFundFromApi(f)));
+  let enriched = 0;
+  missing.forEach((f, i) => {
+    if (results[i]) {
+      uploadedMap[f] = { amc: results[i].amc, data: results[i] };
+      enriched++;
+    }
+  });
+  return enriched;
+}
+
 // Two URLs — try Dec 2025 first (most current), fall back to Jun 2025
 const AMFI_XLSX_URLS = [
   'https://www.amfiindia.com/Themes/Theme1/downloads/AverageMarketCapitalization31Dec2025.xlsx',
@@ -2588,7 +2722,7 @@ function showPage(pg) {
   if (pg==='alerts')     buildAlertsPage();
   if (pg==='thresholds') buildThresholdsPage();
   if (pg==='monitor')    renderWatchlist();
-  if (pg==='upload')     { rebuildAmcPanels(); buildAmcExcelLinks(); }
+  if (pg==='upload')     { rebuildAmcPanels(); buildAmcExcelLinks(); initApiConfigBar(); }
 }
 
 function switchMetric(v) {
@@ -2929,6 +3063,35 @@ function buildAmcExcelLinks() {
   }).join('');
 }
 
+function initApiConfigBar() {
+  const inp = document.getElementById('api-url-input');
+  const sec = document.getElementById('api-secret-input');
+  const st  = document.getElementById('api-url-status');
+  if (inp) inp.value = getMfApiUrl();
+  if (sec) sec.value = localStorage.getItem('mf_api_secret') || '';
+  if (st)  st.textContent = getMfApiUrl() ? '✓ configured' : '';
+}
+
+async function testApiUrl() {
+  const url = getMfApiUrl();
+  const st  = document.getElementById('api-url-status');
+  if (!url) { showToast('Enter an API URL first'); return; }
+  if (st) st.textContent = 'Testing…';
+  try {
+    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(6000) });
+    const json = await res.json();
+    if (res.ok && json.funds >= 0) {
+      if (st) st.textContent = `✓ ${json.funds} funds loaded`;
+      showToast(`API connected — ${json.funds} funds available`);
+    } else {
+      if (st) st.textContent = '⚠ unexpected response';
+    }
+  } catch(e) {
+    if (st) st.textContent = '✗ unreachable';
+    showToast('API unreachable — check the URL');
+  }
+}
+
 function highlightSelectedAmc(name) {
   const el = document.getElementById('amc-excel-selected');
   if (el) {
@@ -2943,10 +3106,36 @@ function highlightSelectedAmc(name) {
 // Handles AMC portfolio Excel/CSV files
 // Typical columns: Name, ISIN, Rating/Sector, Market Value, % of NAV
 let _xlsParsedFunds = []; // [{name, isin, pct, sector}]
+let _lastXlsFile    = null; // keep reference for API push
+
+async function pushExcelToApiServer(file, amcName) {
+  const url = getMfApiUrl();
+  if (!url || !file) return;
+  const secret = localStorage.getItem('mf_api_secret') || '';
+  try {
+    const fd = new FormData();
+    fd.append('file',   file, file.name);
+    fd.append('amc',    amcName);
+    fd.append('secret', secret);
+    const res = await fetch(`${url}/upload`, { method: 'POST', body: fd,
+      signal: AbortSignal.timeout(30000) });
+    const json = await res.json();
+    if (res.ok) {
+      showToast(`☁ ${json.funds_added} funds pushed to API server`);
+      const st = document.getElementById('api-url-status');
+      if (st) st.textContent = `✓ ${json.funds_total} funds on server`;
+    } else {
+      console.warn('[API push]', json);
+    }
+  } catch(e) {
+    console.warn('[API push failed]', e.message);
+  }
+}
 
 async function handlePortfolioExcel(evt) {
   const file = evt.target.files?.[0];
   if (!file) return;
+  _lastXlsFile = file; // store for API push
 
   const icon = document.getElementById('upload-xls-icon');
   const st   = document.getElementById('upload-xls-st');
@@ -3287,6 +3476,10 @@ function savePortfolioExcel() {
   saveToStorage();
   if (window._fb?.currentUser) window._fbSaveCloud();
   showToast(`✓ ${_xlsParsedFunds.reduce((s,r)=>s+r.holdings.length,0)} holdings saved to ${amc.name}`);
+
+  // Push to API server so all future analyses skip upload entirely
+  pushExcelToApiServer(_lastXlsFile, amc.name);
+
   resetXlsUpload();
 }
 
@@ -5314,7 +5507,7 @@ function buildMetrics() {
 }
 
 
-function runAnalysis() {
+async function runAnalysis() {
   // Ensure allocRows is populated — always sync from active portfolio first
   if (activePortId) {
     const port = portfolios.find(p => p.id === activePortId);
@@ -5335,6 +5528,17 @@ function runAnalysis() {
   // Build items from allocRows + uploaded factsheet data
   const uploadedMap = {};
   allFunds().forEach(({name, amc, data}) => { uploadedMap[name] = {amc, data}; });
+
+  // ── Try MF Holdings API for any funds without uploaded data ──
+  if (getMfApiUrl()) {
+    const missingFunds = allocRows.filter(r => r.pct > 0 && !uploadedMap[r.fundName]).map(r => r.fundName);
+    if (missingFunds.length) {
+      const st = document.getElementById('upload-uz-st');
+      if (st) { st.className='uz-st ld'; st.innerHTML=`<span class="spin"></span> Fetching ${missingFunds.length} fund(s) from API…`; }
+      const enriched = await enrichFromApi(missingFunds, uploadedMap);
+      if (st) { st.className='uz-st'; st.textContent = enriched > 0 ? `✓ ${enriched} fund(s) loaded from API` : ''; }
+    }
+  }
 
   const items = [];
   allocRows.forEach(r => {
