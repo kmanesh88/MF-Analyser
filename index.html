@@ -1681,12 +1681,20 @@ body {
   <!-- Row 1: Key metrics -->
   <div class="mgrid cols4" id="sum-kpi" style="margin-bottom:1.1rem"></div>
 
+  <!-- Asset Allocation bar — single source of truth -->
+  <div class="card" style="margin-bottom:1.1rem">
+    <div class="card-title">Asset Allocation</div>
+    <div id="sum-asset-metrics" class="mgrid cols4" style="margin-bottom:1rem"></div>
+    <div class="sbar" id="sum-asset-bar" style="height:28px"></div>
+    <div class="legend" style="margin-top:.55rem" id="sum-asset-legend"></div>
+  </div>
+
   <!-- Row 2: Stock split + Debt split side by side -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.1rem;margin-bottom:1.1rem">
 
     <!-- Stock Cap Split -->
     <div class="card" style="margin-bottom:0">
-      <div class="card-title">Stock Split</div>
+      <div class="card-title">Within Equity — Cap Split</div>
       <div class="mgrid cols3" id="sum-cap-metrics" style="margin-bottom:1rem"></div>
       <div class="sbar" id="sum-cap-bar"></div>
       <div class="legend" style="margin-top:.55rem">
@@ -1698,7 +1706,7 @@ body {
 
     <!-- Debt Split -->
     <div class="card" style="margin-bottom:0">
-      <div class="card-title">Debt Split</div>
+      <div class="card-title">Within Debt — Quality Split</div>
       <div class="mgrid cols3" id="sum-debt-metrics" style="margin-bottom:1rem"></div>
       <div class="sbar" id="sum-debt-bar"></div>
       <div class="legend" style="margin-top:.55rem">
@@ -2071,6 +2079,7 @@ function apiResponseToFundData(apiResp) {
     large:lc, mid:mc, small:sc, eqOther,
     gsec, sdl, aaa, aa, mkt, cash,
     debtTotal: gsec+sdl+aaa+aa+mkt+cash,
+    cashPct: apiResp.cashPct || 0,
     amc: apiResp.amc || '',
     source: 'api',
   };
@@ -3286,20 +3295,31 @@ async function parseWorkbook(wb, filename, results) {
 
       // Fixed columns: 0=SL, 1=ISIN, 2=Name, 3=Sector, 4=Qty, 5=MktVal, 6=%NAV
       const holdings = [];
+      let cashPct = 0; // TREPS + cash + money market
       for (const row of rows.slice(4)) {
         const isin   = String(row[1] || '').trim();
         const name   = String(row[2] || '').trim();
         const sector = String(row[3] || '').trim();
         const pctRaw = row[6];
-        if (!VALID_ISIN.test(isin)) continue;
-        if (!name || SKIP.test(name)) continue;
+        if (!name) continue;
+
+        // Capture TREPS/cash rows (no valid ISIN, specific names)
+        if (!VALID_ISIN.test(isin)) {
+          if (/^(treps?|triparty\s*repo|reverse\s*repo|cblo|cash\s*and\s*other|net\s*current|total\s*for\s*money)/i.test(name)) {
+            const p = parseFloat(pctRaw) * 100;
+            if (!isNaN(p) && p > 0 && p < 50) cashPct += p;
+          }
+          continue;
+        }
+        if (SKIP.test(name)) continue;
         const pct = parseFloat(pctRaw) * 100; // stored as decimal
         if (isNaN(pct) || pct <= 0 || pct > 100) continue;
         holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000});
       }
 
       if (holdings.length >= 2) {
-        results.push({fundName, isClientFormat:false, holdings, pct:0});
+        results.push({fundName, isClientFormat:false, holdings, pct:0,
+                      cashPct: Math.round(cashPct*100)/100});
       }
     }
     return; // done
@@ -3647,6 +3667,7 @@ function doSavePortfolioExcel() {
       large:lc, mid:mc, small:sc, eqOther,
       gsec, sdl, aaa, aa, mkt, cash,
       debtTotal: gsec+sdl+aaa+aa+mkt+cash,
+      cashPct: result.cashPct || 0,  // TREPS/money market cash from disclosure
       equityStocks, debtItems, amc: amc.name
     };
   });
@@ -5416,20 +5437,49 @@ function buildSummary() {
   const ftw  = fundItemsS.reduce((s,f)=>s+f.wt,0) || 1;
   const bl   = k => fundItemsS.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
 
-  // ── KPI row ──────────────────────────────────────────────────
-  const totalEq    = bl('large')+bl('mid')+bl('small');
-  const totalDebt  = bl('gsec')+bl('sdl')+bl('aaa')+bl('aa')+bl('mkt')+bl('cash');
-  const totalOther = Math.max(0, 100-totalEq-totalDebt);
+  // ── Asset Allocation — portfolio level ──────────────────────────
+  // Equity = weighted large+mid+small+eqOther across non-commodity funds
+  // Debt   = weighted debtTotal across non-commodity funds
+  // Cash   = weighted cashPct (TREPS/money market from disclosures)
+  // Commodity = sum of commodity fund weights
+  // All expressed as % of total portfolio
+
+  const equityPct    = fundItemsS.reduce((s,f)=>s+f.wt*(((f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0))/100),0);
+  const debtPct      = fundItemsS.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
+  const cashPortPct  = fundItemsS.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
+  const commodityPct = commItems.reduce((s,f)=>s+f.wt,0);
+  const totalKnown   = equityPct + debtPct + cashPortPct + commodityPct;
+  const unknownPct   = Math.max(0, 100 - totalKnown);
+
   const uniqueStocks = new Set(
     items.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))
   ).size;
 
   document.getElementById('sum-kpi').innerHTML = [
-    metric(items.length,        'Funds',           'var(--accent)'),
-    metric(uniqueStocks,        'Unique Stocks',   'var(--blue)'),
-    metric(totalEq.toFixed(1)+'%',  'Equity',      'var(--lc)'),
-    metric(totalDebt.toFixed(1)+'%','Debt',         'var(--dc-aaa)'),
+    metric(items.length,           'Funds',         'var(--accent)'),
+    metric(uniqueStocks,           'Unique Stocks', 'var(--blue)'),
+    metric(equityPct.toFixed(1)+'%',  'Equity',     'var(--lc)'),
+    metric(debtPct.toFixed(1)+'%',    'Debt',       'var(--dc-aaa)'),
   ].join('');
+
+  // Asset allocation metrics card
+  const assetClasses = [
+    { label:'Equity',    val:equityPct,   color:'var(--lc)',      seg:'sg-l'    },
+    { label:'Debt',      val:debtPct,     color:'var(--dc-aaa)',  seg:'sg-aaa'  },
+    { label:'Cash/MM',   val:cashPortPct, color:'var(--dc-mkt)',  seg:'sg-mkt'  },
+    ...commItems.map(f=>({ label:f.commodityType||'Commodity', val:f.wt, color:'#b8860b', seg:'sg-comm' })),
+    ...(unknownPct > 1 ? [{ label:'Other', val:unknownPct, color:'var(--s4)', seg:'sg-oeq' }] : []),
+  ].filter(a=>a.val > 0.1);
+
+  document.getElementById('sum-asset-metrics').innerHTML = assetClasses.map(a=>
+    metric(a.val.toFixed(1)+'%', a.label, a.color)
+  ).join('');
+  document.getElementById('sum-asset-bar').innerHTML = barSegs(
+    assetClasses.map(a=>({v:a.val, c:a.seg}))
+  );
+  document.getElementById('sum-asset-legend').innerHTML = assetClasses.map(a=>
+    `<div class="leg"><div class="ldot" style="background:${a.color}"></div>${a.label}</div>`
+  ).join('');
 
   // ── Stock Cap Split ──────────────────────────────────────────
   const bL=bl('large'), bM=bl('mid'), bS=bl('small');
