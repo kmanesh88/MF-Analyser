@@ -1929,14 +1929,12 @@ body {
 </div><!-- /main -->
 
 <script>
-// ═══════════════════════════════════════════════════════════════
 // PDF.js — wrapped in try/catch so a CDN failure doesn't kill the whole app
 try {
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 } catch(e) { console.warn('PDF.js not loaded:', e.message); }
 
-// ═══════════════════════════════════════════════════════════════
 // SEBI EQUITY CLASSIFICATION
 const LARGE_SET = new Set([
   "RELIANCE INDUSTRIES","TATA CONSULTANCY SERVICES","HDFC BANK","INFOSYS","ICICI BANK",
@@ -2122,14 +2120,12 @@ const MID_SET = new Set([
   "CRAFTSMAN AUTOMATION","INFO EDGE INDIA","INFO EDGE"
 ]);
 
-// ═══════════════════════════════════════════════════════════════
 // AMFI LIVE CAP DATA — fetched on load, cached in localStorage
 // Source: amfiindia.com bi-annual Excel (Jan + Jul), parsed with SheetJS
 let amfiCapData = {}; // populated from LARGE_SET/MID_SET in fetchAmfiCapData fallback; // { "NORMALIZED STOCK NAME": "large"|"mid"|"small" }
 const AMFI_CAP_LS  = 'mf_analyser_amfi_cap';
 const AMFI_CAP_VER = '3';  // bump to invalidate old cache format
 
-// ═══════════════════════════════════════════════════════════════
 // MF HOLDINGS API — fetch stock holdings without any upload
 // Set MF_API_URL in localStorage or via Settings to your deployed server.
 // Format: https://mf-holdings-api.onrender.com
@@ -2352,7 +2348,6 @@ function updateAmfiStatus(msg) {
   if (el) el.innerHTML = msg;
 }
 
-// ═══════════════════════════════════════════════════════════════
 // CAP CLASSIFICATION — single lookup into amfiCapData (populated from AMFI Excel or hardcoded sets)
 function classifyEquity(raw) {
   return classifyEquityWithConfidence(raw).cap;
@@ -2382,7 +2377,6 @@ function classifyEquityWithConfidence(raw) {
   return { cap: 'small', src: 'Default (unclassified)', conf: 0 };
 }
 
-// ═══════════════════════════════════════════════════════════════
 // MULTI-PATHWAY SECTOR RESOLUTION
 // Confidence levels: 3=lookup, 2=factsheet, 1=name inference, 0=unknown
 function getSector(stockName, factsheetSector) {
@@ -2433,7 +2427,6 @@ function getSectorWithConfidence(stockName, factsheetSector) {
   return { sector: 'Other', src: 'Unknown', conf: 0 };
 }
 
-// ═══════════════════════════════════════════════════════════════
 // DEBT CLASSIFICATION
 function classifyDebt(name, context) {
   const n = (name + ' ' + (context||'')).toUpperCase();
@@ -2465,11 +2458,9 @@ function getRatingBadge(name) {
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════════
 // STATE
 let amcs = [], amcCtr = 0;
 
-// ═══════════════════════════════════════════════════════════════
 // PORTFOLIO STATE
 const PORT_LS   = 'mf_analyser_portfolios';
 const THRESH_LS = 'mf_analyser_thresholds';
@@ -2932,15 +2923,16 @@ function switchView(v) {
   document.getElementById('vt-dt').classList.toggle('active', v==='debt');
 }
 
-// ═══════════════════════════════════════════════════════════════
 // LOCAL STORAGE — persist AMC data, allocations, counter
-const LS_KEY = 'mf_analyser_v4';
+const LS_KEY      = 'mf_analyser_v4';
+const CAP_RECOMP_VER = '3'; // bump when LARGE_SET/MID_SET changes — triggers recompute on load
 
 function saveToStorage() {
   try {
     const payload = {
       amcCtr,
       savedAt: new Date().toISOString(),
+      capRecompVer: CAP_RECOMP_VER,
       amcs: amcs.map(a => ({
         id: a.id,
         name: a.name,
@@ -2950,6 +2942,7 @@ function saveToStorage() {
             large: f.large, mid: f.mid, small: f.small, eqOther: f.eqOther,
             gsec: f.gsec, sdl: f.sdl, aaa: f.aaa, aa: f.aa,
             mkt: f.mkt, cash: f.cash, debtTotal: f.debtTotal,
+            cashPct: f.cashPct || 0,
             amc: f.amc,
             equityStocks: f.equityStocks || [],
             debtItems: f.debtItems || [],
@@ -2984,10 +2977,42 @@ function loadFromStorage() {
     amcCtr = payload.amcCtr || 0;
     amcs   = [];
 
+    // Check if cap data needs recomputation (LARGE_SET was expanded)
+    const needsRecomp = payload.capRecompVer !== CAP_RECOMP_VER;
+
     payload.amcs.forEach(saved => {
       const amc = { id: saved.id, name: saved.name, status: saved.status, funds: saved.funds || {} };
+
+      // Recompute large/mid/small from stored equityStocks if version changed
+      if (needsRecomp) {
+        Object.entries(amc.funds).forEach(([fname, f]) => {
+          if (!f.equityStocks?.length) return;
+          let lc=0, mc=0, sc=0;
+          f.equityStocks.forEach(s => {
+            const c = classifyEquity(s.name);
+            if (c==='large') lc+=s.pct;
+            else if (c==='mid') mc+=s.pct;
+            else sc+=s.pct;
+          });
+          const eqTotal=lc+mc+sc;
+          if (eqTotal>0) {
+            const eqOther = Math.max(0, 100-eqTotal-(f.debtTotal||0));
+            const k = (100-eqOther)/eqTotal;
+            f.large = lc*k; f.mid = mc*k; f.small = sc*k; f.eqOther = eqOther;
+          }
+        });
+      }
+
       amcs.push(amc);
     });
+
+    // Save with updated cap version if recomputed
+    if (needsRecomp) {
+      setTimeout(() => {
+        saveToStorage();
+        console.log('[MF] Cap data recomputed from updated LARGE_SET');
+      }, 500);
+    }
 
     renderNav();
     updateNextBtn();
@@ -4565,7 +4590,6 @@ function normaliseSector(raw) {
   return raw.trim();
 }
 
-// ═══════════════════════════════════════════════════════════════
 // MASTER STOCK → SECTOR LOOKUP
 // Top ~350 stocks by MF AUM, mapped to canonical AMFI sector names
 // This ensures consistent sectors regardless of AMC factsheet format
@@ -4823,8 +4847,8 @@ function normStockKey(name) {
 // ── Immediately populate amfiCapData from hardcoded sets ──────────────────
 // This runs synchronously so classifyEquity works even before AMFI fetch completes
 ;(function initCapData() {
-  LARGE_SET.forEach(n => { amfiCapData[normStockKey(n)] = 'large'; });
-  MID_SET.forEach(n   => { amfiCapData[normStockKey(n)] = 'mid';   });
+  LARGE_SET.forEach(n => { if (n) amfiCapData[normStockKey(n)] = 'large'; });
+  MID_SET.forEach(n   => { if (n) amfiCapData[normStockKey(n)] = 'mid';   });
 })();
 
 
@@ -4854,7 +4878,6 @@ function updateNextBtn() {
   refreshLoadedStrip();
 }
 
-// ═══════════════════════════════════════════════════════════════
 // ALLOCATION
 function allFunds() {
   const out=[];
@@ -5529,7 +5552,6 @@ function getAllocWeight(name) {
   return 0;
 }
 
-// ═══════════════════════════════════════════════════════════════
 // PORTFOLIO SUMMARY — the main dashboard
 function buildSummary() {
   const items = getActiveItems();
@@ -6136,7 +6158,6 @@ function barSegs(segs) {
   }).join('');
 }
 
-// ═══════════════════════════════════════════════════════════════
 // MARKET MONITOR ENGINE
 // Uses Yahoo Finance v8 API via CORS proxy for Indian stocks
 const WATCH_LS    = 'mf_analyser_watchlist';
@@ -6594,7 +6615,6 @@ async function fetchAnnouncements() {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
 // IMPORT ENGINE — CAS PDF / Excel / Manual
 let importParsedFunds = []; // [{ name, value, pct, matched }]
 let importTab = 'cas';
@@ -6797,54 +6817,87 @@ function extractFundsFromCAS(text) {
 
 // ── Excel / CSV Parser ────────────────────────────────────────────
 async function parseExcelFile(file) {
-  const buf  = await file.arrayBuffer();
-  const wb   = XLSX.read(buf, { type: 'array' });
-  const ws   = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  const buf = await file.arrayBuffer();
 
-  // Find header row
-  let nameCol = -1, valueCol = -1, pctCol = -1;
-  let headerRow = 0;
+  // XLSX.js needs Uint8Array for .xls binary format
+  const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
 
+  // Scan all sheets — use the one with the most fund data
+  let bestRows = [], bestSheet = '';
+  for (const sname of wb.SheetNames) {
+    const ws   = wb.Sheets[sname];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    // Score: how many rows have a fund name + value?
+    let score = 0;
+    for (const row of rows.slice(0, 20)) {
+      const rl = row.map(c => String(c).toLowerCase().trim());
+      const hasFund  = rl.some(c => c.includes('fund') || c.includes('scheme'));
+      const hasValue = rl.some(c => c.includes('value') || c.includes('amount') || c.includes('current'));
+      if (hasFund || hasValue) score++;
+    }
+    if (score > 0 && rows.length > bestRows.length) {
+      bestRows = rows; bestSheet = sname;
+    }
+  }
+  // Fallback: use first sheet
+  if (!bestRows.length) {
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    bestRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  }
+
+  const rows = bestRows;
+
+  // Find header row — scan first 10 rows
+  let nameCol = -1, valueCol = -1, pctCol = -1, unitsCol = -1, headerRow = 0;
   for (let r = 0; r < Math.min(rows.length, 10); r++) {
     const row = rows[r].map(c => String(c).toLowerCase().trim());
-    const ni  = row.findIndex(c => c.includes('fund') || c.includes('scheme') || c === 'name');
-    const vi  = row.findIndex(c => c.includes('value') || c.includes('amount') || c.includes('current'));
-    const pi  = row.findIndex(c => c.includes('%') || c.includes('percent') || c.includes('weight') || c.includes('allocation'));
+    const ni = row.findIndex(c =>
+      c.includes('fund name') || c.includes('scheme name') ||
+      c.includes('fund') || c.includes('scheme') || c === 'name');
+    const vi = row.findIndex(c =>
+      c.includes('current value') || c.includes('market value') ||
+      c.includes('value') || c.includes('amount'));
+    const pi = row.findIndex(c =>
+      c === '%' || c.includes('percent') || c.includes('weight') ||
+      c.includes('allocation') || c.includes('% of'));
+    const ui = row.findIndex(c =>
+      c === 'units' || c === 'units#' || c.includes('unit'));
     if (ni >= 0 && (vi >= 0 || pi >= 0)) {
-      nameCol = ni; valueCol = vi; pctCol = pi; headerRow = r;
+      nameCol = ni; valueCol = vi; pctCol = pi; unitsCol = ui; headerRow = r;
       break;
     }
   }
-
-  // Fallback: assume col 0 = name, col 1 = value/pct
   if (nameCol < 0) { nameCol = 0; valueCol = 1; headerRow = 0; }
 
   const funds = [];
   for (let r = headerRow + 1; r < rows.length; r++) {
     const row  = rows[r];
-    const name = String(row[nameCol] || '').trim();
-    if (!name || name.length < 5) continue;
-    if (/total|grand|sum|^#/i.test(name)) continue;
+    if (!row || !row[nameCol]) continue;
+    const name = String(row[nameCol] || '').trim()
+      .replace(/\s*\(G\)\s*$/i, '').replace(/\s*\(D\)\s*$/i, '')
+      .replace(/\s*\(IDCW\)\s*$/i, '').trim();
+    if (!name || name.length < 3) continue;
+    if (/^(total|grand total|sum|#)/i.test(name)) continue;
 
-    let value = 0, pct = 0;
-    if (pctCol >= 0 && row[pctCol]) {
-      pct = parseFloat(String(row[pctCol]).replace(/[%,]/g,'')) || 0;
-    }
-    if (valueCol >= 0 && row[valueCol]) {
-      value = parseFloat(String(row[valueCol]).replace(/[₹,\s]/g,'')) || 0;
-    }
+    let value = 0, pct = 0, units = 0;
+    if (valueCol >= 0 && row[valueCol] != null)
+      value = parseFloat(String(row[valueCol]).replace(/[₹,\s]/g, '')) || 0;
+    if (pctCol >= 0 && row[pctCol] != null)
+      pct = parseFloat(String(row[pctCol]).replace(/[%,]/g, '')) || 0;
+    if (unitsCol >= 0 && row[unitsCol] != null)
+      units = parseFloat(String(row[unitsCol]).replace(/,/g, '')) || 0;
 
-    if (value > 0 || pct > 0) {
-      funds.push({ name, value, pct });
-    }
+    if (value > 0 || pct > 0)
+      funds.push({ name, value, pct, units });
   }
 
-  // If % given directly, use those; otherwise derive from values
+  if (!funds.length) throw new Error('No fund data found in Excel. Check that columns include Fund Name and Current Value.');
+
+  // Normalise percentages
   const hasPct = funds.some(f => f.pct > 0);
-  if (hasPct) {
-    const total = funds.reduce((s,f) => s+f.pct, 0);
-    return funds.map(f => ({ name:f.name, value:f.value, pct: total>0 ? f.pct/total*100 : f.pct, matched:null }));
+  if (hasPct && !funds.some(f => f.value > 0)) {
+    const total = funds.reduce((s, f) => s + f.pct, 0);
+    return funds.map(f => ({ name: f.name, value: 0, units: f.units, pct: total > 0 ? +(f.pct/total*100).toFixed(2) : f.pct, matched: null }));
   }
   return buildAllocFromValues(funds);
 }
@@ -6871,6 +6924,7 @@ function buildAllocFromValues(funds) {
     .map(f => ({
       name:    f.name,
       value:   f.value || 0,
+      units:   f.units || 0,
       pct:     total > 0 ? +(f.value/total*100).toFixed(2) : (f.pct||0),
       matched: null,
     }))
@@ -6988,7 +7042,6 @@ document.addEventListener('click', e => {
   if (e.target === modal) closeImportModal();
 });
 
-// ═══════════════════════════════════════════════════════════════
 // ALL INDIA AMCs — 44 SEBI registered asset management companies
 // Sorted by AUM (largest first as of early 2026)
 const ALL_AMCS = [
@@ -7125,7 +7178,6 @@ document.addEventListener('click', e => {
   if (e.target === modal) closeAmcPicker();
 });
 
-// ═══════════════════════════════════════════════════════════════
 // INIT
 window.addEventListener('load', async () => {
   // Step 1: Make nav work immediately — before anything else
