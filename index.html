@@ -3345,6 +3345,42 @@ async function parseWorkbook(wb, filename, results) {
     }
     return;
   }
+
+  // ── Detect ICICI per-fund format ─────────────────────────────
+  // Row[0][1]=AMC name, Row[3] has "% to Nav" header, % stored as decimal
+  const isIcici = !isAdvisorkhoj && !isKotak && (() => {
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', range:0});
+    const amc  = String(rows[0]?.[1] || '').toLowerCase();
+    const hdr  = (rows[3] || []).map(c => String(c||'').toLowerCase());
+    return (amc.includes('icici') || (amc.includes('mutual') && amc.includes('fund'))) &&
+           hdr.some(h => h.includes('% to nav') || h.includes('%nav'));
+  })();
+
+  if (isIcici) {
+    const VALID_ISIN = /^IN[A-Z0-9]{10}$/;
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    if (rows.length >= 5) {
+      let fundName = String(rows[1]?.[1] || '').trim();
+      if (!fundName) fundName = filename.replace(/\.xlsx?$/i,'').trim();
+      const holdings = [];
+      for (const row of rows.slice(4)) {
+        if (row.length < 8) continue;
+        const name   = String(row[1] || '').trim();
+        const isin   = String(row[2] || '').trim();
+        const sector = String(row[4] || '').trim();
+        const pct    = parseFloat(row[7]) * 100;
+        if (!VALID_ISIN.test(isin) || !name || name.length < 2) continue;
+        if (isNaN(pct) || pct <= 0 || pct > 100) continue;
+        holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000});
+      }
+      if (holdings.length >= 2)
+        results.push({fundName, isClientFormat:false, holdings, pct:0});
+    }
+    return;
+  }
+
   const isClientFormat = wb.SheetNames.some(sn => {
     const ws = wb.Sheets[sn];
     const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
