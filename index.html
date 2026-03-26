@@ -3450,33 +3450,30 @@ function showXlsPreview(results, filename) {
 function savePortfolioExcel() {
   const isClientFmt = _xlsParsedFunds.some(r => r.isClientFormat);
 
-  // Show confirmation for AMC format
   if (!isClientFmt) {
-    const amc = amcs.find(a => a.id === amcId);
+    const amcId = window._selectedAmcId;
+    const amc   = amcs.find(a => a.id === amcId);
     if (!amc) {
-      document.getElementById('upload-xls-amc-warning').style.display = 'block';
-      document.getElementById('upload-xls-amc-warning').textContent = '⚠ Select an AMC on the left first.';
+      const w = document.getElementById('upload-xls-amc-warning');
+      if (w) { w.style.display='block'; w.textContent='⚠ Select an AMC on the left first.'; }
       return;
     }
-    const totalHoldings = _xlsParsedFunds.reduce((s,r) => s + (r.holdings?.length||0), 0);
-    const fundCount = _xlsParsedFunds.length;
-    // Replace Save button with confirm UI
+    const totalHoldings = _xlsParsedFunds.reduce((s,r) => s+(r.holdings?.length||0), 0);
     const saveBtn = document.getElementById('upload-xls-save-btn');
     if (saveBtn && !saveBtn.dataset.confirmed) {
       saveBtn.dataset.confirmed = '1';
-      saveBtn.style.background = 'var(--green)';
-      saveBtn.textContent = `✓ Confirm: Save ${fundCount} fund(s), ${totalHoldings} holdings to "${amc.name}"?`;
+      saveBtn.style.cssText += ';background:var(--green);color:#fff';
+      saveBtn.textContent = `Confirm — save ${_xlsParsedFunds.length} fund(s), ${totalHoldings} holdings to "${amc.name}"?`;
       setTimeout(() => {
         if (saveBtn.dataset.confirmed) {
           saveBtn.dataset.confirmed = '';
           saveBtn.style.background = '';
           saveBtn.textContent = '✓ Save to Selected AMC';
         }
-      }, 5000);
-      return; // wait for second click
+      }, 6000);
+      return;
     }
-    // Second click — proceed
-    if (saveBtn) { saveBtn.dataset.confirmed = ''; saveBtn.style.background = ''; saveBtn.textContent = '✓ Save to Selected AMC'; }
+    if (saveBtn) { saveBtn.dataset.confirmed=''; saveBtn.style.background=''; saveBtn.textContent='✓ Save to Selected AMC'; }
   }
 
   if (isClientFmt) {    // Save as portfolio allocations to the active portfolio
@@ -3509,7 +3506,7 @@ function savePortfolioExcel() {
     return;
   }
 
-  const amc = amcs.find(a => a.id === amcId);
+  const amc = amcs.find(a => a.id === window._selectedAmcId);
   if (!amc) return;
 
   // Convert parsed holdings into fund data format
