@@ -1918,9 +1918,11 @@ body {
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// PDF.js
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+// PDF.js — wrapped in try/catch so a CDN failure doesn't kill the whole app
+try {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+} catch(e) { console.warn('PDF.js not loaded:', e.message); }
 
 // ═══════════════════════════════════════════════════════════════
 // SEBI EQUITY CLASSIFICATION
@@ -3397,101 +3399,7 @@ async function parseWorkbook(wb, filename, results) {
     if (holdings.length>=3) results.push({fundName,isClientFormat:false,holdings,pct:0});
   }
 }
-  // ── FORMAT: Client portfolio or SEBI standard ──────────────────────
-  const isClientFormat = wb.SheetNames.some(sn => {
-    const ws = wb.Sheets[sn];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-    for (let r=0; r<Math.min(10,rows.length); r++) {
-      const rowLower = rows[r].map(c=>String(c).toLowerCase().trim());
-      const nc = rowLower.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
-      const vc = rowLower.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value');
-      if (nc>=0 && vc>=0 && nc!==vc) return true;
-    }
-    return false;
-  });
 
-  for (const sheetName of wb.SheetNames) {
-    if (/^(index|cover|content|summary|disclaimer|back)$/i.test(sheetName)) continue;
-    const ws   = wb.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-    if (rows.length < 2) continue;
-
-    if (isClientFormat) {
-      // Client portfolio format
-      let clientHeaderRow=-1, clientNameCol=-1, clientValueCol=-1, clientUnitsCol=-1;
-      for (let r=0; r<Math.min(10,rows.length); r++) {
-        const rowLower = rows[r].map(c=>String(c).toLowerCase().trim());
-        const nc=rowLower.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
-        const vc=rowLower.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value');
-        const uc=rowLower.findIndex(c=>c==='units'||c.includes('unit'));
-        if (nc>=0&&vc>=0&&nc!==vc){clientHeaderRow=r;clientNameCol=nc;clientValueCol=vc;clientUnitsCol=uc;break;}
-      }
-      if (clientHeaderRow>=0) {
-        const rawFunds=[]; let totalValue=0;
-        for (let r=clientHeaderRow+1;r<rows.length;r++) {
-          const row=rows[r];
-          const name=String(row[clientNameCol]||'').trim();
-          const val=parseFloat(String(row[clientValueCol]||'').replace(/,/g,''));
-          const units=clientUnitsCol>=0?parseFloat(String(row[clientUnitsCol]||'').replace(/,/g,'')):0;
-          if(!name||name.length<3||isNaN(val)||val<=0) continue;
-          rawFunds.push({name,val,units:isNaN(units)?0:units}); totalValue+=val;
-        }
-        if (rawFunds.length&&totalValue>0) {
-          rawFunds.forEach(f=>{
-            const pct=Math.round(f.val/totalValue*10000)/100;
-            const cleanName=f.name.replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
-              .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
-              .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
-            results.push({fundName:cleanName,isClientFormat:true,pct,val:f.val,units:f.units||0});
-          });
-        }
-        return; // done — client format is whole workbook
-      }
-    }
-
-    // AMC disclosure format — detect fund name and ISIN header
-    let fundName = sheetName;
-    for (let r=0;r<Math.min(10,rows.length);r++) {
-      const row=rows[r]; const c0=String(row[0]||'').trim(); const c1=String(row[1]||'').trim();
-      if (/scheme\s*name/i.test(c0)&&c1.length>3){fundName=c1;break;}
-      if (c1.length>10&&/fund|scheme/i.test(c1)&&!/mutual fund$/i.test(c1)){fundName=c1;break;}
-      const m=c0.match(/scheme\s*name\s*:\s*(.+)/i); if(m&&m[1].trim().length>3){fundName=m[1].trim();break;}
-    }
-    // Use filename as fund name hint for single-fund Excels
-    if (fundName===sheetName&&filename) {
-      const fn=filename.replace(/\.(xlsx?|csv)$/i,'').replace(/[-_]/g,' ').trim();
-      if (fn.length>5&&/fund/i.test(fn)) fundName=fn;
-    }
-
-    let headerRow=-1, nameCol=-1, isinCol=-1, sectorCol=-1, pctCol=-1;
-    for (let r=0;r<Math.min(20,rows.length);r++) {
-      const rowLower=rows[r].map(c=>String(c).toLowerCase().trim());
-      if (!rowLower.includes('isin')) continue;
-      headerRow=r; isinCol=rowLower.indexOf('isin');
-      nameCol=rowLower.findIndex(c=>['name','instrument','security','company','name of instrument'].includes(c));
-      if (nameCol<0) nameCol=rowLower.findIndex(c=>'name'in c||'instrument' in c);
-      sectorCol=rowLower.findIndex(c=>c.includes('sector')||c.includes('industry'));
-      pctCol=rowLower.findIndex(c=>/%(to|of)(aum|nav)|nav%|aum%|weight%/.test(c));
-      if (pctCol<0) pctCol=rowLower.findIndex(c=>c.includes('%')&&c!=='isin');
-      break;
-    }
-    if (headerRow<0||nameCol<0||pctCol<0) continue;
-
-    const holdings=[];
-    const SKIP=/^(equity$|cash$|grand total|no\.?\s*of|large cap$|mid cap$|small cap$|mf\/etf|total$|sub.?total|net equity|cblo|repo|treps|scheme name|riskometer)/i;
-    for (let r=headerRow+1;r<rows.length;r++) {
-      const row=rows[r]; if(row.length<=Math.max(nameCol,pctCol)) continue;
-      const name=String(row[nameCol]||'').trim();
-      const isin=isinCol>=0&&isinCol<row.length?String(row[isinCol]||'').trim():'';
-      const sector=sectorCol>=0&&sectorCol<row.length?String(row[sectorCol]||'').trim():'';
-      const rpct=pctCol<row.length?row[pctCol]:null;
-      if (!name||name.length<2||SKIP.test(name)) continue;
-      let pct=0; try{pct=parseFloat(String(rpct).replace('%','').replace(',','').trim());}catch(e){}
-      if (pct<=0||pct>100) continue;
-      holdings.push({name,isin,sector,pct:Math.round(pct*10000)/10000});
-    }
-    if (holdings.length>=3) results.push({fundName,isClientFormat:false,holdings,pct:0});
-  }
 
 function showXlsPreview(results, filename) {
   const preview = document.getElementById('upload-xls-preview');
