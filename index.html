@@ -573,6 +573,7 @@ body {
 .sg-mkt  { background: var(--dc-mkt);  color: #fff; }
 .sg-cash { background: var(--dc-cash); color: var(--muted2); }
 .sg-oeq  { background: var(--s4); color: var(--muted2); }
+.sg-comm { background: #b8860b; color: #fff; }
 
 .legend { display: flex; gap: 1.1rem; flex-wrap: wrap; font-size: .68rem; color: var(--text2); }
 .leg { display: flex; align-items: center; gap: .4rem; }
@@ -5408,8 +5409,12 @@ function buildSummary() {
     return;
   }
 
-  const tw  = items.reduce((s,f)=>s+f.wt, 0);
-  const bl  = k => items.reduce((s,f)=>s+f.wt*(f[k]||0),0)/tw;
+  const tw   = items.reduce((s,f)=>s+f.wt, 0);
+  // Exclude commodity funds from equity/debt metrics
+  const commItems = items.filter(f => f.commodityType);
+  const fundItemsS = items.filter(f => !f.commodityType);
+  const ftw  = fundItemsS.reduce((s,f)=>s+f.wt,0) || 1;
+  const bl   = k => fundItemsS.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
 
   // ── KPI row ──────────────────────────────────────────────────
   const totalEq    = bl('large')+bl('mid')+bl('small');
@@ -5438,7 +5443,10 @@ function buildSummary() {
     metric(pL.toFixed(1)+'%', 'Large Cap', 'var(--lc)'),
     metric(pM.toFixed(1)+'%', 'Mid Cap',   'var(--mc)'),
     metric(pS.toFixed(1)+'%', 'Small Cap', 'var(--sc)'),
-  ].join('');
+  ].join('') + (commItems.length > 0 ? `
+    <div style="font-size:.62rem;color:var(--muted);margin-top:.5rem;padding:.35rem .65rem;background:var(--s3);border-radius:var(--r-sm)">
+      🏅 ${commItems.map(f=>`${f.name} (${f.wt}% → ${f.commodityType})`).join(', ')} excluded from cap split
+    </div>` : '');
   document.getElementById('sum-cap-bar').innerHTML = barSegs([
     {v:pL,c:'sg-l'},{v:pM,c:'sg-m'},{v:pS,c:'sg-s'}
   ]);
@@ -5764,12 +5772,21 @@ async function runAnalysis() {
     const wt = parseFloat(r.pct) || 0;
     if (wt <= 0) return;
     const uploaded = uploadedMap[r.fundName] || uploadedMap[normFundName(r.fundName)];
+
+    // ── Detect commodity / precious metals funds ──────────────────
+    const nm = r.fundName.toLowerCase();
+    let commodityType = null;
+    if (/\bgold\b/.test(nm) && !/golden/.test(nm))           commodityType = 'Gold';
+    else if (/\bsilver\b/.test(nm))                           commodityType = 'Silver';
+    else if (/\bcommodi/i.test(nm))                           commodityType = 'Commodity';
+    else if (/multi.?asset.*alloc|asset.?alloc/i.test(nm) && !uploaded) commodityType = null; // skip
+
     if (uploaded) {
-      items.push({ name: r.fundName, amc: r.amcName || uploaded.amc, wt, ...uploaded.data });
+      items.push({ name: r.fundName, amc: r.amcName || uploaded.amc, wt,
+                   commodityType, ...uploaded.data });
     } else {
-      // Fund added manually — no holdings data, include with zeros
       items.push({
-        name: r.fundName, amc: r.amcName, wt,
+        name: r.fundName, amc: r.amcName, wt, commodityType,
         large:0, mid:0, small:0, eqOther:0,
         gsec:0, sdl:0, aaa:0, aa:0, mkt:0, cash:0, debtTotal:0,
         equityStocks:[], debtItems:[]
@@ -5779,28 +5796,41 @@ async function runAnalysis() {
 
   if (!items.length) { showToast('Add funds and set allocation % first.'); return; }
 
-  const tw = items.reduce((s,f)=>s+f.wt,0);
-  const bl=(k)=> items.reduce((s,f)=>s+f.wt*(f[k]||0),0)/tw;
+  // Separate commodity funds — they don't contribute to equity/debt metrics
+  const commodityItems = items.filter(f => f.commodityType);
+  const fundItems      = items.filter(f => !f.commodityType);
 
-  // ── Equity metrics
+  const tw  = items.reduce((s,f)=>s+f.wt,0);
+  const ftw = fundItems.reduce((s,f)=>s+f.wt,0) || 1; // weight of non-commodity funds
+  const bl  = (k) => fundItems.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
+
+  // ── Equity metrics (excluding commodity funds)
   const eL=bl('large'),eM=bl('mid'),eS=bl('small'),eO=bl('eqOther');
+  const commodityWt = commodityItems.reduce((s,f)=>s+f.wt,0);
+  const commodityNote = commodityItems.length > 0
+    ? `<div style="font-size:.62rem;color:var(--muted);margin-top:.5rem;padding:.35rem .65rem;background:var(--s3);border-radius:var(--r-sm)">
+        🏅 ${commodityItems.map(f=>`${f.name} (${f.wt}% → ${f.commodityType})`).join(', ')} excluded from cap split
+       </div>` : '';
   document.getElementById('eq-metrics').innerHTML = [
     metric(eL.toFixed(1)+'%','Large Cap','var(--lc)'),
     metric(eM.toFixed(1)+'%','Mid Cap','var(--mc)'),
     metric(eS.toFixed(1)+'%','Small Cap','var(--sc)'),
     metric(eO.toFixed(1)+'%','Cash/Other','var(--muted2)'),
-  ].join('');
+  ].join('') + commodityNote;
   document.getElementById('eq-bar').innerHTML = barSegs([
-    {v:eL,c:'sg-l'},{v:eM,c:'sg-m'},{v:eS,c:'sg-s'},{v:eO,c:'sg-oeq'}]);
+    {v:eL,c:'sg-l'},{v:eM,c:'sg-m'},{v:eS,c:'sg-s'},{v:eO,c:'sg-oeq'},
+    ...(commodityWt>0?[{v:commodityWt,c:'sg-comm',label:'🏅'}]:[])
+  ]);
 
-  document.getElementById('eq-tbody').innerHTML = items.map(f=>`<tr>
-    <td>${f.name}<span class="chip">${f.equityStocks?.length||0}</span></td>
+  document.getElementById('eq-tbody').innerHTML = items.map(f=>`<tr${f.commodityType?' style="opacity:.6"':''}>
+    <td>${f.name}${f.commodityType?` <span style="font-size:.58rem;background:var(--s3);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;color:var(--muted);margin-left:.3rem">🏅 ${f.commodityType}</span>`:''}
+      <span class="chip">${f.equityStocks?.length||0}</span></td>
     <td class="c-dim" style="font-size:.6rem">${f.amc}</td>
     <td class="r c-dim">${f.wt}%</td>
-    <td class="r c-l">${(f.large||0).toFixed(1)}%</td>
-    <td class="r c-m">${(f.mid||0).toFixed(1)}%</td>
-    <td class="r c-s">${(f.small||0).toFixed(1)}%</td>
-    <td class="r c-dim">${(f.eqOther||0).toFixed(1)}%</td>
+    <td class="r c-l">${f.commodityType?'—':(f.large||0).toFixed(1)+'%'}</td>
+    <td class="r c-m">${f.commodityType?'—':(f.mid||0).toFixed(1)+'%'}</td>
+    <td class="r c-s">${f.commodityType?'—':(f.small||0).toFixed(1)+'%'}</td>
+    <td class="r c-dim">${f.commodityType?'—':(f.eqOther||0).toFixed(1)+'%'}</td>
     <td class="r c-dim">${f.equityStocks?.length||0}</td>
   </tr>`).join('');
 
