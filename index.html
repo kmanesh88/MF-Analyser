@@ -3387,7 +3387,7 @@ async function parseWorkbook(wb, filename, results) {
     for (let r=0; r<Math.min(10,rows.length); r++) {
       const rl = rows[r].map(c=>String(c).toLowerCase().trim());
       const nc = rl.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
-      const vc = rl.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value');
+      const vc = rl.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value'||c.includes('curr. value')||c.includes('curr value'));
       if (nc>=0 && vc>=0 && nc!==vc) return true;
     }
     return false;
@@ -3404,8 +3404,8 @@ async function parseWorkbook(wb, filename, results) {
       for (let r=0; r<Math.min(10,rows.length); r++) {
         const rl = rows[r].map(c=>String(c).toLowerCase().trim());
         const nc=rl.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
-        const vc=rl.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value');
-        const uc=rl.findIndex(c=>c==='units'||c.includes('unit'));
+        const vc=rl.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value'||c.includes('curr. value')||c.includes('curr value'));
+        const uc=rl.findIndex(c=>c==='units'||c==='units#'||c.includes('unit'));
         if (nc>=0&&vc>=0&&nc!==vc){clientHeaderRow=r;clientNameCol=nc;clientValueCol=vc;clientUnitsCol=uc;break;}
       }
       if (clientHeaderRow>=0) {
@@ -3413,8 +3413,10 @@ async function parseWorkbook(wb, filename, results) {
         for (let r=clientHeaderRow+1;r<rows.length;r++) {
           const row=rows[r];
           const name=String(row[clientNameCol]||'').trim();
-          const val=parseFloat(String(row[clientValueCol]||'').replace(/,/g,''));
-          const units=clientUnitsCol>=0?parseFloat(String(row[clientUnitsCol]||'').replace(/,/g,'')):0;
+          const valStr=String(row[clientValueCol]||'').replace(/[₹,\s]/g,'');
+          const val=parseFloat(valStr);
+          const unitStr=clientUnitsCol>=0?String(row[clientUnitsCol]||'').replace(/,/g,''):'';
+          const units=parseFloat(unitStr)||0;
           if (!name||name.length<3||isNaN(val)||val<=0) continue;
           rawFunds.push({name,val,units:isNaN(units)?0:units}); totalValue+=val;
         }
@@ -3422,9 +3424,11 @@ async function parseWorkbook(wb, filename, results) {
           rawFunds.forEach(f=>{
             const pct=Math.round(f.val/totalValue*10000)/100;
             const cleanName=f.name.replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+              .replace(/\s*\(IDCW\)\s*$/i,'')
               .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
               .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
-            results.push({fundName:cleanName,isClientFormat:true,pct,val:f.val,units:f.units||0});
+            if (cleanName.length>=3)
+              results.push({fundName:cleanName,isClientFormat:true,pct,val:f.val,units:f.units||0});
           });
         }
         return;
@@ -3490,16 +3494,20 @@ function showXlsPreview(results, filename) {
   const isClientFmt = results.some(r => r.isClientFormat);
 
   if (isClientFmt) {
-    // Show as portfolio allocation table
-    const total = results.reduce((s,r) => s + r.val, 0);
+    const total = results.reduce((s,r) => s + (r.val||0), 0);
+    const hasUnits = results.some(r => r.units > 0);
     list.innerHTML = `
-      <div style="padding:.4rem .75rem;background:var(--s3);border-bottom:1px solid var(--border)">
-        <span style="font-size:.62rem;color:var(--muted)">Detected: client portfolio with ${results.length} funds</span>
+      <div style="padding:.4rem .75rem;background:var(--s3);border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
+        <span style="font-size:.62rem;color:var(--muted)">✓ ${results.length} funds detected — client portfolio</span>
+        <span style="font-size:.62rem;color:var(--muted);font-family:'IBM Plex Mono',monospace">Total ₹${(total/100000).toFixed(2)}L</span>
       </div>` +
       results.map(r => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem .75rem;border-bottom:1px solid var(--border)">
-          <span style="font-size:.7rem;color:var(--text)">${r.fundName}</span>
-          <span style="font-size:.65rem;color:var(--muted);font-family:'IBM Plex Mono',monospace">${r.pct.toFixed(1)}%</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem .75rem;border-bottom:1px solid var(--border);gap:.5rem">
+          <span style="font-size:.7rem;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.fundName}</span>
+          <span style="font-size:.62rem;color:var(--muted2);font-family:'IBM Plex Mono',monospace;white-space:nowrap;flex-shrink:0">
+            ${hasUnits && r.units ? r.units.toLocaleString('en-IN',{maximumFractionDigits:3})+' u · ' : ''}₹${(r.val/100000).toFixed(2)}L
+            <span style="color:var(--accent);margin-left:.3rem">${r.pct.toFixed(1)}%</span>
+          </span>
         </div>`).join('');
     if (saveBtn) saveBtn.textContent = '✓ Save as Portfolio Allocation';
   } else {
