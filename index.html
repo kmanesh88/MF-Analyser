@@ -684,6 +684,7 @@ body {
 .pc-bar-l { background: var(--lc); }
 .pc-bar-m { background: var(--mc); }
 .pc-bar-s { background: var(--sc); }
+.pc-bar-d { background: var(--dc-aaa); }
 
 .pc-chips { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .75rem; }
 .pc-chip { font-family: 'IBM Plex Mono', monospace; font-size: .6rem; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
@@ -2503,14 +2504,23 @@ function renderPortfolioGrid() {
       <div class="pc-name">${p.name}</div>
       <div class="pc-client">${p.client||'—'} · ${Object.keys(p.allocations||{}).length} funds</div>
       ${snap ? (() => {
-        const eqSum = (snap.large||0)+(snap.mid||0)+(snap.small||0);
-        const pL = eqSum>0?snap.large/eqSum*100:0, pM = eqSum>0?snap.mid/eqSum*100:0, pS = eqSum>0?snap.small/eqSum*100:0;
-        return `<div class="pc-bar"><div class="pc-bar-l" style="flex:${pL}"></div><div class="pc-bar-m" style="flex:${pM}"></div><div class="pc-bar-s" style="flex:${pS}"></div></div>
+        // Asset allocation bar
+        const eq  = snap.equityPct   || ((snap.large||0)+(snap.mid||0)+(snap.small||0));
+        const dt  = snap.debtPct     || snap.debtTotal || 0;
+        const ca  = snap.cashPct     || 0;
+        const co  = snap.commodityPct|| 0;
+        const tot = eq+dt+ca+co || 100;
+        return `<div class="pc-bar" style="border-radius:4px;overflow:hidden">
+          <div class="pc-bar-l" style="flex:${eq/tot*100}" title="Equity ${eq.toFixed(1)}%"></div>
+          <div class="pc-bar-d" style="flex:${dt/tot*100};background:var(--dc-aaa)" title="Debt ${dt.toFixed(1)}%"></div>
+          ${ca>0.5?`<div style="flex:${ca/tot*100};background:var(--dc-mkt)" title="Cash ${ca.toFixed(1)}%"></div>`:''}
+          ${co>0.5?`<div style="flex:${co/tot*100};background:#b8860b" title="Commodity ${co.toFixed(1)}%"></div>`:''}
+        </div>
         <div class="pc-chips">
-          <span class="pc-chip pc-chip-l">L ${snap.large?.toFixed(0)||0}%</span>
-          <span class="pc-chip pc-chip-m">M ${snap.mid?.toFixed(0)||0}%</span>
-          <span class="pc-chip pc-chip-s">S ${snap.small?.toFixed(0)||0}%</span>
-          ${(snap.debtTotal||0)>1?`<span class="pc-chip pc-chip-d">D ${snap.debtTotal?.toFixed(0)||0}%</span>`:''}
+          ${eq>0.5?`<span class="pc-chip pc-chip-l">EQ ${eq.toFixed(0)}%</span>`:''}
+          ${dt>0.5?`<span class="pc-chip pc-chip-d">DT ${dt.toFixed(0)}%</span>`:''}
+          ${ca>0.5?`<span class="pc-chip" style="background:rgba(56,184,110,.15);color:var(--teal)">MM ${ca.toFixed(0)}%</span>`:''}
+          ${co>0.5?`<span class="pc-chip" style="background:rgba(184,134,11,.15);color:#b8860b">🏅 ${co.toFixed(0)}%</span>`:''}
         </div>`;
       })() : '<div style="font-size:.7rem;color:var(--muted);margin:.5rem 0 .85rem">No analysis yet</div>'}
       <div class="pc-alerts">
@@ -2602,18 +2612,34 @@ function takeSnapshot() {
   const port=portfolios.find(p=>p.id===activePortId); if(!port) return;
   const items=getActiveItems(); if(!items.length) return;
   const tw=items.reduce((s,f)=>s+f.wt,0);
-  const bl=k=>items.reduce((s,f)=>s+f.wt*(f[k]||0),0)/tw;
 
-  // Skip snapshot if no factsheet data — would just store zeros and trigger false alerts
+  // Skip snapshot if no factsheet data
   const hasData = items.some(f => f.large>0 || f.mid>0 || f.small>0 || f.gsec>0 || f.equityStocks?.length>0);
   if (!hasData) return;
+
+  // Separate commodity funds
+  const commItems  = items.filter(f => f.commodityType);
+  const fundItemsT = items.filter(f => !f.commodityType);
+  const ftw = fundItemsT.reduce((s,f)=>s+f.wt,0) || 1;
+  const bl  = k => fundItemsT.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
+
+  const equityPct   = fundItemsT.reduce((s,f)=>s+f.wt*(((f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0))/100),0);
+  const debtPct     = fundItemsT.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
+  const cashPct     = fundItemsT.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
+  const commodityPct= commItems.reduce((s,f)=>s+f.wt,0);
 
   const sectorMap={};
   items.forEach(f=>(f.equityStocks||[]).forEach(s=>{
     const sec=getSector(s.name,s.sector); sectorMap[sec]=(sectorMap[sec]||0)+s.pct*f.wt/100;
   }));
+
   const summary={
+    // Asset classes (portfolio level)
+    equityPct, debtPct, cashPct, commodityPct,
+    commodityTypes: commItems.map(f=>({name:f.name,wt:f.wt,type:f.commodityType})),
+    // Within equity cap split (normalised to equity funds only)
     large:bl('large'),mid:bl('mid'),small:bl('small'),
+    // Within debt quality split
     gsec:bl('gsec'),sdl:bl('sdl'),aaa:bl('aaa'),aa:bl('aa'),mkt:bl('mkt'),cash:bl('cash'),
     debtTotal:bl('gsec')+bl('sdl')+bl('aaa')+bl('aa')+bl('mkt')+bl('cash'),
     sectors:sectorMap,
