@@ -6405,20 +6405,26 @@ async function parseImport() {
       .replace(/\s*\(G\)\s*$|\s*\(D\)\s*$|\s*\(IDCW\)\s*$/i, '')
       .replace(/\s*[-–]\s*(DIRECT|REGULAR)\s*PLAN.*$/i, '')
       .replace(/\s*[-–]\s*(GROWTH|IDCW|DIVIDEND)\s*$/i, '')
-      .replace(/[.\-,()]/g, ' ').replace(/\s+/g, ' ').trim();
+      .replace(/&/g, ' AND ')   // normalize & → AND
+      .replace(/[.\-,()]/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+
+    // Significant words: length >= 3, excluding stopwords (keep CAP, MID as discriminators)
+    const STOP_W = new Set(['FUND','SCHEME','PLAN','THE','AND','OF','FOR','IN','WITH']);
+    const sigWords = n => new Set(
+      normName(n).split(' ').filter(w => w.length >= 3 && !STOP_W.has(w))
+    );
 
     importParsedFunds.forEach(f => {
-      const qn  = normName(f.name);
-      const qw  = new Set(qn.split(' ').filter(w => w.length > 2));
-      // First: exact normalized match
+      const qn = normName(f.name);
+      const qw = sigWords(f.name);
+      // 1. Exact normalized match
       let match = loadedFunds.find(lf => normName(lf.name) === qn)?.name || null;
-      // Second: all significant words must match (stricter than prefix)
-      if (!match) {
+      // 2. Significant word-set exact match (handles & vs And, Ltd suffix differences)
+      if (!match && qw.size > 0) {
         match = loadedFunds.find(lf => {
-          const kn = normName(lf.name);
-          const kw = new Set(kn.split(' ').filter(w => w.length > 2));
-          // Every word in query must be in key AND every word in key must be in query
-          return [...qw].every(w => kw.has(w)) && [...kw].every(w => qw.has(w));
+          const kw = sigWords(lf.name);
+          return kw.size === qw.size && [...qw].every(w => kw.has(w));
         })?.name || null;
       }
       f.matched = match;
