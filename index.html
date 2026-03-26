@@ -6398,14 +6398,30 @@ async function parseImport() {
 
     if (!importParsedFunds.length) throw new Error('No fund data found. Check the file format.');
 
-    // Match against loaded AMC funds
-    const loadedFundNames = allFunds().map(f => f.name);
+    // Match against loaded AMC funds — use exact normalized match first, then word overlap
+    const loadedFunds = allFunds();
+    const normName = n => n.toUpperCase()
+      .replace(/\bLTD\.?\b|\bLIMITED\b|\bPVT\.?\b/g, '')
+      .replace(/\s*\(G\)\s*$|\s*\(D\)\s*$|\s*\(IDCW\)\s*$/i, '')
+      .replace(/\s*[-–]\s*(DIRECT|REGULAR)\s*PLAN.*$/i, '')
+      .replace(/\s*[-–]\s*(GROWTH|IDCW|DIVIDEND)\s*$/i, '')
+      .replace(/[.\-,()]/g, ' ').replace(/\s+/g, ' ').trim();
+
     importParsedFunds.forEach(f => {
-      const match = loadedFundNames.find(n =>
-        normStockKey(n).includes(normStockKey(f.name).slice(0,15)) ||
-        normStockKey(f.name).includes(normStockKey(n).slice(0,15))
-      );
-      f.matched = match || null;
+      const qn  = normName(f.name);
+      const qw  = new Set(qn.split(' ').filter(w => w.length > 2));
+      // First: exact normalized match
+      let match = loadedFunds.find(lf => normName(lf.name) === qn)?.name || null;
+      // Second: all significant words must match (stricter than prefix)
+      if (!match) {
+        match = loadedFunds.find(lf => {
+          const kn = normName(lf.name);
+          const kw = new Set(kn.split(' ').filter(w => w.length > 2));
+          // Every word in query must be in key AND every word in key must be in query
+          return [...qw].every(w => kw.has(w)) && [...kw].every(w => qw.has(w));
+        })?.name || null;
+      }
+      f.matched = match;
     });
 
     showImportPreview();
@@ -6624,8 +6640,9 @@ function showImportPreview() {
         <span>Fund</span><span style="text-align:right">Market Value</span><span style="text-align:right">% of Portfolio</span>
       </div>
       ${importParsedFunds.map(f => {
-        const cleanName = (f.matched || f.name)
+        const cleanName = f.name  // always show original name from CAS/Excel
           .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+          .replace(/\s*\(IDCW\)\s*$/i,'')
           .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
           .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
         return `<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr;gap:.5rem;align-items:center">
@@ -6654,12 +6671,12 @@ function confirmImport() {
   // Helper to clean fund name suffixes
   const cleanFundName = n => n
     .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+    .replace(/\s*\(IDCW\)\s*$/i,'')
     .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
     .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
 
   importParsedFunds.forEach(f => {
-    const rawName  = f.matched || f.name;
-    const fundName = cleanFundName(rawName);
+    const fundName = cleanFundName(f.name); // always use original name from CAS
     if (f.pct > 0) {
       allocations[fundName]    = parseFloat(f.pct.toFixed(2));
       holdingsDetail[fundName] = { val: f.value || 0, units: f.units || 0 };
