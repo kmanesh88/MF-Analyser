@@ -2716,18 +2716,22 @@ function showToast(msg) {
 }
 
 function showPage(pg) {
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  document.getElementById('page-'+pg)?.classList.add('active');
-  document.getElementById('nav-'+pg)?.classList.add('active');
-  if (pg==='alloc')      buildAllocTable();
-  if (pg==='metrics')    buildMetrics();
-  if (pg==='summary')    buildSummary();
-  if (pg==='clients')    renderPortfolioGrid();
-  if (pg==='alerts')     buildAlertsPage();
-  if (pg==='thresholds') buildThresholdsPage();
-  if (pg==='monitor')    renderWatchlist();
-  if (pg==='upload')     { rebuildAmcPanels(); buildAmcExcelLinks(); initApiConfigBar(); }
+  try {
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    document.getElementById('page-'+pg)?.classList.add('active');
+    document.getElementById('nav-'+pg)?.classList.add('active');
+    if (pg==='alloc')      try{buildAllocTable();}catch(e){console.error('buildAllocTable',e);}
+    if (pg==='metrics')    try{buildMetrics();}catch(e){console.error('buildMetrics',e);}
+    if (pg==='summary')    try{buildSummary();}catch(e){console.error('buildSummary',e);}
+    if (pg==='clients')    try{renderPortfolioGrid();}catch(e){console.error('renderPortfolioGrid',e);}
+    if (pg==='alerts')     try{buildAlertsPage();}catch(e){console.error('buildAlertsPage',e);}
+    if (pg==='thresholds') try{buildThresholdsPage();}catch(e){console.error('buildThresholdsPage',e);}
+    if (pg==='monitor')    try{renderWatchlist();}catch(e){console.error('renderWatchlist',e);}
+    if (pg==='upload')     try{rebuildAmcPanels();buildAmcExcelLinks();initApiConfigBar();}catch(e){console.error('upload init',e);}
+  } catch(e) {
+    console.error('showPage error:', e);
+  }
 }
 
 function switchMetric(v) {
@@ -6759,46 +6763,45 @@ document.addEventListener('click', e => {
 // ═══════════════════════════════════════════════════════════════
 // INIT
 window.addEventListener('load', async () => {
+  // Step 1: Make nav work immediately — before anything else
+  document.querySelectorAll('.nav-item').forEach(n => {
+    n.onclick = () => {
+      try { showPage(n.id.replace('nav-','')); } catch(e) { console.error(e); }
+    };
+  });
+
+  // Step 2: Init each section independently so one failure doesn't break others
+  try { loadPortfolios(); } catch(e) { console.error('loadPortfolios:', e); }
+  try { loadThresholds(); } catch(e) { console.error('loadThresholds:', e); }
+  try { loadWatchlist();  } catch(e) { console.error('loadWatchlist:', e); }
+  try { loadFromStorage(); } catch(e) { console.error('loadFromStorage:', e); }
+
   try {
-    // Load all persisted data
-    loadPortfolios();
-    loadThresholds();
-    loadWatchlist();
-    const restored = loadFromStorage();
-
-    if (!restored) {
-      // Fresh start — user picks AMCs from the + Add AMC picker
-    }
-
-    // Restore active portfolio UI state
     if (activePortId) {
       const port = portfolios.find(p=>p.id===activePortId);
       if (port) refreshActivePortfolioUI();
     }
+  } catch(e) { console.error('refreshActivePortfolioUI:', e); }
 
-    updateStorageStatus();
-    renderPortfolioGrid();
-    buildThresholdsPage();
+  try { updateStorageStatus(); } catch(e) { console.error('updateStorageStatus:', e); }
+  try { renderPortfolioGrid(); } catch(e) { console.error('renderPortfolioGrid:', e); }
+  try { buildThresholdsPage(); } catch(e) { console.error('buildThresholdsPage:', e); }
 
-    // Run alerts silently on load
+  try {
     portfolios.forEach(p => { if (p.snapshots?.length) runAlerts(p); });
     savePortfolios();
+  } catch(e) { console.error('alerts:', e); }
 
-    // Fetch AMFI cap data in background
-    fetchAmfiCapData();
+  try { fetchAmfiCapData(); } catch(e) { console.error('fetchAmfiCapData:', e); }
 
-    // Start on clients page if portfolios exist, else upload
+  // Show starting page
+  try {
     showPage(portfolios.length ? 'clients' : 'upload');
-
   } catch(e) {
-    console.error('INIT error:', e);
-    // Even if init fails, make nav clickable
-    document.querySelectorAll('.nav-item').forEach(n => {
-      n.addEventListener('click', () => {
-        const pg = n.id.replace('nav-','');
-        showPage(pg);
-      });
-    });
+    console.error('showPage:', e);
+    // Last resort — manually show clients page
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.getElementById('page-clients')?.classList.add('active');
   }
 });
 </script>
