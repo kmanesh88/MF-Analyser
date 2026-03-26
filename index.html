@@ -3303,7 +3303,48 @@ async function parseWorkbook(wb, filename, results) {
     return; // done
   }
 
-  // ── SEBI standard format (one fund per sheet) ─────────────────
+  // ── Detect Kotak/SEBI multi-sheet format ─────────────────────
+  // Signature: row1 col[2] starts with "Portfolio of ... as on"
+  const isKotak = !isAdvisorkhoj && wb.SheetNames.slice(0,3).some(sn => {
+    const ws = wb.Sheets[sn];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', range:0});
+    const cell = String(rows[0]?.[2] || '').trim();
+    return /^Portfolio of .+ as on/i.test(cell);
+  });
+
+  if (isKotak) {
+    const VALID_ISIN = /^IN[A-Z0-9]{10}$/;
+    for (const sname of wb.SheetNames) {
+      await _yield();
+      const ws   = wb.Sheets[sname];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      if (rows.length < 3) continue;
+
+      // Fund name from row 1 col 2: "Portfolio of Kotak XXX Fund as on DD-Mon-YYYY"
+      const fundRaw  = String(rows[0]?.[2] || '').trim();
+      const m        = fundRaw.match(/^Portfolio of (.+?)\s+as on/i);
+      const fundName = m ? m[1].trim() : (fundRaw || sname);
+      if (!fundName || fundName === sname) continue;
+
+      // Cols: [2]=Name, [3]=ISIN, [4]=Sector, [8]=% to Net Assets (actual %, not decimal)
+      const holdings = [];
+      for (const row of rows.slice(2)) {
+        if (row.length < 9) continue;
+        const name    = String(row[2] || '').trim();
+        const isin    = String(row[3] || '').trim();
+        const sector  = String(row[4] || '').trim();
+        const pctRaw  = row[8];
+        if (!VALID_ISIN.test(isin)) continue;
+        if (!name || name.length < 2) continue;
+        const pct = parseFloat(pctRaw);
+        if (isNaN(pct) || pct <= 0 || pct > 100) continue;
+        holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000});
+      }
+      if (holdings.length >= 2)
+        results.push({fundName, isClientFormat:false, holdings, pct:0});
+    }
+    return;
+  }
   const isClientFormat = wb.SheetNames.some(sn => {
     const ws = wb.Sheets[sn];
     const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
