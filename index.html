@@ -4086,18 +4086,20 @@ function parseFunds(pages, amcName) {
     // - "Scheme Portfolio" (some AMCs)
     // For Kotak: use ISIN presence as the portfolio trigger (faster than text scan)
     // For others: check for portfolio trigger keywords
-    const hasPortfolio = isKotak
-      ? lines.some(l => /\bINE[A-Z0-9]{9}\d\b/.test(l))
-      : lines.some(l => {
-          const t = l.trim();
-          return /portfolio\s*[\(\(]?\s*as\s*(on|at)/i.test(t) ||
-                 /^PORTFOLIO\b/i.test(t) ||
-                 /^portfolio$/i.test(t) ||
-                 /scheme\s*portfolio/i.test(t) ||
-                 /holdings\s*as\s*on/i.test(t) ||
-                 /portfolio\s*details/i.test(t) ||
-                 /^%\s*of\s*nav$/i.test(t);
-        });
+    const hasPortfolio = lines.some(l => {
+      const t = l.trim();
+      // Kotak factsheet: "PORTFOLIO" heading + "Equity & Equity related" section
+      if (isKotak && (/^PORTFOLIO$/i.test(t) || /equity\s*&\s*equity\s*related/i.test(t))) return true;
+      // Kotak disclosure Excel PDFs: ISIN present
+      if (isKotak && /\bINE[A-Z0-9]{9}\d\b/.test(l)) return true;
+      return /portfolio\s*[\(\(]?\s*as\s*(on|at)/i.test(t) ||
+             /^PORTFOLIO\b/i.test(t) ||
+             /^portfolio$/i.test(t) ||
+             /scheme\s*portfolio/i.test(t) ||
+             /holdings\s*as\s*on/i.test(t) ||
+             /portfolio\s*details/i.test(t) ||
+             /^%\s*of\s*nav$/i.test(t);
+    });
     if (!hasPortfolio) return;
 
     // This page has a portfolio — now find the fund name from THIS page's heading
