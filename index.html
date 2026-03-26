@@ -3459,24 +3459,49 @@ function savePortfolioExcel() {
       return;
     }
     const totalHoldings = _xlsParsedFunds.reduce((s,r) => s+(r.holdings?.length||0), 0);
-    const saveBtn = document.getElementById('upload-xls-save-btn');
-    if (saveBtn && !saveBtn.dataset.confirmed) {
-      saveBtn.dataset.confirmed = '1';
-      saveBtn.style.cssText += ';background:var(--green);color:#fff';
-      saveBtn.textContent = `Confirm — save ${_xlsParsedFunds.length} fund(s), ${totalHoldings} holdings to "${amc.name}"?`;
-      setTimeout(() => {
-        if (saveBtn.dataset.confirmed) {
-          saveBtn.dataset.confirmed = '';
-          saveBtn.style.background = '';
-          saveBtn.textContent = '✓ Save to Selected AMC';
-        }
-      }, 6000);
-      return;
-    }
-    if (saveBtn) { saveBtn.dataset.confirmed=''; saveBtn.style.background=''; saveBtn.textContent='✓ Save to Selected AMC'; }
+    showConfirmModal(
+      `Save ${_xlsParsedFunds.length} fund(s) with ${totalHoldings} holdings to <strong>${amc.name}</strong>?`,
+      () => doSavePortfolioExcel()
+    );
+    return;
   }
+  doSavePortfolioExcel();
+}
 
-  if (isClientFmt) {    // Save as portfolio allocations to the active portfolio
+function showConfirmModal(message, onConfirm) {
+  // Remove any existing modal
+  document.getElementById('_confirmModal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = '_confirmModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:1.5rem 2rem;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.4)">
+      <div style="font-size:.85rem;color:var(--text);margin-bottom:1.25rem;line-height:1.6">${message}</div>
+      <div style="display:flex;gap:.75rem;justify-content:flex-end">
+        <button onclick="document.getElementById('_confirmModal').remove()"
+          style="padding:.45rem 1.1rem;border-radius:var(--r-sm);border:1px solid var(--border2);background:none;color:var(--text2);cursor:pointer;font-size:.78rem">
+          Cancel
+        </button>
+        <button id="_confirmOk"
+          style="padding:.45rem 1.1rem;border-radius:var(--r-sm);border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:.78rem;font-weight:600">
+          ✓ Confirm Save
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('_confirmOk').onclick = () => {
+    modal.remove();
+    onConfirm();
+  };
+  // Close on backdrop click
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+function doSavePortfolioExcel() {
+  const isClientFmt = _xlsParsedFunds.some(r => r.isClientFormat);
+
+  if (isClientFmt) {
+    // Save as portfolio allocations to the active portfolio
     if (!activePortId) {
       document.getElementById('upload-xls-amc-warning').style.display = 'block';
       document.getElementById('upload-xls-amc-warning').textContent = '⚠ Select or create a portfolio first (from Portfolios page)';
