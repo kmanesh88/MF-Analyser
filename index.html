@@ -2125,9 +2125,9 @@ const MID_SET = new Set([
 // ═══════════════════════════════════════════════════════════════
 // AMFI LIVE CAP DATA — fetched on load, cached in localStorage
 // Source: amfiindia.com bi-annual Excel (Jan + Jul), parsed with SheetJS
-let amfiCapData = {}; // { "NORMALIZED STOCK NAME": "large"|"mid"|"small" }
+let amfiCapData = {}; // populated from LARGE_SET/MID_SET in fetchAmfiCapData fallback; // { "NORMALIZED STOCK NAME": "large"|"mid"|"small" }
 const AMFI_CAP_LS  = 'mf_analyser_amfi_cap';
-const AMFI_CAP_VER = '2';  // bump to invalidate old cache format
+const AMFI_CAP_VER = '3';  // bump to invalidate old cache format
 
 // ═══════════════════════════════════════════════════════════════
 // MF HOLDINGS API — fetch stock holdings without any upload
@@ -2253,13 +2253,13 @@ const AMFI_XLSX_URLS = [
 ];
 
 async function fetchAmfiCapData() {
-  // ── Check localStorage cache (valid 60 days, version-stamped) ──
+  // ── Check localStorage cache (valid 30 days, version-stamped) ──
   try {
     const cached = localStorage.getItem(AMFI_CAP_LS);
     if (cached) {
       const { data, fetchedAt, ver } = JSON.parse(cached);
       const ageDays = (Date.now() - new Date(fetchedAt)) / 86400000;
-      if (ver === AMFI_CAP_VER && ageDays < 60 && Object.keys(data).length > 500) {
+      if (ver === AMFI_CAP_VER && ageDays < 30 && Object.keys(data).length > 500) {
         amfiCapData = data;
         updateAmfiStatus(`✓ Cap list: ${Object.keys(data).length} stocks (cached)`);
         return;
@@ -2267,61 +2267,84 @@ async function fetchAmfiCapData() {
     }
   } catch(e) {}
 
-  // ── Fetch AMFI Excel — fastest possible approach ──
   updateAmfiStatus('<span class="spin"></span> Fetching AMFI cap list…');
 
+  // ── Path 1: Server proxy (bypasses CORS, returns parsed JSON) ──
+  const apiUrl = getMfApiUrl();
+  if (apiUrl) {
+    try {
+      const res = await fetch(`${apiUrl}/amfi-cap`, { signal: AbortSignal.timeout(25000) });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.large?.length >= 90) {
+          const parsed = {};
+          d.large.forEach(n => { parsed[normStockKey(n)] = 'large'; });
+          d.mid.forEach(n   => { parsed[normStockKey(n)] = 'mid';   });
+          d.small.forEach(n => { parsed[normStockKey(n)] = 'small'; });
+          amfiCapData = parsed;
+          localStorage.setItem(AMFI_CAP_LS, JSON.stringify({
+            data: parsed, fetchedAt: new Date().toISOString(), ver: AMFI_CAP_VER
+          }));
+          updateAmfiStatus(`✓ AMFI ${d.updated}: ${d.large.length}L · ${d.mid.length}M · ${d.small.length}S`);
+          return;
+        }
+      }
+    } catch(e) { console.warn('AMFI proxy fetch failed:', e.message); }
+  }
+
+  // ── Path 2: Direct AMFI Excel fetch (blocked by CORS in most browsers) ──
   for (const url of AMFI_XLSX_URLS) {
     try {
-      const res = await fetch(url, { cache: 'force-cache' });
+      const res = await fetch(url, { cache: 'force-cache', signal: AbortSignal.timeout(15000) });
       if (!res.ok) continue;
       const buf  = await res.arrayBuffer();
       const wb   = XLSX.read(new Uint8Array(buf), { type: 'array', sheetRows: 2000 });
       const ws   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-      // Find header row — look for "Company name" and "Categorization"
-      let nameCol = -1, catCol = -1, headerRow = -1;
+      let nameCol = -1, catCol = -1, rankCol = -1, headerRow = -1;
       for (let r = 0; r < Math.min(10, rows.length); r++) {
         const row = rows[r].map(c => String(c).toLowerCase().trim());
-        const nc  = row.findIndex(c => c.includes('company name') || c === 'name');
-        const cc  = row.findIndex(c => c.includes('categor') || c.includes('large cap') || c.includes('sebi'));
-        if (nc >= 0 && cc >= 0) { nameCol = nc; catCol = cc; headerRow = r; break; }
+        const nc  = row.findIndex(c => c.includes('company') || c === 'name');
+        const cc  = row.findIndex(c => c.includes('categor') || c.includes('large cap'));
+        const rc  = row.findIndex(c => c === 'rank' || c === 'sr' || c === 'sr.' || c === 'sl');
+        if (nc >= 0) { nameCol = nc; catCol = cc; rankCol = rc; headerRow = r; break; }
       }
-      if (nameCol < 0) continue; // wrong sheet format
-
+      if (nameCol < 0) continue;
       const parsed = {};
       for (let r = headerRow + 1; r < rows.length; r++) {
         const row  = rows[r];
         const name = String(row[nameCol] || '').trim();
-        const cat  = String(row[catCol]  || '').trim().toLowerCase();
         if (!name || name.length < 3) continue;
         const key = normStockKey(name);
-        if (!key) continue;
-        if      (cat.includes('large')) parsed[key] = 'large';
-        else if (cat.includes('mid'))   parsed[key] = 'mid';
-        else if (cat.includes('small')) parsed[key] = 'small';
+        if (catCol >= 0) {
+          const cat = String(row[catCol] || '').toLowerCase();
+          if      (cat.includes('large')) parsed[key] = 'large';
+          else if (cat.includes('mid'))   parsed[key] = 'mid';
+          else if (cat.includes('small')) parsed[key] = 'small';
+        } else if (rankCol >= 0) {
+          const rank = parseInt(row[rankCol]);
+          if      (rank <= 100)  parsed[key] = 'large';
+          else if (rank <= 250)  parsed[key] = 'mid';
+          else if (!isNaN(rank)) parsed[key] = 'small';
+        }
       }
-
       if (Object.keys(parsed).length > 500) {
         amfiCapData = parsed;
         localStorage.setItem(AMFI_CAP_LS, JSON.stringify({
           data: parsed, fetchedAt: new Date().toISOString(), ver: AMFI_CAP_VER
         }));
-        const large = Object.values(parsed).filter(v=>v==='large').length;
-        const mid   = Object.values(parsed).filter(v=>v==='mid').length;
-        updateAmfiStatus(`✓ AMFI: ${large}L · ${mid}M · ${Object.keys(parsed).length - large - mid}S stocks loaded`);
+        const lc = Object.values(parsed).filter(v=>v==='large').length;
+        const mc = Object.values(parsed).filter(v=>v==='mid').length;
+        updateAmfiStatus(`✓ AMFI: ${lc}L · ${mc}M · ${Object.keys(parsed).length-lc-mc}S`);
         return;
       }
-    } catch(e) {
-      console.warn('AMFI Excel fetch failed:', url, e.message);
-    }
+    } catch(e) { console.warn('AMFI direct fetch failed:', url, e.message); }
   }
 
-  // ── Fallback: hardcoded sets already loaded as LARGE_SET / MID_SET ──
-  // Populate amfiCapData from them so classifyEquity has one unified lookup
+  // ── Path 3: Hardcoded fallback (189L + 144M) ──
   LARGE_SET.forEach(n => { amfiCapData[normStockKey(n)] = 'large'; });
-  MID_SET.forEach(n   => { amfiCapData[normStockKey(n)] = 'mid'; });
-  updateAmfiStatus(`⚠ AMFI fetch failed — using built-in list (${Object.keys(amfiCapData).length} stocks)`);
+  MID_SET.forEach(n   => { amfiCapData[normStockKey(n)] = 'mid';   });
+  updateAmfiStatus(`⚠ Using built-in list (${Object.keys(amfiCapData).length} stocks) — connect API server for full AMFI data`);
 }
 
 function updateAmfiStatus(msg) {
@@ -4796,6 +4819,13 @@ function normStockKey(name) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+// ── Immediately populate amfiCapData from hardcoded sets ──────────────────
+// This runs synchronously so classifyEquity works even before AMFI fetch completes
+;(function initCapData() {
+  LARGE_SET.forEach(n => { amfiCapData[normStockKey(n)] = 'large'; });
+  MID_SET.forEach(n   => { amfiCapData[normStockKey(n)] = 'mid';   });
+})();
 
 
 function renderFundList(amcId, containerId) {
