@@ -2083,12 +2083,13 @@ async function fetchFundFromApi(fundName) {
   if (mfApiCache[key]) return mfApiCache[key];
   try {
     const res = await fetch(`${url}/holdings?fund=${encodeURIComponent(fundName)}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return null;
     const data = await res.json();
     if (!data?.holdings?.length) return null;
     const parsed = apiResponseToFundData(data);
+    parsed.amc = data.amc || '';  // preserve amc name from raw response
     mfApiCache[key] = parsed;
     return parsed;
   } catch(e) {
@@ -2107,7 +2108,7 @@ async function enrichFromApi(funds, uploadedMap) {
   let enriched = 0;
   missing.forEach((f, i) => {
     if (results[i]) {
-      uploadedMap[f] = { amc: results[i].amc, data: results[i] };
+      uploadedMap[f] = { amc: results[i].amc || '', data: results[i] };
       enriched++;
     }
   });
@@ -5729,12 +5730,25 @@ async function runAnalysis() {
   }
 
   // Build items from allocRows + uploaded factsheet data
+  // Use normalized keys so "Sundaram Large Cap Fund (G)" matches "Sundaram Large Cap Fund"
   const uploadedMap = {};
-  allFunds().forEach(({name, amc, data}) => { uploadedMap[name] = {amc, data}; });
+  const normFundName = n => n.toLowerCase()
+    .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$|\s*\(idcw\)\s*$/i, '')
+    .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
+    .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
+    .replace(/\s+/g, ' ').trim();
+
+  allFunds().forEach(({name, amc, data}) => {
+    uploadedMap[name] = {amc, data};               // exact key
+    uploadedMap[normFundName(name)] = {amc, data}; // normalized key
+  });
 
   // ── Try MF Holdings API for any funds without uploaded data ──
   if (getMfApiUrl()) {
-    const missingFunds = allocRows.filter(r => r.pct > 0 && !uploadedMap[r.fundName]).map(r => r.fundName);
+    const missingFunds = allocRows.filter(r => {
+      const pct = parseFloat(r.pct) || 0;
+      return pct > 0 && !uploadedMap[r.fundName] && !uploadedMap[normFundName(r.fundName)];
+    }).map(r => r.fundName);
     if (missingFunds.length) {
       const st = document.getElementById('upload-uz-st');
       if (st) { st.className='uz-st ld'; st.innerHTML=`<span class="spin"></span> Fetching ${missingFunds.length} fund(s) from API…`; }
@@ -5747,7 +5761,7 @@ async function runAnalysis() {
   allocRows.forEach(r => {
     const wt = parseFloat(r.pct) || 0;
     if (wt <= 0) return;
-    const uploaded = uploadedMap[r.fundName];
+    const uploaded = uploadedMap[r.fundName] || uploadedMap[normFundName(r.fundName)];
     if (uploaded) {
       items.push({ name: r.fundName, amc: r.amcName || uploaded.amc, wt, ...uploaded.data });
     } else {
