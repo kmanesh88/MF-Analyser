@@ -3549,6 +3549,29 @@ function showSelectedAmcBadge(amc)   { selectLoadedAmc(amc.id); }
 function resetUploadZone()           { /* handled inside selectLoadedAmc/clearSelectedAmc */ }
 function removeAMC(id)               { doRemoveAMC(id); }
 
+function renderNav() {
+  // Refresh upload page AMC list and navigation state
+  try { refreshUploadPage(); } catch(e) {}
+  try { updateNextBtn(); } catch(e) {}
+}
+
+function updateStorageStatus(savedAt) {
+  const el = document.getElementById('storage-status');
+  if (!el) return;
+  const total = amcs.filter(a => a.status === 'loaded').length;
+  el.textContent = total > 0
+    ? `${total} AMC${total>1?'s':''} loaded${savedAt ? ' · Saved '+new Date(savedAt).toLocaleTimeString() : ''}`
+    : 'No data saved';
+}
+
+function addAMC(name) {
+  if (!name || amcs.find(a => a.name === name)) return;
+  amcCtr++;
+  amcs.push({ id: 'amc_' + amcCtr, name: name.trim(), status: 'empty', funds: {} });
+  renderNav();
+  saveToStorage();
+}
+
 function rebuildAmcPanels() {
   refreshUploadPage();
   updateNextBtn();
