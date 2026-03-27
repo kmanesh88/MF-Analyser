@@ -6365,6 +6365,13 @@ async function loadMarketMonitor() {
   const upd = document.getElementById('monitor-last-updated');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
 
+  // Show loading state in all panels
+  const loadingHtml = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem 0"><span class="spin"></span> Loading…</div>';
+  ['fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
+    .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=loadingHtml; });
+  const indEl = document.getElementById('indices-strip');
+  if (indEl) indEl.innerHTML = loadingHtml;
+
   // Gather portfolio stocks for news context
   const portfolioStocks = [];
   allFunds().forEach(({data}) => {
@@ -6374,33 +6381,30 @@ async function loadMarketMonitor() {
   });
   const topStocks = portfolioStocks.slice(0, 15).join(', ');
 
-  // Prompt Claude to fetch and display market data
-  const prompt = `You are a market data assistant for an Indian mutual fund portfolio analyser. Today is ${new Date().toLocaleDateString('en-IN', {day:'numeric',month:'long',year:'numeric'})}.
-
-Provide a structured JSON response with the following sections for Indian markets:
-
-1. indices: Array of {name, value, change, changePct} for: NIFTY 50, SENSEX, NIFTY MIDCAP 150, NIFTY SMALLCAP 250, NIFTY BANK, INDIA VIX
-2. fii_dii: {date, fii_net_crore, dii_net_crore, fii_buy, fii_sell, dii_buy, dii_sell} — latest available FII/DII provisional data in crores
-3. earnings: Array of {company, result_date, revenue_growth_pct, profit_growth_pct, beat_miss} for major companies reporting this week
-4. market_news: Array of {headline, category, sentiment} — top 6 market-moving news items (macro, RBI, global, sector)
-5. portfolio_news: Array of {stock, headline, sentiment} — news specifically for these portfolio stocks: ${topStocks || 'HDFC Bank, Reliance Industries, Infosys, ICICI Bank, Axis Bank'}
-
-Return ONLY valid JSON, no markdown, no explanation. Use null for unavailable values.`;
+  // Call our Render API server which proxies Claude
+  const apiUrl = getMfApiUrl();
+  if (!apiUrl) {
+    const errMsg = `<div style="color:var(--red);font-size:.7rem;padding:.5rem">
+      ⚠ API server not configured. Set your Render URL in Add Factsheets → Test Connection.
+    </div>`;
+    ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
+      .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=errMsg; });
+    if (btn) { btn.disabled=false; btn.textContent='⟳ Refresh'; }
+    return;
+  }
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
-      })
+    const params = topStocks ? `?stocks=${encodeURIComponent(topStocks)}` : '';
+    const res = await fetch(`${apiUrl}/market-data${params}`, {
+      signal: AbortSignal.timeout(30000)  // Claude may take a few seconds
     });
-    const d = await resp.json();
-    const text = d.content?.[0]?.text || '';
-    const clean = text.replace(/```json|```/g,'').trim();
-    const data = JSON.parse(clean);
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Server error ${res.status}: ${err.slice(0,100)}`);
+    }
+
+    const data = await res.json();
 
     renderIndices(data.indices || []);
     renderFiiDii(data.fii_dii || {});
@@ -6408,11 +6412,15 @@ Return ONLY valid JSON, no markdown, no explanation. Use null for unavailable va
     renderMarketNews(data.market_news || []);
     renderPortfolioNews(data.portfolio_news || []);
 
-    if (upd) upd.textContent = `Updated ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`;
+    const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+    if (upd) upd.textContent = `Updated ${now}`;
     _monitorLoaded = true;
+
   } catch(e) {
     console.error('[Monitor]', e);
-    const errMsg = `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">Could not load market data. Try again.</div>`;
+    const errMsg = `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">
+      ✗ ${e.message || 'Could not load market data'}. Try refreshing.
+    </div>`;
     ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
       .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=errMsg; });
   }
