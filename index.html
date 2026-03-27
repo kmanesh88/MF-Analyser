@@ -3604,6 +3604,13 @@ async function parseWorkbook(wb, filename, results) {
 
     const totalMktVal = Object.values(fundMap).reduce((s, f) => s + f.mktVal, 0);
     console.log(`[WealthMgr] ${Object.keys(fundMap).length} funds, totalMktVal=${totalMktVal}`);
+    console.log('[WealthMgr] ALL funds:');
+    Object.values(fundMap).forEach(f => {
+      console.log(`  ${f.name}: mktVal=${f.mktVal}, cost=${f.cost}, nav=${f.nav}, units=${f.units}`);
+    });
+    // Also dump raw rows 1-5 so we can see exactly what SheetJS returns
+    console.log('[WealthMgr] Raw rows[1..5]:');
+    rows.slice(1,6).forEach((row,i) => console.log(`  R${i+2}:`, JSON.stringify(row)));
 
     if (!Object.keys(fundMap).length) { showToast('No fund data found'); return; }
 
