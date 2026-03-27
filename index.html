@@ -3378,12 +3378,13 @@ async function parseWorkbook(wb, filename, results) {
         const pctRaw = row[6];
         if (!name) continue;
 
-        // Capture TREPS/cash rows (no valid ISIN, specific names)
+        // Capture TREPS/cash rows (no valid ISIN) — skip subtotal lines
         if (!VALID_ISIN.test(isin)) {
-          if (/^(treps?|triparty\s*repo|reverse\s*repo|cblo|cash\s*and\s*other|net\s*current|total\s*for\s*money)/i.test(name)) {
+          if (/^(treps?|triparty\s*repo|reverse\s*repo|cblo|cash\s*and\s*other\s*net|net\s*current\s*asset)/i.test(name)) {
             const p = parseFloat(pctRaw) * 100;
             if (!isNaN(p) && p > 0 && p < 50) cashPct += p;
           }
+          // skip "Total for Money Market Instruments" — it's the sum of TREPS above
           continue;
         }
         if (SKIP.test(name)) continue;
