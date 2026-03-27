@@ -3497,6 +3497,132 @@ async function parseWorkbook(wb, filename, results) {
     return;
   }
 
+  // ── Detect Wealth Manager format ─────────────────────────────────
+  // Signature: sheet named "Mutual Fund", header row has
+  // Particulars | Nature | Category | Units | Cost | Mkt Value | Nav
+  const isWealthMgrFormat = wb.SheetNames.some(sn => {
+    const ws  = wb.Sheets[sn];
+    const row = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', sheetRows:2})[0] || [];
+    const rl  = row.map(c => String(c).toLowerCase().trim());
+    return rl.some(c => c==='particulars' || c==='nature') &&
+           rl.some(c => c==='mkt value' || c.includes('mkt value')) &&
+           rl.some(c => c==='nav' || c==='nav ');
+  });
+
+  if (isWealthMgrFormat) {
+    // Find the correct sheet (usually "Mutual Fund")
+    const targetSheet = wb.SheetNames.find(sn => {
+      const ws  = wb.Sheets[sn];
+      const row = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', sheetRows:2})[0] || [];
+      const rl  = row.map(c => String(c).toLowerCase().trim());
+      return rl.some(c => c==='particulars');
+    }) || wb.SheetNames[0];
+
+    const ws   = wb.Sheets[targetSheet];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    const hdr  = rows[0].map(c => String(c).toLowerCase().trim());
+
+    // Map column indices
+    const COL = {
+      name:     hdr.findIndex(c => c==='particulars'),
+      nature:   hdr.findIndex(c => c==='nature'),
+      category: hdr.findIndex(c => c==='category'),
+      units:    hdr.findIndex(c => c==='units'),
+      cost:     hdr.findIndex(c => c==='cost'),
+      mktVal:   hdr.findIndex(c => c==='mkt value' || c.includes('mkt value')),
+      nav:      hdr.findIndex(c => c==='nav' || c==='nav '),
+      unrGL:    hdr.findIndex(c => c.includes('unrealized') || c.includes('unrealised')),
+      realGL:   hdr.findIndex(c => c.includes('realized gain') || c.includes('realised gain')),
+    };
+
+    // Nature → asset class mapping
+    const NATURE_CLASS = {
+      'equity':                'Equity',
+      'debt/fixed income':     'Debt',
+      'cash/cash equivalents': 'Cash/MM',
+      'hybrid':                'Hybrid',
+      'international equity':  'International Equity',
+      'precious metals':       'Precious Metals',
+    };
+
+    // Clean fund name: strip plan/option suffix
+    const cleanFundName = n => n
+      .replace(/\s+(Reg|Dir|Regular|Direct)\s*[-–]?\s*(G|D|Growth|IDCW|Div)?\.?\s*$/i, '')
+      .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+      .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+
+    // Aggregate by fund name (same fund may appear in multiple folios)
+    const fundMap = {};
+    let totalMktVal = 0;
+
+    for (let r=1; r<rows.length; r++) {
+      const row  = rows[r];
+      const name = String(row[COL.name]||'').trim();
+      if (!name || /^total$/i.test(name)) continue;
+
+      const nature   = String(row[COL.nature]  ||'').trim().toLowerCase();
+      const category = String(row[COL.category]||'').trim();
+
+      const parse = (idx) => {
+        if (idx < 0) return 0;
+        const v = String(row[idx]||'').replace(/,/g,'');
+        return parseFloat(v) || 0;
+      };
+
+      const units  = parse(COL.units);
+      const cost   = parse(COL.cost);
+      const mktVal = parse(COL.mktVal);
+      const nav    = parse(COL.nav);
+      const unrGL  = parse(COL.unrGL);
+      const realGL = parse(COL.realGL);
+
+      if (mktVal <= 0 && cost <= 0) continue;
+
+      const cleanName = cleanFundName(name);
+      const assetClass = NATURE_CLASS[nature] || 'Other';
+
+      if (fundMap[cleanName]) {
+        // Merge folio entries for same fund
+        fundMap[cleanName].units  += units;
+        fundMap[cleanName].cost   += cost;
+        fundMap[cleanName].mktVal += mktVal;
+        fundMap[cleanName].unrGL  += unrGL;
+        fundMap[cleanName].realGL += realGL;
+        // Keep latest NAV (same for same fund)
+        if (nav > 0) fundMap[cleanName].nav = nav;
+      } else {
+        fundMap[cleanName] = { name:cleanName, nature, assetClass, category, units, cost, mktVal, nav, unrGL, realGL };
+      }
+      totalMktVal += mktVal;
+    }
+
+    if (Object.keys(fundMap).length === 0) {
+      showToast('No fund data found in this file');
+      return;
+    }
+
+    // Convert to results format
+    Object.values(fundMap).forEach(f => {
+      const pct = totalMktVal > 0 ? Math.round(f.mktVal/totalMktVal*10000)/100 : 0;
+      results.push({
+        fundName:      f.name,
+        isClientFormat: true,
+        isWealthMgr:   true,
+        pct,
+        val:           f.mktVal,
+        cost:          f.cost,
+        units:         f.units,
+        nav:           f.nav,
+        unrGL:         f.unrGL,
+        realGL:        f.realGL,
+        assetClass:    f.assetClass,
+        category:      f.category,
+      });
+    });
+
+    return; // done
+  }
+
   const isClientFormat = wb.SheetNames.some(sn => {
     const ws = wb.Sheets[sn];
     const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
@@ -3606,11 +3732,76 @@ function showXlsPreview(results, filename) {
   const saveBtn = document.getElementById('upload-xls-save-btn');
   if (!preview || !list) return;
 
-  // Check if client portfolio format
-  const isClientFmt = results.some(r => r.isClientFormat);
+  const isWealthMgr  = results.some(r => r.isWealthMgr);
+  const isClientFmt  = results.some(r => r.isClientFormat);
 
-  if (isClientFmt) {
-    const total = results.reduce((s,r) => s + (r.val||0), 0);
+  if (isWealthMgr) {
+    const totalMkt  = results.reduce((s,r) => s+(r.val||0), 0);
+    const totalCost = results.reduce((s,r) => s+(r.cost||0), 0);
+    const totalGL   = totalMkt - totalCost;
+    const totalGLPct = totalCost > 0 ? totalGL/totalCost*100 : 0;
+
+    // Group by asset class for summary bar
+    const byClass = {};
+    results.forEach(r => {
+      const cls = r.assetClass || 'Other';
+      byClass[cls] = (byClass[cls]||0) + (r.val||0);
+    });
+    const classColors = {
+      'Equity':'var(--lc)', 'Debt':'var(--dc-aaa)', 'Cash/MM':'var(--dc-mkt)',
+      'Hybrid':'var(--mc)', 'International Equity':'#7b68ee',
+      'Precious Metals':'#b8860b', 'Other':'var(--muted2)'
+    };
+    const barSegs = Object.entries(byClass).map(([cls, val]) =>
+      `<div style="flex:${val/totalMkt*100};background:${classColors[cls]||'var(--muted2)'};min-width:2px" title="${cls} ${(val/totalMkt*100).toFixed(1)}%"></div>`
+    ).join('');
+    const classSummary = Object.entries(byClass).map(([cls, val]) =>
+      `<span style="font-size:.6rem;color:${classColors[cls]||'var(--muted2)'}">${cls} <strong>${(val/totalMkt*100).toFixed(1)}%</strong></span>`
+    ).join('<span style="color:var(--border2);margin:0 .3rem">·</span>');
+
+    list.innerHTML = `
+      <div style="padding:.6rem .75rem;background:var(--s3);border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem">
+          <span style="font-size:.62rem;color:var(--muted)">✓ ${results.length} funds · Wealth Manager format</span>
+          <span style="font-size:.62rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
+            Mkt ₹${(totalMkt/100000).toFixed(2)}L
+            <span style="${totalGL>=0?'color:var(--green)':'color:var(--red)'}">
+              ${totalGL>=0?'+':''}₹${(totalGL/100000).toFixed(2)}L (${totalGLPct.toFixed(1)}%)
+            </span>
+          </span>
+        </div>
+        <div style="height:5px;border-radius:3px;overflow:hidden;display:flex;gap:1px;background:var(--border);margin-bottom:.4rem">${barSegs}</div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap">${classSummary}</div>
+      </div>` +
+      results.map(r => {
+        const gl    = (r.val||0) - (r.cost||0);
+        const glPct = r.cost > 0 ? gl/r.cost*100 : 0;
+        const glCol = gl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+        return `
+        <div style="display:grid;grid-template-columns:1fr auto;align-items:center;padding:.4rem .75rem;border-bottom:1px solid var(--border);gap:.5rem">
+          <div>
+            <div style="font-size:.7rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.fundName}</div>
+            <div style="font-size:.58rem;color:var(--muted);margin-top:.1rem">
+              ${r.assetClass} · ${r.category}
+              ${r.units > 0 ? ` · ${r.units.toLocaleString('en-IN',{maximumFractionDigits:3})} units` : ''}
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
+              ₹${(r.val/100000).toFixed(2)}L
+              <span style="color:var(--accent);margin-left:.25rem">${r.pct.toFixed(1)}%</span>
+            </div>
+            <div style="font-size:.6rem;font-family:'IBM Plex Mono',monospace;${glCol}">
+              ${gl>=0?'+':''}₹${(Math.abs(gl)/100000).toFixed(2)}L (${glPct.toFixed(1)}%)
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+
+    if (saveBtn) saveBtn.textContent = '✓ Import to Portfolio';
+
+  } else if (isClientFmt) {
+    const total   = results.reduce((s,r) => s + (r.val||0), 0);
     const hasUnits = results.some(r => r.units > 0);
     list.innerHTML = `
       <div style="padding:.4rem .75rem;background:var(--s3);border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
@@ -3626,6 +3817,7 @@ function showXlsPreview(results, filename) {
           </span>
         </div>`).join('');
     if (saveBtn) saveBtn.textContent = '✓ Save as Portfolio Allocation';
+
   } else {
     list.innerHTML = results.map(r => `
       <div style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">
@@ -3700,35 +3892,70 @@ function showConfirmModal(message, onConfirm) {
 
 function doSavePortfolioExcel() {
   const isClientFmt = _xlsParsedFunds.some(r => r.isClientFormat);
+  const isWealthMgr = _xlsParsedFunds.some(r => r.isWealthMgr);
 
   if (isClientFmt) {
-    // Save as portfolio allocations to the active portfolio
     if (!activePortId) {
-      document.getElementById('upload-xls-amc-warning').style.display = 'block';
-      document.getElementById('upload-xls-amc-warning').textContent = '⚠ Select or create a portfolio first (from Portfolios page)';
+      const w = document.getElementById('upload-xls-amc-warning');
+      if (w) { w.style.display='block'; w.textContent='⚠ Select or create a portfolio first (from Portfolios page)'; }
       return;
     }
-    document.getElementById('upload-xls-amc-warning').style.display = 'none';
+    const w = document.getElementById('upload-xls-amc-warning');
+    if (w) w.style.display='none';
     const port = portfolios.find(p => p.id === activePortId);
     if (!port) return;
 
-    port.allocations = {};
+    port.allocations   = {};
     port.holdingsDetail = {};
+
     _xlsParsedFunds.forEach(r => {
       port.allocations[r.fundName] = r.pct;
-      port.holdingsDetail[r.fundName] = { val: r.val || 0, units: r.units || 0 };
+
+      // Store full detail — wealth manager has richer data
+      port.holdingsDetail[r.fundName] = {
+        val:       r.val    || 0,
+        units:     r.units  || 0,
+        cost:      r.cost   || 0,
+        nav:       r.nav    || 0,
+        unrGL:     r.unrGL  || 0,
+        realGL:    r.realGL || 0,
+        assetClass: r.assetClass || null,
+        category:  r.category   || null,
+      };
     });
 
-    // Also populate allocRows for the allocation page
+    // Populate allocRows for the allocation page
     allocRows = _xlsParsedFunds.map(r => ({
-      key: sid(r.fundName), fundName: r.fundName, amcName: '', pct: r.pct, isUploaded: false
+      key:        sid(r.fundName),
+      fundName:   r.fundName,
+      amcName:    '',
+      pct:        r.pct,
+      isUploaded: false,
     }));
+
+    // Store NAV data in session so Live NAV button shows current values immediately
+    if (isWealthMgr) {
+      _xlsParsedFunds.forEach(r => {
+        if (r.nav > 0) {
+          window._navData = window._navData || {};
+          window._navData[r.fundName] = {
+            nav:       r.nav,
+            date:      'from import',
+            schemeCode: null,
+            schemeName: r.fundName,
+          };
+        }
+      });
+    }
 
     savePortfolios();
     saveToStorage();
     if (window._fb?.currentUser) window._fbSaveCloud();
-    showToast(`✓ ${_xlsParsedFunds.length} funds saved to "${port.name}"`);
+    showToast(`✓ ${_xlsParsedFunds.length} funds imported to "${port.name}"`);
     resetXlsUpload();
+
+    // Go straight to analysis
+    runAnalysisForPortfolio(port);
     return;
   }
 
