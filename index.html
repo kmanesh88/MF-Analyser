@@ -2434,20 +2434,72 @@ function renderPortfolioGrid() {
   }
 
   grid.innerHTML = portfolios.map(p => {
-    // Find last snapshot that has actual factsheet data
     const goodSnap = [...(p.snapshots||[])].reverse()
-      .find(s => (s.summary.large||0)+(s.summary.mid||0)+(s.summary.small||0)+(s.summary.debtTotal||0) > 0);
+      .find(s => (s.summary.large||0)+(s.summary.mid||0)+(s.summary.small||0)+(s.summary.debtTotal||0)+(s.summary.equityPct||0) > 0);
     const snap = goodSnap?.summary || null;
 
-    // Clear stale zero-data alerts
     if (!snap && (p.alerts||[]).length) { p.alerts = []; }
 
-    const alerts  = p.alerts || [];
+    const alerts = p.alerts || [];
     const br = alerts.filter(a=>a.type==='breach'), wa = alerts.filter(a=>a.type==='warning'), mv = alerts.filter(a=>a.type==='movement');
-    const rag     = br.length?'rag-red':wa.length?'rag-amber':snap?'rag-green':'';
-    const isAct   = p.id === activePortId;
-    const date    = new Date(p.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'});
-    const lastSnap= p.snapshots?.length ? new Date(p.snapshots[p.snapshots.length-1].date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'}) : null;
+    const rag    = br.length?'rag-red':wa.length?'rag-amber':snap?'rag-green':'';
+    const isAct  = p.id === activePortId;
+    const date   = new Date(p.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'});
+    const lastSnap = p.snapshots?.length ? new Date(p.snapshots[p.snapshots.length-1].date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'}) : null;
+    const fundCount = Object.keys(p.allocations||{}).length;
+
+    // Build asset allocation bands from snapshot
+    let assetHtml = '';
+    if (snap) {
+      // Derive asset class %s — prefer new fields, fall back to old cap fields
+      const eq  = snap.equityPct    != null ? snap.equityPct    : (snap.large||0)+(snap.mid||0)+(snap.small||0)+(snap.eqOther||0);
+      const dt  = snap.debtPct      != null ? snap.debtPct      : (snap.debtTotal||0);
+      const ca  = snap.cashPct      != null ? snap.cashPct      : 0;
+      const co  = snap.commodityPct != null ? snap.commodityPct : 0;
+      // Gold fund: if commodity, label it as Gold (from commodityTypes)
+      const commTypes = snap.commodityTypes || [];
+      const goldPct   = commTypes.filter(c=>c.type==='Gold').reduce((s,c)=>s+c.wt, 0) || (co > 0 && !commTypes.length ? co : 0);
+      const silverPct = commTypes.filter(c=>c.type==='Silver').reduce((s,c)=>s+c.wt, 0);
+      const otherCommPct = co - goldPct - silverPct;
+
+      const tot = eq+dt+ca+goldPct+silverPct+otherCommPct || 100;
+
+      // Asset classes in order
+      const classes = [
+        { label:'Equity',   val:eq,           color:'var(--lc)',      bg:'rgba(91,159,214,.12)',   fg:'var(--lc)'      },
+        { label:'Debt',     val:dt,           color:'var(--dc-aaa)',  bg:'rgba(61,188,180,.12)',   fg:'var(--teal)'    },
+        { label:'Cash/MM',  val:ca,           color:'var(--dc-mkt)',  bg:'rgba(99,163,82,.12)',    fg:'var(--green)'   },
+        { label:'Gold',     val:goldPct,      color:'#b8860b',        bg:'rgba(184,134,11,.12)',   fg:'#b8860b'        },
+        { label:'Silver',   val:silverPct,    color:'#888',           bg:'rgba(136,136,136,.12)',  fg:'var(--muted2)'  },
+        { label:'Commodity',val:otherCommPct, color:'#9a6b00',        bg:'rgba(154,107,0,.12)',    fg:'#9a6b00'        },
+      ].filter(c => c.val > 0.5);
+
+      // Bar
+      const barSegs = classes.map(c =>
+        `<div style="flex:${c.val/tot*100};background:${c.color};min-width:2px"></div>`
+      ).join('');
+
+      // Chips — each asset class
+      const chips = classes.map(c =>
+        `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
+           <span style="font-family:'IBM Plex Mono',monospace;font-size:.72rem;font-weight:700;color:${c.fg}">${c.val.toFixed(1)}%</span>
+           <span style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">${c.label}</span>
+         </div>`
+      ).join('');
+
+      assetHtml = `
+        <div style="height:6px;border-radius:3px;overflow:hidden;display:flex;gap:1px;background:var(--s3);margin-bottom:.7rem">${barSegs}</div>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.7rem;padding-bottom:.65rem;border-bottom:1px solid var(--border)">${chips}</div>`;
+    } else {
+      assetHtml = `<div style="font-size:.68rem;color:var(--muted);margin:.4rem 0 .75rem;padding-bottom:.65rem;border-bottom:1px solid var(--border)">Run analysis to see allocation breakdown</div>`;
+    }
+
+    // Alerts — keep concise, max 2 shown
+    const alertBadges = [
+      ...br.map(a=>`<span class="alert-tag breach">⚠ ${a.label}</span>`),
+      ...wa.slice(0,1).map(a=>`<span class="alert-tag warning">↗ ${a.label}</span>`),
+    ].slice(0,2).join('');
+    const extraAlerts = br.length + wa.length - 2;
 
     return `<div class="portfolio-card ${rag} ${isAct?'active-portfolio':''}" onclick="selectPortfolioFromGrid('${p.id}')">
       <div class="pc-actions">
@@ -2456,42 +2508,22 @@ function renderPortfolioGrid() {
         <button class="pc-btn del" onclick="event.stopPropagation();deletePortfolio('${p.id}')" title="Delete">✕</button>
       </div>
       <div class="pc-name">${p.name}</div>
-      <div class="pc-client">${p.client||'—'} · ${Object.keys(p.allocations||{}).length} funds</div>
-      ${snap ? (() => {
-        // Asset allocation bar
-        const eq  = snap.equityPct   || ((snap.large||0)+(snap.mid||0)+(snap.small||0));
-        const dt  = snap.debtPct     || snap.debtTotal || 0;
-        const ca  = snap.cashPct     || 0;
-        const co  = snap.commodityPct|| 0;
-        const tot = eq+dt+ca+co || 100;
-        return `<div class="pc-bar" style="border-radius:4px;overflow:hidden">
-          <div class="pc-bar-l" style="flex:${eq/tot*100}" title="Equity ${eq.toFixed(1)}%"></div>
-          <div class="pc-bar-d" style="flex:${dt/tot*100};background:var(--dc-aaa)" title="Debt ${dt.toFixed(1)}%"></div>
-          ${ca>0.5?`<div style="flex:${ca/tot*100};background:var(--dc-mkt)" title="Cash ${ca.toFixed(1)}%"></div>`:''}
-          ${co>0.5?`<div style="flex:${co/tot*100};background:#b8860b" title="Commodity ${co.toFixed(1)}%"></div>`:''}
+      <div class="pc-client">${p.client||'—'} · ${fundCount} fund${fundCount!==1?'s':''}</div>
+      ${assetHtml}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+        <div style="display:flex;flex-wrap:wrap;gap:.3rem;flex:1">
+          ${alertBadges}
+          ${extraAlerts>0?`<span class="alert-tag breach">+${extraAlerts} more</span>`:''}
+          ${!alerts.length&&snap?'<span class="alert-tag ok">✓ All clear</span>':''}
         </div>
-        <div class="pc-chips">
-          ${eq>0.5?`<span class="pc-chip pc-chip-l">EQ ${eq.toFixed(0)}%</span>`:''}
-          ${dt>0.5?`<span class="pc-chip pc-chip-d">DT ${dt.toFixed(0)}%</span>`:''}
-          ${ca>0.5?`<span class="pc-chip" style="background:rgba(56,184,110,.15);color:var(--teal)">MM ${ca.toFixed(0)}%</span>`:''}
-          ${co>0.5?`<span class="pc-chip" style="background:rgba(184,134,11,.15);color:#b8860b">🏅 ${co.toFixed(0)}%</span>`:''}
-        </div>`;
-      })() : '<div style="font-size:.7rem;color:var(--muted);margin:.5rem 0 .85rem">No analysis yet</div>'}
-      <div class="pc-alerts">
-        ${br.map(a=>`<span class="alert-tag breach">⚠ ${a.label}</span>`).join('')}
-        ${wa.map(a=>`<span class="alert-tag warning">↗ ${a.label}</span>`).join('')}
-        ${mv.map(a=>`<span class="alert-tag ${a.direction==='up'?'mov-up':'mov-dn'}">${a.direction==='up'?'↑':'↓'} ${a.label}</span>`).join('')}
-        ${!alerts.length&&snap?'<span class="alert-tag ok">✓ All clear</span>':''}
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:.6rem">
-        <div class="pc-date">Created ${date}${lastSnap?' · '+lastSnap:''}</div>
         ${snap
-          ? `<button class="btn sm pri" style="font-size:.6rem;padding:.25rem .65rem" onclick="event.stopPropagation();loadPortfolio('${p.id}')">▶ Open</button>`
-          : Object.keys(p.allocations||{}).length
-            ? `<button class="btn sm" style="font-size:.6rem;padding:.25rem .65rem" onclick="event.stopPropagation();loadPortfolio('${p.id}')">Set & Analyse →</button>`
-            : `<button class="btn sm" style="font-size:.6rem;padding:.25rem .65rem" onclick="event.stopPropagation();loadPortfolio('${p.id}')">Set Up →</button>`
+          ? `<button class="btn sm pri" style="font-size:.6rem;padding:.25rem .65rem;flex-shrink:0" onclick="event.stopPropagation();loadPortfolio('${p.id}')">▶ Open</button>`
+          : fundCount
+            ? `<button class="btn sm" style="font-size:.6rem;padding:.25rem .65rem;flex-shrink:0" onclick="event.stopPropagation();loadPortfolio('${p.id}')">Analyse →</button>`
+            : `<button class="btn sm" style="font-size:.6rem;padding:.25rem .65rem;flex-shrink:0" onclick="event.stopPropagation();loadPortfolio('${p.id}')">Set Up →</button>`
         }
       </div>
+      <div class="pc-date" style="margin-top:.45rem">Created ${date}${lastSnap?' · Analysed '+lastSnap:''}</div>
     </div>`;
   }).join('');
 }
