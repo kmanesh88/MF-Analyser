@@ -1662,15 +1662,24 @@ body {
   <div class="card" id="sum-holdings-banner" style="margin-bottom:1.1rem;display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
       <div class="card-title" style="margin-bottom:0">Holdings</div>
-      <div id="sum-holdings-total" style="font-size:.7rem;color:var(--muted)"></div>
+      <div style="display:flex;align-items:center;gap:.65rem">
+        <div id="sum-holdings-total" style="font-size:.7rem;color:var(--muted)"></div>
+        <button class="btn sm" id="nav-refresh-btn" onclick="refreshNAVs()" title="Fetch latest NAV from mfapi.in">
+          ⟳ Live NAV
+        </button>
+        <span id="nav-refresh-status" style="font-size:.62rem;color:var(--muted)"></span>
+      </div>
     </div>
     <div style="overflow-x:auto">
-      <table class="rt" style="min-width:500px">
+      <table class="rt" id="sum-holdings-table" style="min-width:560px">
         <thead>
-          <tr>
+          <tr id="sum-holdings-thead">
             <th>Scheme</th>
             <th class="r">Units</th>
-            <th class="r">Market Value</th>
+            <th class="r">Cost Value</th>
+            <th class="r">NAV</th>
+            <th class="r">Current Value</th>
+            <th class="r">Gain/Loss</th>
             <th class="r">% of Portfolio</th>
           </tr>
         </thead>
@@ -1763,26 +1772,74 @@ body {
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:.75rem">
       <div>
         <div class="pg-title">Market Monitor</div>
-        <div class="pg-sub">Live prices · Portfolio impact · Announcements</div>
+        <div class="pg-sub">Indices · FII/DII · Earnings · News</div>
       </div>
-      <div style="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:.4rem">
-          <input class="watch-input" id="add-watch-input" placeholder="Add ticker (e.g. HDFCBANK)" style="width:190px" onkeydown="if(event.key==='Enter')addWatchStock()">
-          <button class="btn sm" onclick="addWatchStock()">+</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:.4rem;font-size:.7rem;color:var(--muted)">
-          <span>Alert</span>
-          <input type="number" id="price-trigger" value="3" min="0.5" max="20" step="0.5" style="width:46px;background:var(--s3);border:1px solid var(--border2);border-radius:5px;padding:.3rem .4rem;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:var(--text);text-align:center">
-          <span>%</span>
-        </div>
-        <button class="btn pri" onclick="fetchAllPrices()" id="fetch-btn">⟳ Fetch</button>
-        <span class="fetch-status" id="fetch-status"></span>
+      <div style="display:flex;align-items:center;gap:.65rem">
+        <button class="btn pri" onclick="loadMarketMonitor()" id="monitor-refresh-btn">⟳ Refresh</button>
+        <span id="monitor-last-updated" style="font-size:.62rem;color:var(--muted)"></span>
       </div>
     </div>
   </div>
 
-  <!-- Price alert banner -->
-  <div id="price-alerts-section" style="display:none;margin-bottom:1rem">
+  <!-- Indices strip -->
+  <div class="card" style="margin-bottom:1.1rem;padding:.85rem 1.2rem">
+    <div id="indices-strip" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.75rem">
+      <div style="text-align:center;color:var(--muted);font-size:.7rem;grid-column:1/-1;padding:.5rem 0">Click Refresh to load market data</div>
+    </div>
+  </div>
+
+  <!-- 3-col grid: FII/DII | Earnings | Portfolio Impact -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.1rem;margin-bottom:1.1rem">
+
+    <!-- FII/DII Activity -->
+    <div class="card" style="margin-bottom:0">
+      <div class="card-title">FII / DII Activity</div>
+      <div id="fii-dii-content">
+        <div style="color:var(--muted);font-size:.7rem;padding:.5rem 0">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Corporate Earnings -->
+    <div class="card" style="margin-bottom:0">
+      <div class="card-title">Earnings This Week</div>
+      <div id="earnings-content">
+        <div style="color:var(--muted);font-size:.7rem;padding:.5rem 0">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Portfolio Exposure Lookup -->
+    <div class="card" style="margin-bottom:0">
+      <div class="card-title">Stock Exposure Lookup</div>
+      <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+        <input class="watch-input" id="lookup-input" placeholder="Stock name…" style="flex:1;width:auto">
+        <button class="btn sm pri" onclick="lookupStock()">→</button>
+      </div>
+      <div id="lookup-results">
+        <div style="font-size:.7rem;color:var(--muted);line-height:1.8">
+          Search any stock to see which portfolios hold it.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Market News -->
+  <div class="card" style="margin-bottom:1.1rem">
+    <div class="card-title">Market News</div>
+    <div id="market-news-content">
+      <div style="color:var(--muted);font-size:.7rem;padding:.5rem 0">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Stock-specific news for portfolio holdings -->
+  <div class="card">
+    <div class="card-title">Portfolio Stock News</div>
+    <div id="portfolio-news-content">
+      <div style="color:var(--muted);font-size:.7rem;padding:.5rem 0">News for stocks held across your portfolios.</div>
+    </div>
+  </div>
+
+  <!-- Keep existing price alert infrastructure -->
+  <div id="price-alerts-section" style="display:none;margin-top:1rem">
     <div style="background:rgba(224,86,86,.08);border:1px solid rgba(224,86,86,.25);border-radius:var(--r-md);padding:1rem 1.25rem">
       <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.65rem">
         <span style="color:var(--red);font-size:.8rem;font-weight:600">⚠ Price Alerts</span>
@@ -1792,57 +1849,13 @@ body {
     </div>
   </div>
 
-  <!-- Main grid: 3-col on wide, 1-col stacked on narrow -->
-  <div class="monitor-grid">
-
-    <!-- Watchlist column -->
-    <div class="card mon-card" style="margin-bottom:0">
-      <div class="card-title">
-        Watchlist
-        <span id="last-fetched-2" style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:.56rem;color:var(--muted);letter-spacing:0"></span>
-      </div>
-      <div id="watchlist-rows">
-        <div style="padding:1.5rem 0;font-size:.72rem;color:var(--muted);text-align:center;line-height:2">
-          Click <strong style="color:var(--text)">⟳ Fetch</strong> to auto-populate<br>from your portfolios
-        </div>
-      </div>
-    </div>
-
-    <!-- Impact column -->
-    <div class="card mon-card" style="margin-bottom:0">
-      <div class="card-title">Portfolio Impact</div>
-      <div id="impact-list">
-        <div style="padding:1.5rem 0;font-size:.72rem;color:var(--muted);text-align:center">
-          Fetch prices to see which<br>portfolios are exposed to movers
-        </div>
-      </div>
-    </div>
-
-    <!-- Lookup column -->
-    <div class="card mon-card" style="margin-bottom:0">
-      <div class="card-title">Exposure Lookup</div>
-      <div style="display:flex;gap:.5rem;margin-bottom:1rem">
-        <input class="watch-input" id="lookup-input" placeholder="Stock name…" style="flex:1;width:auto">
-        <button class="btn sm pri" onclick="lookupStock()">→</button>
-      </div>
-      <div id="lookup-results">
-        <div style="font-size:.7rem;color:var(--muted);line-height:1.8">
-          Type any stock name to see which portfolios hold it and their exposure level.
-        </div>
-      </div>
-    </div>
-
-  </div><!-- /monitor-grid -->
-
-  <!-- Announcements -->
-  <div class="card" style="margin-top:1rem">
-    <div class="card-title">
-      Corporate Announcements
-      <button class="btn sm" style="margin-left:.5rem" onclick="fetchAnnouncements()">Fetch BSE</button>
-    </div>
-    <div id="announcements-list">
-      <div style="font-size:.72rem;color:var(--muted);padding:.5rem 0">Click Fetch BSE to load latest corporate announcements for stocks in your portfolios.</div>
-    </div>
+  <!-- Hidden elements kept for backward compat -->
+  <div style="display:none">
+    <input id="add-watch-input"><input id="price-trigger" value="3">
+    <span id="fetch-status"></span><span id="last-fetched-2"></span>
+    <div id="watchlist-rows"></div><div id="impact-list"></div>
+    <div id="announcements-list"></div>
+    <button id="fetch-btn" onclick="fetchAllPrices()"></button>
   </div>
 </div>
 
@@ -2783,7 +2796,7 @@ function showPage(pg) {
     if (pg==='clients')    try{renderPortfolioGrid();}catch(e){console.error('renderPortfolioGrid',e);}
     if (pg==='alerts')     try{buildAlertsPage();}catch(e){console.error('buildAlertsPage',e);}
     if (pg==='thresholds') try{buildThresholdsPage();}catch(e){console.error('buildThresholdsPage',e);}
-    if (pg==='monitor')    try{renderWatchlist();}catch(e){console.error('renderWatchlist',e);}
+    if (pg==='monitor')    { try{renderWatchlist();}catch(e){console.error('renderWatchlist',e);} if(!_monitorLoaded) loadMarketMonitor(); }
     if (pg==='upload')     try{rebuildAmcPanels();buildAmcExcelLinks();initApiConfigBar();}catch(e){console.error('upload init',e);}
   } catch(e) {
     console.error('showPage error:', e);
@@ -5447,7 +5460,7 @@ function buildSummary() {
   const bodyEl   = document.getElementById('sum-holdings-body');
   const totalEl  = document.getElementById('sum-holdings-total');
 
-  // Always show holdings banner — use holdingsDetail if available, else just show % from allocations
+  // Always show holdings banner
   if (bannerEl && bodyEl) {
     bannerEl.style.display = 'block';
     const totalVal = hasDetail
@@ -5456,36 +5469,72 @@ function buildSummary() {
     const hasUnits = hasDetail && Object.values(holdingsDetail).some(h => (h.units||0) > 0);
 
     if (totalEl) totalEl.textContent = totalVal > 0
-      ? `Total ₹${(totalVal/100000).toFixed(2)}L`
+      ? `Cost ₹${(totalVal/100000).toFixed(2)}L`
       : `${items.length} funds · ${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}% allocated`;
 
-    // Update table header to match columns
-    const thead = bannerEl.querySelector('thead tr');
-    if (thead) {
-      thead.innerHTML = `
-        <th>Scheme</th>
-        ${hasUnits ? '<th class="r">Units</th>' : ''}
-        ${totalVal > 0 ? '<th class="r">Market Value</th>' : ''}
-        <th class="r">% of Portfolio</th>`;
-    }
+    // Render rows — navData is populated by refreshNAVs()
+    const navData = window._navData || {};
 
     bodyEl.innerHTML = items.map(f => {
-      const hd    = holdingsDetail[f.name] || {};
-      const val   = hd.val   || 0;
-      const units = hd.units || 0;
+      const hd      = holdingsDetail[f.name] || {};
+      const units   = hd.units || 0;
+      const costVal = hd.val   || 0;
+      const nav     = navData[f.name];
+      const curVal  = (nav && units > 0) ? nav.nav * units : 0;
+      const gain    = curVal > 0 && costVal > 0 ? curVal - costVal : null;
+      const gainPct = gain !== null && costVal > 0 ? (gain/costVal*100) : null;
+      const gainColor = gain === null ? '' : gain >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+
       return `<tr>
-        <td style="font-size:.72rem;color:var(--text)">${f.name}</td>
-        ${hasUnits ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${units > 0 ? units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}</td>` : ''}
-        ${totalVal > 0 ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${val > 0 ? '₹'+val.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}</td>` : ''}
-        <td class="r" style="font-size:.72rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.wt.toFixed(1)}%</td>
+        <td style="font-size:.72rem">
+          ${f.name}
+          ${f.commodityType ? `<span style="font-size:.58rem;color:#b8860b;margin-left:.3rem">🏅</span>` : ''}
+        </td>
+        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
+          ${units > 0 ? units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}
+        </td>
+        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
+          ${costVal > 0 ? '₹'+costVal.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}
+        </td>
+        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
+          ${nav ? '₹'+nav.nav.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:4}) : '<span style="color:var(--muted)">—</span>'}
+        </td>
+        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;${curVal>0?'color:var(--text)':'color:var(--muted)'}">
+          ${curVal > 0 ? '₹'+curVal.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}
+        </td>
+        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;${gainColor}">
+          ${gain !== null
+            ? (gain >= 0 ? '+' : '') + '₹'+Math.abs(gain).toLocaleString('en-IN',{maximumFractionDigits:0})
+              + ' <span style="font-size:.6rem">(' + (gainPct >= 0 ? '+' : '') + gainPct.toFixed(1) + '%)</span>'
+            : '—'}
+        </td>
+        <td class="r" style="font-size:.72rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">
+          ${f.wt.toFixed(1)}%
+        </td>
       </tr>`;
-    }).join('') + (totalVal > 0 ? `
-    <tr style="border-top:2px solid var(--border);font-weight:700;background:var(--s3)">
+    }).join('');
+
+    // Totals row
+    const totalCurVal = Object.values(navData).length > 0
+      ? items.reduce((s,f) => {
+          const hd = holdingsDetail[f.name] || {};
+          const nav = navData[f.name];
+          return s + (nav && hd.units > 0 ? nav.nav * hd.units : 0);
+        }, 0) : 0;
+    const totalGain = totalCurVal > 0 && totalVal > 0 ? totalCurVal - totalVal : null;
+    const totalGainPct = totalGain !== null && totalVal > 0 ? totalGain/totalVal*100 : null;
+
+    bodyEl.innerHTML += `<tr style="border-top:2px solid var(--border);font-weight:700;background:var(--s3)">
       <td style="font-size:.72rem">Total</td>
-      ${hasUnits ? '<td class="r">—</td>' : ''}
-      <td class="r" style="font-size:.7rem;font-family:'IBM Plex Mono',monospace">₹${totalVal.toLocaleString('en-IN',{maximumFractionDigits:0})}</td>
-      <td class="r" style="font-size:.72rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}%</td>
-    </tr>` : '');
+      <td class="r">—</td>
+      <td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem">${totalVal>0?'₹'+totalVal.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</td>
+      <td class="r">—</td>
+      <td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem">${totalCurVal>0?'₹'+totalCurVal.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</td>
+      <td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem;${totalGain>=0?'color:var(--green)':'color:var(--red)'}">
+        ${totalGain !== null ? (totalGain>=0?'+':'')+'₹'+Math.abs(totalGain).toLocaleString('en-IN',{maximumFractionDigits:0})+' ('+totalGainPct.toFixed(1)+'%)' : '—'}
+      </td>
+      <td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--accent)">${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}%</td>
+    </tr>`;
   }
 
   // Check if any fund has factsheet data
@@ -5857,6 +5906,88 @@ function buildMetrics() {
 }
 
 
+// ── NAV refresh via mfapi.in ─────────────────────────────────────────
+// Cache: { fundName: { nav, date, schemeCode } }
+window._navData    = window._navData    || {};
+window._navCodeMap = window._navCodeMap || {}; // fundName → schemeCode
+
+async function searchMfapiCode(fundName) {
+  if (window._navCodeMap[fundName]) return window._navCodeMap[fundName];
+  try {
+    // Strip suffixes for better search
+    const q = fundName.replace(/\s*[-–]\s*(direct|regular)\s*plan.*/i,'')
+                      .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i,'')
+                      .trim();
+    const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`,
+                            { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const results = await res.json();
+    if (!results?.length) return null;
+    // Best match: highest word overlap with fund name
+    const qw = new Set(q.toLowerCase().split(/\s+/).filter(w=>w.length>3));
+    let best = null, bestScore = 0;
+    results.forEach(r => {
+      const rw = new Set(r.schemeName.toLowerCase().split(/\s+/).filter(w=>w.length>3));
+      const overlap = [...qw].filter(w=>rw.has(w)).length;
+      const score = overlap / Math.max(qw.size, rw.size);
+      if (score > bestScore) { bestScore = score; best = r; }
+    });
+    if (best && bestScore > 0.4) {
+      window._navCodeMap[fundName] = best.schemeCode;
+      return best.schemeCode;
+    }
+  } catch(e) { console.warn('[NAV]', fundName, e.message); }
+  return null;
+}
+
+async function refreshNAVs() {
+  const btn = document.getElementById('nav-refresh-btn');
+  const st  = document.getElementById('nav-refresh-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Fetching…'; }
+  if (st)  { st.textContent = ''; }
+
+  const port = activePortId ? portfolios.find(p=>p.id===activePortId) : null;
+  if (!port?.allocations) {
+    if (btn) { btn.disabled=false; btn.textContent='⟳ Live NAV'; }
+    return;
+  }
+
+  const funds = Object.keys(port.allocations);
+  let fetched = 0, failed = [];
+
+  await Promise.all(funds.map(async fname => {
+    try {
+      const code = await searchMfapiCode(fname);
+      if (!code) { failed.push(fname); return; }
+      const res = await fetch(`https://api.mfapi.in/mf/${code}/latest`,
+                              { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) { failed.push(fname); return; }
+      const d = await res.json();
+      if (d?.data?.[0]) {
+        window._navData[fname] = {
+          nav:        parseFloat(d.data[0].nav),
+          date:       d.data[0].date,
+          schemeCode: code,
+          schemeName: d.meta?.scheme_name || fname,
+        };
+        fetched++;
+      }
+    } catch(e) { failed.push(fname); }
+  }));
+
+  if (btn) { btn.disabled=false; btn.textContent='⟳ Live NAV'; }
+  if (st)  {
+    const dateStr = Object.values(window._navData)[0]?.date || '';
+    st.textContent = fetched > 0
+      ? `✓ NAV as on ${dateStr}${failed.length?' · '+failed.length+' failed':''}`
+      : '✗ Could not fetch NAVs';
+    st.style.color = fetched > 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  // Re-render the holdings table with new NAV data
+  buildSummary();
+}
+
 async function runAnalysis() {
   // Ensure allocRows is populated — always sync from active portfolio first
   if (activePortId) {
@@ -6187,6 +6318,151 @@ async function fetchPrice(ticker) {
   } catch(e) {
     return { ok: false, error: e.message };
   }
+}
+
+// ── Market Monitor ──────────────────────────────────────────────────
+let _monitorLoaded = false;
+
+async function loadMarketMonitor() {
+  const btn = document.getElementById('monitor-refresh-btn');
+  const upd = document.getElementById('monitor-last-updated');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
+
+  // Gather portfolio stocks for news context
+  const portfolioStocks = [];
+  allFunds().forEach(({data}) => {
+    (data.equityStocks||[]).forEach(s => {
+      if (!portfolioStocks.includes(s.name)) portfolioStocks.push(s.name);
+    });
+  });
+  const topStocks = portfolioStocks.slice(0, 15).join(', ');
+
+  // Prompt Claude to fetch and display market data
+  const prompt = `You are a market data assistant for an Indian mutual fund portfolio analyser. Today is ${new Date().toLocaleDateString('en-IN', {day:'numeric',month:'long',year:'numeric'})}.
+
+Provide a structured JSON response with the following sections for Indian markets:
+
+1. indices: Array of {name, value, change, changePct} for: NIFTY 50, SENSEX, NIFTY MIDCAP 150, NIFTY SMALLCAP 250, NIFTY BANK, INDIA VIX
+2. fii_dii: {date, fii_net_crore, dii_net_crore, fii_buy, fii_sell, dii_buy, dii_sell} — latest available FII/DII provisional data in crores
+3. earnings: Array of {company, result_date, revenue_growth_pct, profit_growth_pct, beat_miss} for major companies reporting this week
+4. market_news: Array of {headline, category, sentiment} — top 6 market-moving news items (macro, RBI, global, sector)
+5. portfolio_news: Array of {stock, headline, sentiment} — news specifically for these portfolio stocks: ${topStocks || 'HDFC Bank, Reliance Industries, Infosys, ICICI Bank, Axis Bank'}
+
+Return ONLY valid JSON, no markdown, no explanation. Use null for unavailable values.`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const d = await resp.json();
+    const text = d.content?.[0]?.text || '';
+    const clean = text.replace(/```json|```/g,'').trim();
+    const data = JSON.parse(clean);
+
+    renderIndices(data.indices || []);
+    renderFiiDii(data.fii_dii || {});
+    renderEarnings(data.earnings || []);
+    renderMarketNews(data.market_news || []);
+    renderPortfolioNews(data.portfolio_news || []);
+
+    if (upd) upd.textContent = `Updated ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`;
+    _monitorLoaded = true;
+  } catch(e) {
+    console.error('[Monitor]', e);
+    const errMsg = `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">Could not load market data. Try again.</div>`;
+    ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
+      .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=errMsg; });
+  }
+
+  if (btn) { btn.disabled=false; btn.textContent='⟳ Refresh'; }
+}
+
+function renderIndices(indices) {
+  const el = document.getElementById('indices-strip');
+  if (!el || !indices.length) return;
+  el.innerHTML = indices.map(idx => {
+    const up = (idx.changePct||0) >= 0;
+    const col = up ? 'var(--green)' : 'var(--red)';
+    return `<div style="text-align:center;padding:.35rem .5rem;background:var(--s2);border-radius:var(--r-sm);border:1px solid var(--border)">
+      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">${idx.name}</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:.78rem;font-weight:700;color:var(--text)">${idx.value != null ? idx.value.toLocaleString('en-IN') : '—'}</div>
+      <div style="font-size:.62rem;color:${col};font-family:'IBM Plex Mono',monospace">${up?'▲':'▼'} ${Math.abs(idx.changePct||0).toFixed(2)}%</div>
+    </div>`;
+  }).join('');
+}
+
+function renderFiiDii(d) {
+  const el = document.getElementById('fii-dii-content');
+  if (!el) return;
+  const fmt = v => v != null ? (v>=0?'+':'')+v.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—';
+  const col = v => v >= 0 ? 'var(--green)' : 'var(--red)';
+  el.innerHTML = `
+    <div style="font-size:.6rem;color:var(--muted);margin-bottom:.5rem">${d.date || 'Latest available'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+      <div style="background:var(--s2);border-radius:var(--r-sm);padding:.6rem .75rem;border:1px solid var(--border)">
+        <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">FII Net</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:.82rem;font-weight:700;color:${col(d.fii_net_crore)}">₹${fmt(d.fii_net_crore)}Cr</div>
+        <div style="font-size:.6rem;color:var(--muted);margin-top:.2rem">B:${fmt(d.fii_buy)} S:${fmt(d.fii_sell)}</div>
+      </div>
+      <div style="background:var(--s2);border-radius:var(--r-sm);padding:.6rem .75rem;border:1px solid var(--border)">
+        <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">DII Net</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:.82rem;font-weight:700;color:${col(d.dii_net_crore)}">₹${fmt(d.dii_net_crore)}Cr</div>
+        <div style="font-size:.6rem;color:var(--muted);margin-top:.2rem">B:${fmt(d.dii_buy)} S:${fmt(d.dii_sell)}</div>
+      </div>
+    </div>`;
+}
+
+function renderEarnings(earnings) {
+  const el = document.getElementById('earnings-content');
+  if (!el) return;
+  if (!earnings.length) { el.innerHTML = '<div style="color:var(--muted);font-size:.7rem">No major earnings this week</div>'; return; }
+  el.innerHTML = earnings.map(e => {
+    const beatCol = e.beat_miss === 'Beat' ? 'var(--green)' : e.beat_miss === 'Miss' ? 'var(--red)' : 'var(--muted)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:.7rem;font-weight:600;color:var(--text)">${e.company}</div>
+        <div style="font-size:.6rem;color:var(--muted)">${e.result_date||''}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:.65rem;font-family:'IBM Plex Mono',monospace;color:${e.profit_growth_pct>=0?'var(--green)':'var(--red)'}">PAT ${e.profit_growth_pct!=null?(e.profit_growth_pct>=0?'+':'')+e.profit_growth_pct.toFixed(0)+'%':'—'}</div>
+        <div style="font-size:.6rem;color:${beatCol}">${e.beat_miss||''}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderMarketNews(news) {
+  const el = document.getElementById('market-news-content');
+  if (!el) return;
+  const sentCol = s => s==='Positive'?'var(--green)':s==='Negative'?'var(--red)':'var(--muted2)';
+  el.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">` +
+    news.map(n => `
+      <div style="padding:.5rem .65rem;background:var(--s2);border-radius:var(--r-sm);border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.4rem;margin-bottom:.2rem">
+          <span style="font-size:.6rem;color:var(--muted);text-transform:uppercase">${n.category||''}</span>
+          <span style="font-size:.58rem;color:${sentCol(n.sentiment)};flex-shrink:0">${n.sentiment||''}</span>
+        </div>
+        <div style="font-size:.7rem;color:var(--text);line-height:1.4">${n.headline}</div>
+      </div>`).join('') + `</div>`;
+}
+
+function renderPortfolioNews(news) {
+  const el = document.getElementById('portfolio-news-content');
+  if (!el) return;
+  if (!news.length) { el.innerHTML = '<div style="color:var(--muted);font-size:.7rem">No specific news</div>'; return; }
+  const sentCol = s => s==='Positive'?'var(--green)':s==='Negative'?'var(--red)':'var(--muted2)';
+  el.innerHTML = news.map(n => `
+    <div style="display:flex;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--border);align-items:flex-start">
+      <div style="font-size:.62rem;font-weight:600;color:var(--accent);min-width:100px;flex-shrink:0">${n.stock}</div>
+      <div style="font-size:.7rem;color:var(--text);flex:1">${n.headline}</div>
+      <div style="font-size:.6rem;color:${sentCol(n.sentiment)};flex-shrink:0">${n.sentiment||''}</div>
+    </div>`).join('');
 }
 
 async function fetchAllPrices() {
