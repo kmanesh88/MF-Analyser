@@ -2633,9 +2633,14 @@ function takeSnapshot() {
   const ftw = fundItemsT.reduce((s,f)=>s+f.wt,0) || 1;
   const bl  = k => fundItemsT.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
 
-  const equityPct   = fundItemsT.reduce((s,f)=>s+f.wt*(((f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0))/100),0);
-  const debtPct     = fundItemsT.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
-  const cashPct     = fundItemsT.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
+  const equityPct = fundItemsT.reduce((s,f) => {
+    const hasHoldings = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0)+(f.debtTotal||0) > 0;
+    // If no factsheet data, treat non-commodity fund as 100% equity (conservative assumption)
+    const eqFraction = hasHoldings ? ((f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0))/100 : 1.0;
+    return s + f.wt * eqFraction;
+  }, 0);
+  const debtPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
+  const cashPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
   const commodityPct= commItems.reduce((s,f)=>s+f.wt,0);
 
   const sectorMap={};
@@ -5520,7 +5525,11 @@ function buildSummary() {
   // Commodity = sum of commodity fund weights
   // All expressed as % of total portfolio
 
-  const equityPct    = fundItemsS.reduce((s,f)=>s+f.wt*(((f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0))/100),0);
+  const equityPct    = fundItemsS.reduce((s,f) => {
+    const hasHoldings = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0)+(f.debtTotal||0) > 0;
+    const eqFraction  = hasHoldings ? ((f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0))/100 : 1.0;
+    return s + f.wt * eqFraction;
+  }, 0);
   const debtPct      = fundItemsS.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
   const cashPortPct  = fundItemsS.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
   const commodityPct = commItems.reduce((s,f)=>s+f.wt,0);
