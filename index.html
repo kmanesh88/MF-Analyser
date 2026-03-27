@@ -3510,7 +3510,6 @@ async function parseWorkbook(wb, filename, results) {
   });
 
   if (isWealthMgrFormat) {
-    // Find the correct sheet (usually "Mutual Fund")
     const targetSheet = wb.SheetNames.find(sn => {
       const ws  = wb.Sheets[sn];
       const row = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', sheetRows:2})[0] || [];
@@ -3520,22 +3519,40 @@ async function parseWorkbook(wb, filename, results) {
 
     const ws   = wb.Sheets[targetSheet];
     const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-    const hdr  = rows[0].map(c => String(c).toLowerCase().trim());
+    if (rows.length < 2) return;
 
-    // Map column indices
-    const COL = {
-      name:     hdr.findIndex(c => c==='particulars'),
-      nature:   hdr.findIndex(c => c==='nature'),
-      category: hdr.findIndex(c => c==='category'),
-      units:    hdr.findIndex(c => c==='units'),
-      cost:     hdr.findIndex(c => c==='cost'),
-      mktVal:   hdr.findIndex(c => c==='mkt value' || c.includes('mkt value')),
-      nav:      hdr.findIndex(c => c==='nav' || c==='nav '),
-      unrGL:    hdr.findIndex(c => c.includes('unrealized') || c.includes('unrealised')),
-      realGL:   hdr.findIndex(c => c.includes('realized gain') || c.includes('realised gain')),
+    // Known fixed columns for this format (0-indexed):
+    // 0=Particulars, 1=FolioDate, 2=Nature, 3=Category, 4=Units,
+    // 5=Cost, 6=PurchasePrice, 7=MktValue, 8=Nav, 9=UnrealizedGL,
+    // 10=GL%, 11=RealizedGL, 12=DividendSinceInception, 13=WtAvgDays,
+    // 14=XIRR%, 15=TotalReturns, 16=%toMFPortfolio, 17=HoldingPeriod
+
+    // Verify using header row, fall back to known positions
+    const hdr = rows[0].map(c => String(c).toLowerCase().trim());
+    const findCol = (names, fallback) => {
+      const idx = hdr.findIndex(h => names.some(n => h === n || h.includes(n)));
+      return idx >= 0 ? idx : fallback;
     };
 
-    // Nature → asset class mapping
+    const COL = {
+      name:     findCol(['particulars'], 0),
+      nature:   findCol(['nature'], 2),
+      category: findCol(['category'], 3),
+      units:    findCol(['units'], 4),
+      cost:     findCol(['cost'], 5),
+      mktVal:   findCol(['mkt value'], 7),
+      nav:      findCol(['nav'], 8),
+      unrGL:    findCol(['unrealized', 'unrealised'], 9),
+      realGL:   findCol(['realized gain', 'realised gain'], 11),
+    };
+
+    // Log detected columns for debugging
+    console.log('[WealthMgr] Columns detected:', COL);
+    console.log('[WealthMgr] Sample R2:', rows[1] ? {
+      name: rows[1][COL.name], mktVal: rows[1][COL.mktVal],
+      cost: rows[1][COL.cost], nav: rows[1][COL.nav]
+    } : 'no data');
+
     const NATURE_CLASS = {
       'equity':                'Equity',
       'debt/fixed income':     'Debt',
@@ -3545,82 +3562,79 @@ async function parseWorkbook(wb, filename, results) {
       'precious metals':       'Precious Metals',
     };
 
-    // Clean fund name: strip plan/option suffix
     const cleanFundName = n => n
       .replace(/\s+(Reg|Dir|Regular|Direct)\s*[-–]?\s*(G|D|Growth|IDCW|Div)?\.?\s*$/i, '')
       .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
       .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
 
-    // Aggregate by fund name (same fund may appear in multiple folios)
     const fundMap = {};
     let totalMktVal = 0;
 
-    for (let r=1; r<rows.length; r++) {
+    for (let r = 1; r < rows.length; r++) {
       const row  = rows[r];
-      const name = String(row[COL.name]||'').trim();
+      const name = String(row[COL.name] || '').trim();
       if (!name || /^total$/i.test(name)) continue;
 
-      const nature   = String(row[COL.nature]  ||'').trim().toLowerCase();
-      const category = String(row[COL.category]||'').trim();
-
-      const parse = (idx) => {
-        if (idx < 0) return 0;
-        const v = String(row[idx]||'').replace(/,/g,'');
-        return parseFloat(v) || 0;
+      // Robust numeric parser — handles numbers, strings, comma-formatted
+      const num = (idx) => {
+        if (idx < 0 || row[idx] === undefined || row[idx] === '') return 0;
+        const raw = row[idx];
+        if (typeof raw === 'number') return raw;
+        return parseFloat(String(raw).replace(/[,\s₹]/g, '')) || 0;
       };
 
-      const units  = parse(COL.units);
-      const cost   = parse(COL.cost);
-      const mktVal = parse(COL.mktVal);
-      const nav    = parse(COL.nav);
-      const unrGL  = parse(COL.unrGL);
-      const realGL = parse(COL.realGL);
+      const nature   = String(row[COL.nature]   || '').trim().toLowerCase();
+      const category = String(row[COL.category] || '').trim();
+      const units    = num(COL.units);
+      const cost     = num(COL.cost);
+      const mktVal   = num(COL.mktVal);
+      const nav      = num(COL.nav);
+      const unrGL    = num(COL.unrGL);
+      const realGL   = num(COL.realGL);
 
-      if (mktVal <= 0 && cost <= 0) continue;
+      // Sanity check: mktVal should be >> nav (it's total value, not per-unit)
+      // If mktVal looks like a NAV (< 10000) and we have units, recalculate
+      const effectiveMktVal = (mktVal > 0 && units > 0 && mktVal < nav * 2)
+        ? nav * units   // fallback: compute from NAV × units
+        : mktVal;
 
-      const cleanName = cleanFundName(name);
+      if (effectiveMktVal <= 0 && cost <= 0) continue;
+
+      const cleanName  = cleanFundName(name);
       const assetClass = NATURE_CLASS[nature] || 'Other';
 
       if (fundMap[cleanName]) {
-        // Merge folio entries for same fund
-        fundMap[cleanName].units  += units;
-        fundMap[cleanName].cost   += cost;
-        fundMap[cleanName].mktVal += mktVal;
-        fundMap[cleanName].unrGL  += unrGL;
-        fundMap[cleanName].realGL += realGL;
-        // Keep latest NAV (same for same fund)
+        fundMap[cleanName].units    += units;
+        fundMap[cleanName].cost     += cost;
+        fundMap[cleanName].mktVal   += effectiveMktVal;
+        fundMap[cleanName].unrGL    += unrGL;
+        fundMap[cleanName].realGL   += realGL;
         if (nav > 0) fundMap[cleanName].nav = nav;
       } else {
-        fundMap[cleanName] = { name:cleanName, nature, assetClass, category, units, cost, mktVal, nav, unrGL, realGL };
+        fundMap[cleanName] = { name: cleanName, nature, assetClass, category,
+                               units, cost, mktVal: effectiveMktVal, nav, unrGL, realGL };
       }
-      totalMktVal += mktVal;
+      totalMktVal += effectiveMktVal;
     }
+
+    console.log(`[WealthMgr] Parsed ${Object.keys(fundMap).length} funds, total mkt val: ${totalMktVal.toLocaleString('en-IN')}`);
 
     if (Object.keys(fundMap).length === 0) {
       showToast('No fund data found in this file');
       return;
     }
 
-    // Convert to results format
     Object.values(fundMap).forEach(f => {
-      const pct = totalMktVal > 0 ? Math.round(f.mktVal/totalMktVal*10000)/100 : 0;
+      const pct = totalMktVal > 0 ? Math.round(f.mktVal / totalMktVal * 10000) / 100 : 0;
       results.push({
-        fundName:      f.name,
-        isClientFormat: true,
-        isWealthMgr:   true,
-        pct,
-        val:           f.mktVal,
-        cost:          f.cost,
-        units:         f.units,
-        nav:           f.nav,
-        unrGL:         f.unrGL,
-        realGL:        f.realGL,
-        assetClass:    f.assetClass,
-        category:      f.category,
+        fundName: f.name, isClientFormat: true, isWealthMgr: true,
+        pct, val: f.mktVal, cost: f.cost, units: f.units,
+        nav: f.nav, unrGL: f.unrGL, realGL: f.realGL,
+        assetClass: f.assetClass, category: f.category,
       });
     });
 
-    return; // done
+    return;
   }
 
   const isClientFormat = wb.SheetNames.some(sn => {
