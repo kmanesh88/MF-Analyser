@@ -3569,7 +3569,6 @@ async function parseWorkbook(wb, filename, results) {
       .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
 
     const fundMap = {};
-    let totalMktVal = 0;
 
     for (let r = 1; r < rows.length; r++) {
       const row  = rows[r];
@@ -3594,9 +3593,8 @@ async function parseWorkbook(wb, filename, results) {
       const realGL   = num(COL.realGL);
 
       // Sanity check: mktVal should be >> nav (it's total value, not per-unit)
-      // If mktVal looks like a NAV (< 10000) and we have units, recalculate
       const effectiveMktVal = (mktVal > 0 && units > 0 && mktVal < nav * 2)
-        ? nav * units   // fallback: compute from NAV × units
+        ? nav * units
         : mktVal;
 
       if (effectiveMktVal <= 0 && cost <= 0) continue;
@@ -3605,6 +3603,7 @@ async function parseWorkbook(wb, filename, results) {
       const assetClass = NATURE_CLASS[nature] || 'Other';
 
       if (fundMap[cleanName]) {
+        // Merge folio entries for same fund
         fundMap[cleanName].units    += units;
         fundMap[cleanName].cost     += cost;
         fundMap[cleanName].mktVal   += effectiveMktVal;
@@ -3615,10 +3614,18 @@ async function parseWorkbook(wb, filename, results) {
         fundMap[cleanName] = { name: cleanName, nature, assetClass, category,
                                units, cost, mktVal: effectiveMktVal, nav, unrGL, realGL };
       }
-      totalMktVal += effectiveMktVal;
     }
 
-    console.log(`[WealthMgr] Parsed ${Object.keys(fundMap).length} funds, total mkt val: ${totalMktVal.toLocaleString('en-IN')}`);
+    // Compute totalMktVal from MERGED fundMap (not per-row sum which double-counts multi-folio)
+    const totalMktVal = Object.values(fundMap).reduce((s, f) => s + f.mktVal, 0);
+
+    // Detailed debug log
+    console.log(`[WealthMgr] COL map:`, COL);
+    console.log(`[WealthMgr] Header row:`, rows[0]);
+    console.log(`[WealthMgr] Row 2 raw:`, rows[1]);
+    console.log(`[WealthMgr] Row 2 parsed: name=${rows[1]?.[COL.name]} mktVal=${rows[1]?.[COL.mktVal]} cost=${rows[1]?.[COL.cost]} nav=${rows[1]?.[COL.nav]}`);
+    console.log(`[WealthMgr] Funds: ${Object.keys(fundMap).length}, totalMktVal: ${totalMktVal.toLocaleString('en-IN')}`);
+    Object.values(fundMap).slice(0,5).forEach(f => console.log(`  ${f.name}: mktVal=${f.mktVal}, cost=${f.cost}`));
 
     if (Object.keys(fundMap).length === 0) {
       showToast('No fund data found in this file');
