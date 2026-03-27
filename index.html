@@ -6418,9 +6418,12 @@ async function loadMarketMonitor() {
 
   } catch(e) {
     console.error('[Monitor]', e);
-    const errMsg = `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">
-      ✗ ${e.message || 'Could not load market data'}. Try refreshing.
-    </div>`;
+    const isAuthErr = e.message?.includes('API_KEY') || e.message?.includes('authentication') || e.message?.includes('503');
+    const errMsg = isAuthErr
+      ? `<div style="background:rgba(224,122,58,.08);border:1px solid rgba(224,122,58,.25);border-radius:var(--r-sm);padding:.75rem;font-size:.7rem;color:var(--orange)">
+          ⚙ <strong>Setup required:</strong> Add your <code>ANTHROPIC_API_KEY</code> in Render dashboard → mf-holdings-api → Environment, then redeploy.
+         </div>`
+      : `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">✗ ${e.message || 'Could not load market data'}. Try refreshing.</div>`;
     ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
       .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=errMsg; });
   }
