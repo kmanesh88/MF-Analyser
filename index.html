@@ -6453,6 +6453,20 @@ async function loadMarketMonitor() {
     }
 
     const data = await res.json();
+
+    // Handle "loading" status — server is fetching in background, retry in 20s
+    if (data.status === 'loading') {
+      const msg = `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">
+        <span class="spin"></span> ${data.message || 'Generating market data…'}<br>
+        <span style="font-size:.62rem">Auto-refreshing in 20s…</span>
+      </div>`;
+      ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
+        .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=msg; });
+      if (btn) { btn.disabled=false; btn.textContent='⟳ Refresh'; }
+      if (upd) upd.textContent = 'Generating…';
+      setTimeout(() => loadMarketMonitor(), 20000);
+      return;
+    }
     renderIndices(data.indices || []);
     renderFiiDii(data.fii_dii || {});
     renderEarnings(data.earnings || []);
