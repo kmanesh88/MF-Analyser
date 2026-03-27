@@ -2648,9 +2648,12 @@ function takeSnapshot() {
 
   const equityPct = fundItemsT.reduce((s,f) => {
     const hasHoldings = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0)+(f.debtTotal||0) > 0;
-    // If no factsheet data, treat non-commodity fund as 100% equity (conservative assumption)
-    const eqFraction = hasHoldings ? ((f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0))/100 : 1.0;
-    return s + f.wt * eqFraction;
+    if (!hasHoldings) return s + f.wt; // no factsheet — assume 100% equity
+    // Equity = large+mid+small+eqOther (eqOther includes TREPS/cash in AMFI disclosures)
+    // Subtract explicit cashPct so it shows separately, avoid double-counting
+    const rawEq   = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0);
+    const adjEq   = Math.max(0, rawEq - (f.cashPct||0)); // remove cash from equity bucket
+    return s + f.wt * adjEq/100;
   }, 0);
   const debtPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
   const cashPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
@@ -3393,11 +3396,11 @@ async function parseWorkbook(wb, filename, results) {
 
         // Capture TREPS/cash rows (no valid ISIN) — skip subtotal lines
         if (!VALID_ISIN.test(isin)) {
-          if (/^(treps?|triparty\s*repo|reverse\s*repo|cblo|cash\s*and\s*other\s*net|net\s*current\s*asset)/i.test(name)) {
+          if (/^(treps?|triparty\s*repo|reverse\s*repo|cblo|cash\s*and\s*other|net\s*current\s*asset)/i.test(name)) {
             const p = parseFloat(pctRaw) * 100;
             if (!isNaN(p) && p > 0 && p < 50) cashPct += p;
           }
-          // skip "Total for Money Market Instruments" — it's the sum of TREPS above
+          // skip "Total for Money Market Instruments" — it's a subtotal of TREPS above
           continue;
         }
         if (SKIP.test(name)) continue;
@@ -5466,15 +5469,28 @@ function buildSummary() {
     const totalVal = hasDetail
       ? Object.values(holdingsDetail).reduce((s,h) => s + (h.val||0), 0)
       : 0;
-    const hasUnits = hasDetail && Object.values(holdingsDetail).some(h => (h.units||0) > 0);
+
+    const navData     = window._navData || {};
+    const hasNAV      = Object.keys(navData).length > 0;
+    const hasUnits    = hasDetail && Object.values(holdingsDetail).some(h => (h.units||0) > 0);
+    const hasCostVal  = totalVal > 0;
 
     if (totalEl) totalEl.textContent = totalVal > 0
       ? `Cost ₹${(totalVal/100000).toFixed(2)}L`
       : `${items.length} funds · ${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}% allocated`;
 
-    // Render rows — navData is populated by refreshNAVs()
-    const navData = window._navData || {};
+    // Update thead dynamically
+    const thead = document.getElementById('sum-holdings-thead');
+    if (thead) thead.innerHTML = `
+      <th>Scheme</th>
+      ${hasUnits  ? '<th class="r">Units</th>'         : ''}
+      ${hasCostVal? '<th class="r">Cost Value</th>'    : ''}
+      ${hasNAV    ? '<th class="r">NAV</th>'           : ''}
+      ${hasNAV    ? '<th class="r">Current Value</th>' : ''}
+      ${hasNAV && hasCostVal ? '<th class="r">Gain / Loss</th>' : ''}
+      <th class="r">% Portfolio</th>`;
 
+    // Render rows
     bodyEl.innerHTML = items.map(f => {
       const hd      = holdingsDetail[f.name] || {};
       const units   = hd.units || 0;
@@ -5482,57 +5498,43 @@ function buildSummary() {
       const nav     = navData[f.name];
       const curVal  = (nav && units > 0) ? nav.nav * units : 0;
       const gain    = curVal > 0 && costVal > 0 ? curVal - costVal : null;
-      const gainPct = gain !== null && costVal > 0 ? (gain/costVal*100) : null;
-      const gainColor = gain === null ? '' : gain >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+      const gainPct = gain !== null && costVal > 0 ? gain/costVal*100 : null;
+      const gainCol = gain === null ? '' : gain >= 0 ? 'color:var(--green)' : 'color:var(--red)';
 
       return `<tr>
         <td style="font-size:.72rem">
-          ${f.name}
-          ${f.commodityType ? `<span style="font-size:.58rem;color:#b8860b;margin-left:.3rem">🏅</span>` : ''}
+          ${f.name}${f.commodityType?` <span style="font-size:.6rem;color:#b8860b">🏅</span>`:''}
         </td>
-        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
-          ${units > 0 ? units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}
-        </td>
-        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
-          ${costVal > 0 ? '₹'+costVal.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}
-        </td>
-        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
-          ${nav ? '₹'+nav.nav.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:4}) : '<span style="color:var(--muted)">—</span>'}
-        </td>
-        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;${curVal>0?'color:var(--text)':'color:var(--muted)'}">
-          ${curVal > 0 ? '₹'+curVal.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}
-        </td>
-        <td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;${gainColor}">
-          ${gain !== null
-            ? (gain >= 0 ? '+' : '') + '₹'+Math.abs(gain).toLocaleString('en-IN',{maximumFractionDigits:0})
-              + ' <span style="font-size:.6rem">(' + (gainPct >= 0 ? '+' : '') + gainPct.toFixed(1) + '%)</span>'
-            : '—'}
-        </td>
-        <td class="r" style="font-size:.72rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">
-          ${f.wt.toFixed(1)}%
-        </td>
+        ${hasUnits   ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${units>0?units.toLocaleString('en-IN',{maximumFractionDigits:4}):'—'}</td>` : ''}
+        ${hasCostVal ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${costVal>0?'₹'+costVal.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</td>` : ''}
+        ${hasNAV     ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${nav?'₹'+nav.nav.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:4}):'<span style="color:var(--muted)">—</span>'}</td>` : ''}
+        ${hasNAV     ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;${curVal>0?'color:var(--text)':'color:var(--muted)'}">${curVal>0?'₹'+curVal.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</td>` : ''}
+        ${hasNAV && hasCostVal ? `<td class="r" style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;${gainCol}">
+          ${gain!==null?(gain>=0?'+':'')+'₹'+Math.abs(gain).toLocaleString('en-IN',{maximumFractionDigits:0})+` <span style="font-size:.6rem">(${gainPct>=0?'+':''}${gainPct.toFixed(1)}%)</span>`:'—'}
+        </td>` : ''}
+        <td class="r" style="font-size:.72rem;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.wt.toFixed(1)}%</td>
       </tr>`;
     }).join('');
 
     // Totals row
-    const totalCurVal = Object.values(navData).length > 0
-      ? items.reduce((s,f) => {
-          const hd = holdingsDetail[f.name] || {};
-          const nav = navData[f.name];
-          return s + (nav && hd.units > 0 ? nav.nav * hd.units : 0);
-        }, 0) : 0;
-    const totalGain = totalCurVal > 0 && totalVal > 0 ? totalCurVal - totalVal : null;
+    const totalCurVal = hasNAV ? items.reduce((s,f) => {
+      const hd = holdingsDetail[f.name] || {};
+      const nav = navData[f.name];
+      return s + (nav && hd.units > 0 ? nav.nav * hd.units : 0);
+    }, 0) : 0;
+    const totalGain    = totalCurVal > 0 && totalVal > 0 ? totalCurVal - totalVal : null;
     const totalGainPct = totalGain !== null && totalVal > 0 ? totalGain/totalVal*100 : null;
+    const gainColT     = totalGain === null ? '' : totalGain >= 0 ? 'color:var(--green)' : 'color:var(--red)';
 
     bodyEl.innerHTML += `<tr style="border-top:2px solid var(--border);font-weight:700;background:var(--s3)">
       <td style="font-size:.72rem">Total</td>
-      <td class="r">—</td>
-      <td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem">${totalVal>0?'₹'+totalVal.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</td>
-      <td class="r">—</td>
-      <td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem">${totalCurVal>0?'₹'+totalCurVal.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</td>
-      <td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem;${totalGain>=0?'color:var(--green)':'color:var(--red)'}">
-        ${totalGain !== null ? (totalGain>=0?'+':'')+'₹'+Math.abs(totalGain).toLocaleString('en-IN',{maximumFractionDigits:0})+' ('+totalGainPct.toFixed(1)+'%)' : '—'}
-      </td>
+      ${hasUnits   ? '<td class="r">—</td>' : ''}
+      ${hasCostVal ? `<td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem">${totalVal>0?'₹'+totalVal.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</td>` : ''}
+      ${hasNAV     ? '<td class="r">—</td>' : ''}
+      ${hasNAV     ? `<td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem">${totalCurVal>0?'₹'+totalCurVal.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</td>` : ''}
+      ${hasNAV && hasCostVal ? `<td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.7rem;${gainColT}">
+        ${totalGain!==null?(totalGain>=0?'+':'')+'₹'+Math.abs(totalGain).toLocaleString('en-IN',{maximumFractionDigits:0})+` (${totalGainPct>=0?'+':''}${totalGainPct.toFixed(1)}%)`:'—'}
+      </td>` : ''}
       <td class="r" style="font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--accent)">${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}%</td>
     </tr>`;
   }
@@ -5577,8 +5579,10 @@ function buildSummary() {
 
   const equityPct    = fundItemsS.reduce((s,f) => {
     const hasHoldings = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0)+(f.debtTotal||0) > 0;
-    const eqFraction  = hasHoldings ? ((f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0))/100 : 1.0;
-    return s + f.wt * eqFraction;
+    if (!hasHoldings) return s + f.wt;
+    const rawEq = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0);
+    const adjEq = Math.max(0, rawEq - (f.cashPct||0));
+    return s + f.wt * adjEq/100;
   }, 0);
   const debtPct      = fundItemsS.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
   const cashPortPct  = fundItemsS.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
@@ -5913,37 +5917,63 @@ window._navCodeMap = window._navCodeMap || {}; // fundName → schemeCode
 
 async function searchMfapiCode(fundName) {
   if (window._navCodeMap[fundName]) return window._navCodeMap[fundName];
+
+  // First try: look up by ISIN from stored factsheet data
+  const fundData = allFunds().find(f => f.name === fundName);
+  if (fundData?.data?.equityStocks?.length) {
+    // We have factsheet data — try ISIN of first stock? No, we need fund ISIN
+    // Skip to name search
+  }
+
   try {
-    // Strip suffixes for better search
-    const q = fundName.replace(/\s*[-–]\s*(direct|regular)\s*plan.*/i,'')
-                      .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i,'')
-                      .trim();
+    const q = fundName
+      .replace(/\s*[-–]\s*(direct|regular)\s*plan.*/i, '')
+      .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i, '')
+      .replace(/\s*\(g\)\s*$/i, '')
+      .trim();
+
     const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`,
                             { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     const results = await res.json();
     if (!results?.length) return null;
-    // Best match: highest word overlap with fund name
-    const qw = new Set(q.toLowerCase().split(/\s+/).filter(w=>w.length>3));
-    let best = null, bestScore = 0;
+
+    // Score each result — use words of length >= 3, skip common stopwords
+    const STOP = new Set(['fund','scheme','plan','the','and','for','from']);
+    const qw   = new Set(q.toLowerCase().split(/\s+/).filter(w => w.length >= 3 && !STOP.has(w)));
+
+    let best = null, bestScore = -1;
     results.forEach(r => {
-      const rw = new Set(r.schemeName.toLowerCase().split(/\s+/).filter(w=>w.length>3));
-      const overlap = [...qw].filter(w=>rw.has(w)).length;
-      const score = overlap / Math.max(qw.size, rw.size);
-      if (score > bestScore) { bestScore = score; best = r; }
+      // Strip plan/option suffix from result name for scoring
+      const rn  = r.schemeName.replace(/\s*[-–]\s*(direct|regular)\s*plan.*/i,'')
+                              .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i,'').toLowerCase();
+      const rw  = new Set(rn.split(/\s+/).filter(w => w.length >= 3 && !STOP.has(w)));
+      const overlap  = [...qw].filter(w => rw.has(w)).length;
+      const score    = overlap / Math.max(qw.size, rw.size, 1);
+      // Prefer Regular plan (most clients hold regular unless specified)
+      const planBonus = /regular/i.test(r.schemeName) ? 0.01 : 0;
+      if (score + planBonus > bestScore) {
+        bestScore = score + planBonus;
+        best = r;
+      }
     });
-    if (best && bestScore > 0.4) {
+
+    if (best && bestScore >= 0.4) {
       window._navCodeMap[fundName] = best.schemeCode;
+      console.log(`[NAV] '${fundName}' → ${best.schemeCode} '${best.schemeName}' (score ${bestScore.toFixed(2)})`);
       return best.schemeCode;
     }
-  } catch(e) { console.warn('[NAV]', fundName, e.message); }
+    console.warn(`[NAV] No match for '${fundName}' (best score: ${bestScore.toFixed(2)})`);
+  } catch(e) {
+    console.warn('[NAV] searchMfapiCode error:', fundName, e.message);
+  }
   return null;
 }
 
 async function refreshNAVs() {
   const btn = document.getElementById('nav-refresh-btn');
   const st  = document.getElementById('nav-refresh-status');
-  if (btn) { btn.disabled = true; btn.textContent = '⟳ Fetching…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Fetching…'; }
   if (st)  { st.textContent = ''; }
 
   const port = activePortId ? portfolios.find(p=>p.id===activePortId) : null;
@@ -5953,15 +5983,18 @@ async function refreshNAVs() {
   }
 
   const funds = Object.keys(port.allocations);
-  let fetched = 0, failed = [];
+  let fetched = 0;
+  const failed = [];
 
-  await Promise.all(funds.map(async fname => {
+  // Sequential with progress to avoid rate limiting
+  for (const fname of funds) {
+    if (st) st.textContent = `Fetching ${funds.indexOf(fname)+1}/${funds.length}…`;
     try {
       const code = await searchMfapiCode(fname);
-      if (!code) { failed.push(fname); return; }
+      if (!code) { failed.push(fname); continue; }
       const res = await fetch(`https://api.mfapi.in/mf/${code}/latest`,
                               { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) { failed.push(fname); return; }
+      if (!res.ok) { failed.push(fname); continue; }
       const d = await res.json();
       if (d?.data?.[0]) {
         window._navData[fname] = {
@@ -5971,20 +6004,24 @@ async function refreshNAVs() {
           schemeName: d.meta?.scheme_name || fname,
         };
         fetched++;
-      }
+      } else { failed.push(fname); }
     } catch(e) { failed.push(fname); }
-  }));
-
-  if (btn) { btn.disabled=false; btn.textContent='⟳ Live NAV'; }
-  if (st)  {
-    const dateStr = Object.values(window._navData)[0]?.date || '';
-    st.textContent = fetched > 0
-      ? `✓ NAV as on ${dateStr}${failed.length?' · '+failed.length+' failed':''}`
-      : '✗ Could not fetch NAVs';
-    st.style.color = fetched > 0 ? 'var(--green)' : 'var(--red)';
   }
 
-  // Re-render the holdings table with new NAV data
+  if (btn) { btn.disabled=false; btn.textContent='⟳ Live NAV'; }
+
+  const dateStr = Object.values(window._navData)[0]?.date || '';
+  if (st) {
+    if (fetched > 0) {
+      st.textContent = `✓ NAV as on ${dateStr}` + (failed.length ? ` · ${failed.length} failed` : '');
+      st.style.color = failed.length ? 'var(--orange)' : 'var(--green)';
+    } else {
+      st.textContent = '✗ Could not fetch NAVs — check connection';
+      st.style.color = 'var(--red)';
+    }
+  }
+
+  // Re-render with NAV data
   buildSummary();
 }
 
