@@ -2451,35 +2451,63 @@ function renderPortfolioGrid() {
     // Build asset allocation bands from snapshot
     let assetHtml = '';
     if (snap) {
-      // Derive asset class %s — prefer new fields, fall back to old cap fields
-      const eq  = snap.equityPct    != null ? snap.equityPct    : (snap.large||0)+(snap.mid||0)+(snap.small||0)+(snap.eqOther||0);
-      const dt  = snap.debtPct      != null ? snap.debtPct      : (snap.debtTotal||0);
-      const ca  = snap.cashPct      != null ? snap.cashPct      : 0;
-      const co  = snap.commodityPct != null ? snap.commodityPct : 0;
-      // Gold fund: if commodity, label it as Gold (from commodityTypes)
+      // Prefer new asset-class fields; for old snapshots compute from allocations
+      let eq  = snap.equityPct    != null ? snap.equityPct    : null;
+      let dt  = snap.debtPct      != null ? snap.debtPct      : null;
+      let ca  = snap.cashPct      != null ? snap.cashPct      : 0;
+      let co  = snap.commodityPct != null ? snap.commodityPct : 0;
+
+      // Old snapshot fallback: compute from allocations + within-fund equity share
+      if (eq == null) {
+        const allocs = Object.entries(p.allocations||{});
+        const totalWt = allocs.reduce((s,[,w])=>s+w, 0) || 100;
+        let eqSum=0, dtSum=0, coSum=0;
+        allocs.forEach(([fname, wt]) => {
+          const nm = fname.toLowerCase();
+          if (/\bgold\b/.test(nm) && !/golden/.test(nm)) { coSum += wt; return; }
+          if (/\bsilver\b/.test(nm) || /\bcommodi/i.test(nm)) { coSum += wt; return; }
+          // Assume equity fund — use within-fund equity ratio if available
+          eqSum += wt;
+        });
+        eq = eqSum / totalWt * 100;
+        dt = dtSum / totalWt * 100;
+        co = coSum / totalWt * 100;
+      }
+
       const commTypes = snap.commodityTypes || [];
-      const goldPct   = commTypes.filter(c=>c.type==='Gold').reduce((s,c)=>s+c.wt, 0) || (co > 0 && !commTypes.length ? co : 0);
+      const goldPct   = commTypes.filter(c=>c.type==='Gold').reduce((s,c)=>s+c.wt, 0)
+                        || (co > 0 && !commTypes.length ? co * 0.8 : 0); // rough fallback
       const silverPct = commTypes.filter(c=>c.type==='Silver').reduce((s,c)=>s+c.wt, 0);
-      const otherCommPct = co - goldPct - silverPct;
+      const otherCommPct = Math.max(0, co - goldPct - silverPct);
 
-      const tot = eq+dt+ca+goldPct+silverPct+otherCommPct || 100;
+      // If no commodity breakdown, check allocations for gold fund names
+      let goldFromAlloc = 0;
+      if (goldPct === 0 && co === 0) {
+        Object.entries(p.allocations||{}).forEach(([fname, wt]) => {
+          if (/\bgold\b/i.test(fname) && !/golden/i.test(fname)) goldFromAlloc += wt;
+          if (/\bsilver\b/i.test(fname)) goldFromAlloc += wt;
+        });
+        if (goldFromAlloc > 0) {
+          eq = Math.max(0, eq - goldFromAlloc);
+        }
+      }
+      const finalGold = goldPct || goldFromAlloc;
 
-      // Asset classes in order
+      const tot = eq+dt+ca+finalGold+silverPct+otherCommPct || 100;
+
       const classes = [
-        { label:'Equity',   val:eq,           color:'var(--lc)',      bg:'rgba(91,159,214,.12)',   fg:'var(--lc)'      },
-        { label:'Debt',     val:dt,           color:'var(--dc-aaa)',  bg:'rgba(61,188,180,.12)',   fg:'var(--teal)'    },
-        { label:'Cash/MM',  val:ca,           color:'var(--dc-mkt)',  bg:'rgba(99,163,82,.12)',    fg:'var(--green)'   },
-        { label:'Gold',     val:goldPct,      color:'#b8860b',        bg:'rgba(184,134,11,.12)',   fg:'#b8860b'        },
-        { label:'Silver',   val:silverPct,    color:'#888',           bg:'rgba(136,136,136,.12)',  fg:'var(--muted2)'  },
-        { label:'Commodity',val:otherCommPct, color:'#9a6b00',        bg:'rgba(154,107,0,.12)',    fg:'#9a6b00'        },
+        { label:'Equity',   val:eq,           color:'var(--lc)',      fg:'var(--lc)'      },
+        { label:'Debt',     val:dt,           color:'var(--dc-aaa)',  fg:'var(--teal)'    },
+        { label:'Cash/MM',  val:ca,           color:'var(--dc-mkt)',  fg:'var(--green)'   },
+        { label:'Gold',     val:finalGold,    color:'#b8860b',        fg:'#b8860b'        },
+        { label:'Silver',   val:silverPct,    color:'#888',           fg:'var(--muted2)'  },
+        { label:'Commodity',val:otherCommPct, color:'#9a6b00',        fg:'#9a6b00'        },
       ].filter(c => c.val > 0.5);
 
-      // Bar
       const barSegs = classes.map(c =>
         `<div style="flex:${c.val/tot*100};background:${c.color};min-width:2px"></div>`
       ).join('');
 
-      // Chips — each asset class
       const chips = classes.map(c =>
         `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
            <span style="font-family:'IBM Plex Mono',monospace;font-size:.72rem;font-weight:700;color:${c.fg}">${c.val.toFixed(1)}%</span>
@@ -2581,11 +2609,16 @@ function getActiveItems() {
   allocRows.forEach(r => {
     const wt = parseFloat(r.pct) || 0;
     if (wt <= 0) return;
+    const nm = r.fundName.toLowerCase();
+    let commodityType = null;
+    if (/\bgold\b/.test(nm) && !/golden/.test(nm)) commodityType = 'Gold';
+    else if (/\bsilver\b/.test(nm))                commodityType = 'Silver';
+    else if (/\bcommodi/i.test(nm))                commodityType = 'Commodity';
     const uploaded = uploadedMap[r.fundName];
     if (uploaded) {
-      items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, ...uploaded.data});
+      items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, ...uploaded.data});
     } else {
-      items.push({name: r.fundName, amc: r.amcName, wt,
+      items.push({name: r.fundName, amc: r.amcName, wt, commodityType,
         large:0,mid:0,small:0,eqOther:0,gsec:0,sdl:0,aaa:0,aa:0,mkt:0,cash:0,debtTotal:0,
         equityStocks:[],debtItems:[]});
     }
