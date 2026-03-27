@@ -7349,86 +7349,157 @@ function extractFundsFromCAS(text) {
 // ── Excel / CSV Parser ────────────────────────────────────────────
 async function parseExcelFile(file) {
   const buf = await file.arrayBuffer();
+  const wb  = XLSX.read(new Uint8Array(buf), { type: 'array', raw: true });
 
-  // XLSX.js needs Uint8Array for .xls binary format
-  const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+  // ── Wealth Manager format detection ──────────────────────────────
+  // Signature: any sheet with Particulars + Nature + Mkt Value in header row
+  for (const sname of wb.SheetNames) {
+    const ws   = wb.Sheets[sname];
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:true });
+    if (rows.length < 2) continue;
 
-  // Scan all sheets — use the one with the most fund data
+    const hdr = rows[0];
+    const hl  = hdr.map(c => String(c).trim().toLowerCase());
+
+    const hasParticulars = hl.some(c => c === 'particulars');
+    const hasMktValue    = hl.some(c => c === 'mkt value');
+    const hasNature      = hl.some(c => c === 'nature');
+    if (!hasParticulars || !hasMktValue || !hasNature) continue;
+
+    // Build column index map by exact header name
+    const ci = {};
+    hdr.forEach((h, i) => { ci[String(h).trim().toLowerCase()] = i; });
+
+    const C = {
+      name:   ci['particulars']          ?? 0,
+      nature: ci['nature']               ?? 2,
+      cat:    ci['category']             ?? 3,
+      units:  ci['units']                ?? 4,
+      cost:   ci['cost']                 ?? 5,
+      mkt:    ci['mkt value']            ?? 7,
+      nav:    ci['nav']                  ?? 8,
+      unrgl:  ci['unrealized g/l']       ?? 9,
+      realgl: ci['realized gain/loss']   ?? 11,
+    };
+
+    const ASSET = {
+      'equity':                'Equity',
+      'debt/fixed income':     'Debt',
+      'cash/cash equivalents': 'Cash/MM',
+      'hybrid':                'Hybrid',
+      'international equity':  'International Equity',
+      'precious metals':       'Precious Metals',
+    };
+
+    const toNum = v => {
+      if (v === undefined || v === null || v === '') return 0;
+      if (typeof v === 'number') return v;
+      const n = parseFloat(String(v).replace(/,/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+
+    const stripPlan = n => n
+      .replace(/\s+(Reg|Dir|Regular|Direct)\s*[-–]?\s*(G|D|Growth|IDCW|Div)?\.?\s*$/i, '')
+      .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+      .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+
+    const fundMap = {};
+    for (let r = 1; r < rows.length; r++) {
+      const row  = rows[r];
+      const raw  = String(row[C.name] ?? '').trim();
+      if (!raw || /^total$/i.test(raw)) continue;
+
+      const mkt  = toNum(row[C.mkt]);
+      const cost = toNum(row[C.cost]);
+      if (mkt <= 0 && cost <= 0) continue;
+
+      const key = stripPlan(raw);
+      if (!key || key.length < 2) continue;
+
+      if (fundMap[key]) {
+        fundMap[key].value  += mkt;
+        fundMap[key].cost   += cost;
+        fundMap[key].units  += toNum(row[C.units]);
+        fundMap[key].unrGL  += toNum(row[C.unrgl]);
+        fundMap[key].realGL += toNum(row[C.realgl]);
+        if (toNum(row[C.nav]) > 0) fundMap[key].nav = toNum(row[C.nav]);
+      } else {
+        const nature = String(row[C.nature] ?? '').trim().toLowerCase();
+        fundMap[key] = {
+          name:       key,
+          value:      mkt,
+          cost:       cost,
+          units:      toNum(row[C.units]),
+          nav:        toNum(row[C.nav]),
+          unrGL:      toNum(row[C.unrgl]),
+          realGL:     toNum(row[C.realgl]),
+          assetClass: ASSET[nature] || 'Other',
+          category:   String(row[C.cat] ?? '').trim(),
+          pct:        0,
+          matched:    null,
+        };
+      }
+    }
+
+    const total = Object.values(fundMap).reduce((s, f) => s + f.value, 0);
+    if (total <= 0 || !Object.keys(fundMap).length) continue;
+
+    console.log(`[WealthMgr Import] ${Object.keys(fundMap).length} funds, total=₹${total.toLocaleString('en-IN',{maximumFractionDigits:0})}`);
+
+    return Object.values(fundMap)
+      .map(f => ({ ...f, pct: +(f.value / total * 100).toFixed(4) }))
+      .sort((a, b) => b.value - a.value);
+  }
+
+  // ── Generic fallback for other Excel formats ──────────────────────
   let bestRows = [], bestSheet = '';
   for (const sname of wb.SheetNames) {
     const ws   = wb.Sheets[sname];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    // Score: how many rows have a fund name + value?
     let score = 0;
     for (const row of rows.slice(0, 20)) {
       const rl = row.map(c => String(c).toLowerCase().trim());
-      const hasFund  = rl.some(c => c.includes('fund') || c.includes('scheme'));
-      const hasValue = rl.some(c => c.includes('value') || c.includes('amount') || c.includes('current'));
-      if (hasFund || hasValue) score++;
+      if (rl.some(c => c.includes('fund') || c.includes('scheme'))) score++;
+      if (rl.some(c => c.includes('value') || c.includes('amount') || c.includes('current'))) score++;
     }
-    if (score > 0 && rows.length > bestRows.length) {
-      bestRows = rows; bestSheet = sname;
-    }
+    if (score > 0 && rows.length > bestRows.length) { bestRows = rows; bestSheet = sname; }
   }
-  // Fallback: use first sheet
   if (!bestRows.length) {
     const ws = wb.Sheets[wb.SheetNames[0]];
     bestRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   }
 
   const rows = bestRows;
-
-  // Find header row — scan first 10 rows
   let nameCol = -1, valueCol = -1, pctCol = -1, unitsCol = -1, headerRow = 0;
   for (let r = 0; r < Math.min(rows.length, 10); r++) {
     const row = rows[r].map(c => String(c).toLowerCase().trim());
-    const ni = row.findIndex(c =>
-      c.includes('fund name') || c.includes('scheme name') ||
-      c.includes('fund') || c.includes('scheme') || c === 'name');
-    const vi = row.findIndex(c =>
-      c.includes('current value') || c.includes('market value') ||
-      c.includes('value') || c.includes('amount'));
-    const pi = row.findIndex(c =>
-      c === '%' || c.includes('percent') || c.includes('weight') ||
-      c.includes('allocation') || c.includes('% of'));
-    const ui = row.findIndex(c =>
-      c === 'units' || c === 'units#' || c.includes('unit'));
-    if (ni >= 0 && (vi >= 0 || pi >= 0)) {
-      nameCol = ni; valueCol = vi; pctCol = pi; unitsCol = ui; headerRow = r;
-      break;
-    }
+    const ni  = row.findIndex(c => c.includes('fund name') || c.includes('scheme name') || c.includes('fund') || c.includes('scheme') || c === 'name');
+    const vi  = row.findIndex(c => c.includes('current value') || c.includes('market value') || c.includes('value') || c.includes('amount'));
+    const pi  = row.findIndex(c => c === '%' || c.includes('percent') || c.includes('weight') || c.includes('allocation') || c.includes('% of'));
+    const ui  = row.findIndex(c => c === 'units' || c === 'units#' || c.includes('unit'));
+    if (ni >= 0 && (vi >= 0 || pi >= 0)) { nameCol = ni; valueCol = vi; pctCol = pi; unitsCol = ui; headerRow = r; break; }
   }
   if (nameCol < 0) { nameCol = 0; valueCol = 1; headerRow = 0; }
 
   const funds = [];
   for (let r = headerRow + 1; r < rows.length; r++) {
-    const row  = rows[r];
+    const row = rows[r];
     if (!row || !row[nameCol]) continue;
-    const name = String(row[nameCol] || '').trim()
-      .replace(/\s*\(G\)\s*$/i, '').replace(/\s*\(D\)\s*$/i, '')
-      .replace(/\s*\(IDCW\)\s*$/i, '').trim();
-    if (!name || name.length < 3) continue;
-    if (/^(total|grand total|sum|#)/i.test(name)) continue;
-
+    const name = String(row[nameCol] || '').trim().replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'').replace(/\s*\(IDCW\)\s*$/i,'').trim();
+    if (!name || name.length < 3 || /^(total|grand total|sum|#)/i.test(name)) continue;
     let value = 0, pct = 0, units = 0;
-    if (valueCol >= 0 && row[valueCol] != null)
-      value = parseFloat(String(row[valueCol]).replace(/[₹,\s]/g, '')) || 0;
-    if (pctCol >= 0 && row[pctCol] != null)
-      pct = parseFloat(String(row[pctCol]).replace(/[%,]/g, '')) || 0;
-    if (unitsCol >= 0 && row[unitsCol] != null)
-      units = parseFloat(String(row[unitsCol]).replace(/,/g, '')) || 0;
-
-    if (value > 0 || pct > 0)
-      funds.push({ name, value, pct, units });
+    if (valueCol >= 0 && row[valueCol] != null) value = parseFloat(String(row[valueCol]).replace(/[₹,\s]/g,'')) || 0;
+    if (pctCol   >= 0 && row[pctCol]   != null) pct   = parseFloat(String(row[pctCol]).replace(/[%,]/g,''))   || 0;
+    if (unitsCol >= 0 && row[unitsCol] != null) units = parseFloat(String(row[unitsCol]).replace(/,/g,''))    || 0;
+    if (value > 0 || pct > 0) funds.push({ name, value, pct, units });
   }
 
   if (!funds.length) throw new Error('No fund data found in Excel. Check that columns include Fund Name and Current Value.');
 
-  // Normalise percentages
   const hasPct = funds.some(f => f.pct > 0);
   if (hasPct && !funds.some(f => f.value > 0)) {
-    const total = funds.reduce((s, f) => s + f.pct, 0);
-    return funds.map(f => ({ name: f.name, value: 0, units: f.units, pct: total > 0 ? +(f.pct/total*100).toFixed(2) : f.pct, matched: null }));
+    const total = funds.reduce((s,f) => s+f.pct, 0);
+    return funds.map(f => ({ name:f.name, value:0, units:f.units, pct: total>0?+(f.pct/total*100).toFixed(2):f.pct, matched:null }));
   }
   return buildAllocFromValues(funds);
 }
@@ -7480,7 +7551,7 @@ function showImportPreview() {
       </div>` : ''}
       ${totalVal>0?`<div style="background:var(--s2);border:1px solid var(--border);border-radius:var(--r-sm);padding:.65rem 1rem;flex:1;text-align:center">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem">Total Value</div>
-        <div style="font-family:'Fraunces',serif;font-size:1.4rem;font-weight:600;color:var(--text)">₹${(totalVal/100000).toFixed(1)}L</div>
+        <div style="font-family:'Fraunces',serif;font-size:1.4rem;font-weight:600;color:var(--text)">₹${totalVal.toLocaleString('en-IN',{maximumFractionDigits:0})}</div>
       </div>`:''}
     </div>
     ${matched < total ? `<div style="font-size:.68rem;color:var(--muted);background:var(--s3);border-radius:var(--r-sm);padding:.5rem .75rem;margin-bottom:.85rem">
@@ -7491,15 +7562,22 @@ function showImportPreview() {
         <span>Fund</span><span style="text-align:right">Market Value</span><span style="text-align:right">% of Portfolio</span>
       </div>
       ${importParsedFunds.map(f => {
-        const cleanName = f.name  // always show original name from CAS/Excel
+        const cleanName = f.name
           .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
           .replace(/\s*\(IDCW\)\s*$/i,'')
           .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
           .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+        const gl     = (f.value||0) - (f.cost||0);
+        const glPct  = f.cost > 0 ? gl/f.cost*100 : null;
+        const glCol  = gl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
         return `<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr;gap:.5rem;align-items:center">
-          <div style="font-size:.72rem;color:var(--text)">${cleanName}</div>
-          <div style="font-size:.68rem;text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${f.value>0?'₹'+(f.value/1000).toFixed(0)+'K':''}</div>
-          <div style="font-size:.72rem;text-align:right;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.pct.toFixed(1)}%</div>
+          <div>
+            <div style="font-size:.72rem;color:var(--text)">${cleanName}</div>
+            ${f.assetClass ? `<div style="font-size:.58rem;color:var(--muted)">${f.assetClass}${f.category?' · '+f.category:''}</div>` : ''}
+            ${f.cost > 0 && glPct !== null ? `<div style="font-size:.6rem;font-family:'IBM Plex Mono',monospace;${glCol}">${gl>=0?'+':''}₹${Math.abs(gl).toLocaleString('en-IN',{maximumFractionDigits:0})} (${glPct.toFixed(1)}%)</div>` : ''}
+          </div>
+          <div style="font-size:.68rem;text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--text2)">${f.value>0?'₹'+f.value.toLocaleString('en-IN',{maximumFractionDigits:0}):''}</div>
+          <div style="font-size:.72rem;text-align:right;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${f.pct.toFixed(2)}%</div>
         </div>`;
       }).join('')}
     </div>`;
@@ -7527,10 +7605,24 @@ function confirmImport() {
     .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
 
   importParsedFunds.forEach(f => {
-    const fundName = cleanFundName(f.name); // always use original name from CAS
+    const fundName = cleanFundName(f.name);
     if (f.pct > 0) {
-      allocations[fundName]    = parseFloat(f.pct.toFixed(2));
-      holdingsDetail[fundName] = { val: f.value || 0, units: f.units || 0 };
+      allocations[fundName]    = parseFloat(f.pct.toFixed(4));
+      holdingsDetail[fundName] = {
+        val:        f.value   || 0,
+        units:      f.units   || 0,
+        cost:       f.cost    || 0,
+        nav:        f.nav     || 0,
+        unrGL:      f.unrGL   || 0,
+        realGL:     f.realGL  || 0,
+        assetClass: f.assetClass || null,
+        category:   f.category   || null,
+      };
+      // Pre-seed NAV data for Live NAV display
+      if (f.nav > 0) {
+        window._navData = window._navData || {};
+        window._navData[fundName] = { nav: f.nav, date: 'from import', schemeCode: null, schemeName: fundName };
+      }
     }
   });
 
