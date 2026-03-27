@@ -6364,15 +6364,15 @@ async function testMonitorServer() {
   const btn = document.getElementById('monitor-test-btn');
   const st  = document.getElementById('monitor-server-status');
   if (btn) btn.disabled = true;
-  if (st)  { st.textContent = '⟳ Testing…'; st.style.color = 'var(--muted)'; }
 
   const apiUrl = getMfApiUrl();
   if (!apiUrl) {
-    if (st) { st.textContent = '✗ No server URL set'; st.style.color = 'var(--red)'; }
+    if (st) { st.innerHTML = '✗ No server URL — set it in <a onclick="showPage(\'upload\')" style="cursor:pointer;color:var(--accent)">Add Factsheets</a>'; st.style.color = 'var(--red)'; }
     if (btn) btn.disabled = false;
-    showToast('Set your Render URL in Add Factsheets first');
     return;
   }
+
+  if (st) { st.textContent = `Testing ${apiUrl}…`; st.style.color = 'var(--muted)'; }
 
   try {
     const start = Date.now();
@@ -6380,18 +6380,15 @@ async function testMonitorServer() {
     const ms  = Date.now() - start;
     if (res.ok) {
       const d = await res.json();
-      if (st) {
-        st.textContent = `✓ Server OK (${ms}ms) — ${d.funds||0} funds loaded`;
-        st.style.color = 'var(--green)';
-      }
+      if (st) { st.textContent = `✓ Online (${ms}ms) · ${d.funds||0} funds`; st.style.color = 'var(--green)'; }
     } else {
-      if (st) { st.textContent = `✗ Server error ${res.status}`; st.style.color = 'var(--red)'; }
+      if (st) { st.textContent = `✗ HTTP ${res.status} — check Render logs`; st.style.color = 'var(--red)'; }
     }
   } catch(e) {
-    if (st) {
-      st.textContent = e.name === 'TimeoutError' ? '⏱ Timeout — server waking up, try again' : `✗ ${e.message}`;
-      st.style.color = 'var(--red)';
-    }
+    const msg = e.name === 'TimeoutError'
+      ? '⏱ Timeout — server sleeping, try again in 30s'
+      : `✗ ${e.message} — URL: ${apiUrl}`;
+    if (st) { st.textContent = msg; st.style.color = 'var(--red)'; }
   }
   if (btn) btn.disabled = false;
 }
@@ -6492,9 +6489,12 @@ async function loadMarketMonitor() {
     const isTimeout = e.name === 'TimeoutError' || e.message?.includes('timeout');
     const msg = isTimeout
       ? `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">
-          ⏱ Server took too long to respond (Render free tier waking up). Wait 30 seconds and try Refresh again.
+          ⏱ Server took too long to respond. Click <strong>Test</strong> to check server status, then try Refresh again.
          </div>`
-      : `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">✗ ${e.message || 'Fetch failed'}. Check your API URL and try again.</div>`;
+      : `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">
+          ✗ ${e.message || 'Fetch failed'}<br>
+          <span style="font-size:.62rem">URL: ${apiUrl} — Click <strong>Test</strong> to diagnose</span>
+        </div>`;
     ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
       .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=msg; });
   }
