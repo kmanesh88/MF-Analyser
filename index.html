@@ -1775,6 +1775,8 @@ body {
         <div class="pg-sub">Indices · FII/DII · Earnings · News</div>
       </div>
       <div style="display:flex;align-items:center;gap:.65rem">
+        <button class="btn sm" onclick="testMonitorServer()" id="monitor-test-btn" title="Test server connection">Test</button>
+        <span id="monitor-server-status" style="font-size:.62rem;color:var(--muted)"></span>
         <button class="btn pri" onclick="loadMarketMonitor()" id="monitor-refresh-btn">⟳ Refresh</button>
         <span id="monitor-last-updated" style="font-size:.62rem;color:var(--muted)"></span>
       </div>
@@ -6358,6 +6360,42 @@ async function fetchPrice(ticker) {
 }
 
 // ── Market Monitor ──────────────────────────────────────────────────
+async function testMonitorServer() {
+  const btn = document.getElementById('monitor-test-btn');
+  const st  = document.getElementById('monitor-server-status');
+  if (btn) btn.disabled = true;
+  if (st)  { st.textContent = '⟳ Testing…'; st.style.color = 'var(--muted)'; }
+
+  const apiUrl = getMfApiUrl();
+  if (!apiUrl) {
+    if (st) { st.textContent = '✗ No server URL set'; st.style.color = 'var(--red)'; }
+    if (btn) btn.disabled = false;
+    showToast('Set your Render URL in Add Factsheets first');
+    return;
+  }
+
+  try {
+    const start = Date.now();
+    const res = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(15000) });
+    const ms  = Date.now() - start;
+    if (res.ok) {
+      const d = await res.json();
+      if (st) {
+        st.textContent = `✓ Server OK (${ms}ms) — ${d.funds||0} funds loaded`;
+        st.style.color = 'var(--green)';
+      }
+    } else {
+      if (st) { st.textContent = `✗ Server error ${res.status}`; st.style.color = 'var(--red)'; }
+    }
+  } catch(e) {
+    if (st) {
+      st.textContent = e.name === 'TimeoutError' ? '⏱ Timeout — server waking up, try again' : `✗ ${e.message}`;
+      st.style.color = 'var(--red)';
+    }
+  }
+  if (btn) btn.disabled = false;
+}
+
 let _monitorLoaded = false;
 
 async function loadMarketMonitor() {
@@ -6390,18 +6428,37 @@ async function loadMarketMonitor() {
     return;
   }
 
-  // Wake up Render free tier first (it sleeps after 15 min inactivity)
-  if (indEl) indEl.innerHTML = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem 0"><span class="spin"></span> Waking server…</div>';
-  try {
-    await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(10000) });
-  } catch(e) { /* ignore — server may still be waking */ }
+  // Step 1: Wake the server (Render free tier sleeps after 15 min)
+  // Poll /health until it responds or timeout
+  let serverAwake = false;
+  if (indEl) indEl.innerHTML = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem 0"><span class="spin"></span> Waking server (may take 30s on first load)…</div>';
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const ping = await fetch(`${apiUrl}/health`, {
+        signal: AbortSignal.timeout(12000)
+      });
+      if (ping.ok) { serverAwake = true; break; }
+    } catch(e) {
+      // still waking — wait and retry
+      if (attempt < 5) await new Promise(r => setTimeout(r, 8000));
+    }
+  }
+
+  if (!serverAwake) {
+    const msg = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem">⏱ Server is taking too long to wake. Try Refresh again in 30 seconds.</div>';
+    ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
+      .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=msg; });
+    if (btn) { btn.disabled=false; btn.textContent='⟳ Refresh'; }
+    return;
+  }
 
   if (indEl) indEl.innerHTML = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem 0"><span class="spin"></span> Fetching market data…</div>';
 
   try {
     const params = topStocks ? `?stocks=${encodeURIComponent(topStocks)}` : '';
     const res = await fetch(`${apiUrl}/market-data${params}`, {
-      signal: AbortSignal.timeout(60000)   // 60s — Claude Haiku + cold start
+      signal: AbortSignal.timeout(45000)
     });
 
     if (!res.ok) {
