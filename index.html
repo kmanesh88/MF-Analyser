@@ -3514,45 +3514,32 @@ async function parseWorkbook(wb, filename, results) {
     const targetSheet = wb.SheetNames.find(sn => {
       const ws  = wb.Sheets[sn];
       const row = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', sheetRows:2})[0] || [];
-      const rl  = row.map(c => String(c).toLowerCase().trim());
-      return rl.some(c => c==='particulars');
+      return row.map(c => String(c).toLowerCase().trim()).some(c => c==='particulars');
     }) || wb.SheetNames[0];
 
     const ws   = wb.Sheets[targetSheet];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:true});
     if (rows.length < 2) return;
 
-    // Known fixed columns for this format (0-indexed):
-    // 0=Particulars, 1=FolioDate, 2=Nature, 3=Category, 4=Units,
-    // 5=Cost, 6=PurchasePrice, 7=MktValue, 8=Nav, 9=UnrealizedGL,
-    // 10=GL%, 11=RealizedGL, 12=DividendSinceInception, 13=WtAvgDays,
-    // 14=XIRR%, 15=TotalReturns, 16=%toMFPortfolio, 17=HoldingPeriod
+    // Build header→index map from actual header row
+    const hdr = rows[0];
+    const colIdx = {};
+    hdr.forEach((h, i) => { colIdx[String(h).trim().toLowerCase()] = i; });
 
-    // Verify using header row, fall back to known positions
-    const hdr = rows[0].map(c => String(c).toLowerCase().trim());
-    const findCol = (names, fallback) => {
-      const idx = hdr.findIndex(h => names.some(n => h === n || h.includes(n)));
-      return idx >= 0 ? idx : fallback;
-    };
+    // Use exact header strings from the format
+    const C_NAME    = colIdx['particulars']     ?? 0;
+    const C_NATURE  = colIdx['nature']          ?? 2;
+    const C_CAT     = colIdx['category']        ?? 3;
+    const C_UNITS   = colIdx['units']           ?? 4;
+    const C_COST    = colIdx['cost']            ?? 5;
+    const C_MKTVAL  = colIdx['mkt value']       ?? 7;
+    const C_NAV     = colIdx['nav']             ?? 8;
+    const C_UNRGL   = colIdx['unrealized g/l']  ?? 9;
+    const C_REALGL  = colIdx['realized gain/loss'] ?? 11;
 
-    const COL = {
-      name:     findCol(['particulars'], 0),
-      nature:   findCol(['nature'], 2),
-      category: findCol(['category'], 3),
-      units:    findCol(['units'], 4),
-      cost:     findCol(['cost'], 5),
-      mktVal:   findCol(['mkt value'], 7),
-      nav:      findCol(['nav'], 8),
-      unrGL:    findCol(['unrealized', 'unrealised'], 9),
-      realGL:   findCol(['realized gain', 'realised gain'], 11),
-    };
-
-    // Log detected columns for debugging
-    console.log('[WealthMgr] Columns detected:', COL);
-    console.log('[WealthMgr] Sample R2:', rows[1] ? {
-      name: rows[1][COL.name], mktVal: rows[1][COL.mktVal],
-      cost: rows[1][COL.cost], nav: rows[1][COL.nav]
-    } : 'no data');
+    console.log('[WealthMgr] colIdx:', colIdx);
+    console.log('[WealthMgr] Using:', {C_NAME,C_NATURE,C_UNITS,C_COST,C_MKTVAL,C_NAV});
+    if (rows[1]) console.log('[WealthMgr] Row2 raw:', JSON.stringify(rows[1]));
 
     const NATURE_CLASS = {
       'equity':                'Equity',
@@ -3563,74 +3550,62 @@ async function parseWorkbook(wb, filename, results) {
       'precious metals':       'Precious Metals',
     };
 
-    const cleanFundName = n => n
+    const cleanName = n => n
       .replace(/\s+(Reg|Dir|Regular|Direct)\s*[-–]?\s*(G|D|Growth|IDCW|Div)?\.?\s*$/i, '')
       .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
       .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+
+    const toNum = v => {
+      if (v === undefined || v === null || v === '') return 0;
+      if (typeof v === 'number') return v;
+      const s = String(v).replace(/,/g, '').trim();
+      const n = parseFloat(s);
+      return isNaN(n) ? 0 : n;
+    };
 
     const fundMap = {};
 
     for (let r = 1; r < rows.length; r++) {
       const row  = rows[r];
-      const name = String(row[COL.name] || '').trim();
+      const name = String(row[C_NAME] ?? '').trim();
       if (!name || /^total$/i.test(name)) continue;
 
-      // Robust numeric parser — handles numbers, strings, comma-formatted
-      const num = (idx) => {
-        if (idx < 0 || row[idx] === undefined || row[idx] === '') return 0;
-        const raw = row[idx];
-        if (typeof raw === 'number') return raw;
-        return parseFloat(String(raw).replace(/[,\s₹]/g, '')) || 0;
+      const mktVal = toNum(row[C_MKTVAL]);
+      const cost   = toNum(row[C_COST]);
+      if (mktVal <= 0 && cost <= 0) continue;
+
+      const key = cleanName(name);
+      if (!key || key.length < 2) continue;
+
+      const entry = {
+        name:      key,
+        nature:    String(row[C_NATURE] ?? '').trim().toLowerCase(),
+        category:  String(row[C_CAT]    ?? '').trim(),
+        units:     toNum(row[C_UNITS]),
+        cost,
+        mktVal,
+        nav:       toNum(row[C_NAV]),
+        unrGL:     toNum(row[C_UNRGL]),
+        realGL:    toNum(row[C_REALGL]),
       };
+      entry.assetClass = NATURE_CLASS[entry.nature] || 'Other';
 
-      const nature   = String(row[COL.nature]   || '').trim().toLowerCase();
-      const category = String(row[COL.category] || '').trim();
-      const units    = num(COL.units);
-      const cost     = num(COL.cost);
-      const mktVal   = num(COL.mktVal);
-      const nav      = num(COL.nav);
-      const unrGL    = num(COL.unrGL);
-      const realGL   = num(COL.realGL);
-
-      // Sanity check: mktVal should be >> nav (it's total value, not per-unit)
-      const effectiveMktVal = (mktVal > 0 && units > 0 && mktVal < nav * 2)
-        ? nav * units
-        : mktVal;
-
-      if (effectiveMktVal <= 0 && cost <= 0) continue;
-
-      const cleanName  = cleanFundName(name);
-      const assetClass = NATURE_CLASS[nature] || 'Other';
-
-      if (fundMap[cleanName]) {
-        // Merge folio entries for same fund
-        fundMap[cleanName].units    += units;
-        fundMap[cleanName].cost     += cost;
-        fundMap[cleanName].mktVal   += effectiveMktVal;
-        fundMap[cleanName].unrGL    += unrGL;
-        fundMap[cleanName].realGL   += realGL;
-        if (nav > 0) fundMap[cleanName].nav = nav;
+      if (fundMap[key]) {
+        fundMap[key].units  += entry.units;
+        fundMap[key].cost   += entry.cost;
+        fundMap[key].mktVal += entry.mktVal;
+        fundMap[key].unrGL  += entry.unrGL;
+        fundMap[key].realGL += entry.realGL;
+        if (entry.nav > 0) fundMap[key].nav = entry.nav;
       } else {
-        fundMap[cleanName] = { name: cleanName, nature, assetClass, category,
-                               units, cost, mktVal: effectiveMktVal, nav, unrGL, realGL };
+        fundMap[key] = entry;
       }
     }
 
-    // Compute totalMktVal from MERGED fundMap (not per-row sum which double-counts multi-folio)
     const totalMktVal = Object.values(fundMap).reduce((s, f) => s + f.mktVal, 0);
+    console.log(`[WealthMgr] ${Object.keys(fundMap).length} funds, totalMktVal=${totalMktVal}`);
 
-    // Detailed debug log
-    console.log(`[WealthMgr] COL map:`, COL);
-    console.log(`[WealthMgr] Header row:`, rows[0]);
-    console.log(`[WealthMgr] Row 2 raw:`, rows[1]);
-    console.log(`[WealthMgr] Row 2 parsed: name=${rows[1]?.[COL.name]} mktVal=${rows[1]?.[COL.mktVal]} cost=${rows[1]?.[COL.cost]} nav=${rows[1]?.[COL.nav]}`);
-    console.log(`[WealthMgr] Funds: ${Object.keys(fundMap).length}, totalMktVal: ${totalMktVal.toLocaleString('en-IN')}`);
-    Object.values(fundMap).slice(0,5).forEach(f => console.log(`  ${f.name}: mktVal=${f.mktVal}, cost=${f.cost}`));
-
-    if (Object.keys(fundMap).length === 0) {
-      showToast('No fund data found in this file');
-      return;
-    }
+    if (!Object.keys(fundMap).length) { showToast('No fund data found'); return; }
 
     Object.values(fundMap).forEach(f => {
       const pct = totalMktVal > 0 ? Math.round(f.mktVal / totalMktVal * 10000) / 100 : 0;
@@ -3641,7 +3616,6 @@ async function parseWorkbook(wb, filename, results) {
         assetClass: f.assetClass, category: f.category,
       });
     });
-
     return;
   }
 
@@ -3786,9 +3760,9 @@ function showXlsPreview(results, filename) {
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem">
           <span style="font-size:.62rem;color:var(--muted)">✓ ${results.length} funds · Wealth Manager format</span>
           <span style="font-size:.62rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
-            Mkt ₹${(totalMkt/100000).toFixed(2)}L
+            Mkt ₹${totalMkt.toLocaleString('en-IN',{maximumFractionDigits:0})}
             <span style="${totalGL>=0?'color:var(--green)':'color:var(--red)'}">
-              ${totalGL>=0?'+':''}₹${(totalGL/100000).toFixed(2)}L (${totalGLPct.toFixed(1)}%)
+              ${totalGL>=0?'+':''}₹${Math.abs(totalGL).toLocaleString('en-IN',{maximumFractionDigits:0})} (${totalGLPct.toFixed(1)}%)
             </span>
           </span>
         </div>
@@ -3810,11 +3784,11 @@ function showXlsPreview(results, filename) {
           </div>
           <div style="text-align:right;flex-shrink:0">
             <div style="font-size:.68rem;font-family:'IBM Plex Mono',monospace;color:var(--text2)">
-              ₹${(r.val/100000).toFixed(2)}L
-              <span style="color:var(--accent);margin-left:.25rem">${r.pct.toFixed(1)}%</span>
+              ₹${r.val.toLocaleString('en-IN',{maximumFractionDigits:0})}
+              <span style="color:var(--accent);margin-left:.25rem">${r.pct.toFixed(2)}%</span>
             </div>
             <div style="font-size:.6rem;font-family:'IBM Plex Mono',monospace;${glCol}">
-              ${gl>=0?'+':''}₹${(Math.abs(gl)/100000).toFixed(2)}L (${glPct.toFixed(1)}%)
+              ${gl>=0?'+':''}₹${Math.abs(gl).toLocaleString('en-IN',{maximumFractionDigits:0})} (${glPct.toFixed(1)}%)
             </div>
           </div>
         </div>`;
