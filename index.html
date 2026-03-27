@@ -1775,7 +1775,8 @@ body {
         <div class="pg-sub">Indices · FII/DII · Earnings · News</div>
       </div>
       <div style="display:flex;align-items:center;gap:.65rem">
-        <button class="btn sm" onclick="testMonitorServer()" id="monitor-test-btn" title="Test server connection">Test</button>
+        <button class="btn sm" onclick="testMonitorServer()" id="monitor-test-btn" title="Test server connection">Test Server</button>
+        <button class="btn sm" onclick="testAnthropicKey()" id="monitor-api-btn" title="Test Anthropic API key">Test AI Key</button>
         <span id="monitor-server-status" style="font-size:.62rem;color:var(--muted)"></span>
         <button class="btn pri" onclick="loadMarketMonitor()" id="monitor-refresh-btn">⟳ Refresh</button>
         <span id="monitor-last-updated" style="font-size:.62rem;color:var(--muted)"></span>
@@ -6601,6 +6602,33 @@ async function fetchPrice(ticker) {
 }
 
 // ── Market Monitor ──────────────────────────────────────────────────
+async function testAnthropicKey() {
+  const btn = document.getElementById('monitor-api-btn');
+  const st  = document.getElementById('monitor-server-status');
+  if (btn) btn.disabled = true;
+  if (st)  { st.textContent = '⟳ Testing AI key…'; st.style.color = 'var(--muted)'; }
+
+  const apiUrl = getMfApiUrl();
+  if (!apiUrl) {
+    if (st) { st.textContent = '✗ No server URL set'; st.style.color = 'var(--red)'; }
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  try {
+    const res = await fetch(`${apiUrl}/market-test`, { signal: AbortSignal.timeout(15000) });
+    const d   = await res.json();
+    if (d.ok) {
+      if (st) { st.textContent = `✓ AI key works (${d.ms}ms)`; st.style.color = 'var(--green)'; }
+    } else {
+      if (st) { st.textContent = `✗ AI key error: ${d.error}`; st.style.color = 'var(--red)'; }
+    }
+  } catch(e) {
+    if (st) { st.textContent = `✗ ${e.message}`; st.style.color = 'var(--red)'; }
+  }
+  if (btn) btn.disabled = false;
+}
+
 async function testMonitorServer() {
   const btn = document.getElementById('monitor-test-btn');
   const st  = document.getElementById('monitor-server-status');
