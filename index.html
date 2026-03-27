@@ -2451,57 +2451,48 @@ function renderPortfolioGrid() {
     // Build asset allocation bands from snapshot
     let assetHtml = '';
     if (snap) {
-      // Prefer new asset-class fields; for old snapshots compute from allocations
-      let eq  = snap.equityPct    != null ? snap.equityPct    : null;
-      let dt  = snap.debtPct      != null ? snap.debtPct      : null;
-      let ca  = snap.cashPct      != null ? snap.cashPct      : 0;
-      let co  = snap.commodityPct != null ? snap.commodityPct : 0;
+      // Classify fund names from allocations to identify commodity funds
+      const allocs = Object.entries(p.allocations||{});
+      const totalWt = allocs.reduce((s,[,w])=>s+w, 0) || 100;
+      let goldWt=0, silverWt=0, otherCommWt=0;
+      allocs.forEach(([fname, wt]) => {
+        const nm = fname.toLowerCase();
+        if (/\bgold\b/.test(nm) && !/golden/.test(nm)) goldWt   += wt;
+        else if (/\bsilver\b/.test(nm))                silverWt  += wt;
+        else if (/\bcommodi/i.test(nm))                otherCommWt += wt;
+      });
+      const totalCommWt = goldWt + silverWt + otherCommWt;
+      const nonCommWt   = totalWt - totalCommWt;
 
-      // Old snapshot fallback: compute from allocations + within-fund equity share
-      if (eq == null) {
-        const allocs = Object.entries(p.allocations||{});
-        const totalWt = allocs.reduce((s,[,w])=>s+w, 0) || 100;
-        let eqSum=0, dtSum=0, coSum=0;
-        allocs.forEach(([fname, wt]) => {
-          const nm = fname.toLowerCase();
-          if (/\bgold\b/.test(nm) && !/golden/.test(nm)) { coSum += wt; return; }
-          if (/\bsilver\b/.test(nm) || /\bcommodi/i.test(nm)) { coSum += wt; return; }
-          // Assume equity fund — use within-fund equity ratio if available
-          eqSum += wt;
-        });
-        eq = eqSum / totalWt * 100;
-        dt = dtSum / totalWt * 100;
-        co = coSum / totalWt * 100;
-      }
-
-      const commTypes = snap.commodityTypes || [];
-      const goldPct   = commTypes.filter(c=>c.type==='Gold').reduce((s,c)=>s+c.wt, 0)
-                        || (co > 0 && !commTypes.length ? co * 0.8 : 0); // rough fallback
-      const silverPct = commTypes.filter(c=>c.type==='Silver').reduce((s,c)=>s+c.wt, 0);
-      const otherCommPct = Math.max(0, co - goldPct - silverPct);
-
-      // If no commodity breakdown, check allocations for gold fund names
-      let goldFromAlloc = 0;
-      if (goldPct === 0 && co === 0) {
-        Object.entries(p.allocations||{}).forEach(([fname, wt]) => {
-          if (/\bgold\b/i.test(fname) && !/golden/i.test(fname)) goldFromAlloc += wt;
-          if (/\bsilver\b/i.test(fname)) goldFromAlloc += wt;
-        });
-        if (goldFromAlloc > 0) {
-          eq = Math.max(0, eq - goldFromAlloc);
+      // Use stored asset-class fields if present (new snapshots)
+      // Otherwise derive from allocations (old snapshots)
+      let eq, dt, ca;
+      if (snap.equityPct != null && snap.equityPct !== undefined) {
+        eq = snap.equityPct;
+        dt = snap.debtPct  || 0;
+        ca = snap.cashPct  || 0;
+        // Use stored commodity breakdown if available, else use allocation-based
+        if (snap.commodityTypes?.length) {
+          goldWt      = snap.commodityTypes.filter(c=>c.type==='Gold').reduce((s,c)=>s+c.wt,0);
+          silverWt    = snap.commodityTypes.filter(c=>c.type==='Silver').reduce((s,c)=>s+c.wt,0);
+          otherCommWt = (snap.commodityPct||0) - goldWt - silverWt;
         }
+      } else {
+        // Old snapshot — derive from fund allocation weights
+        eq = nonCommWt / totalWt * 100;
+        dt = 0;
+        ca = 0;
       }
-      const finalGold = goldPct || goldFromAlloc;
 
-      const tot = eq+dt+ca+finalGold+silverPct+otherCommPct || 100;
+      const tot = eq + dt + ca + goldWt + silverWt + otherCommWt || 100;
 
       const classes = [
-        { label:'Equity',   val:eq,           color:'var(--lc)',      fg:'var(--lc)'      },
-        { label:'Debt',     val:dt,           color:'var(--dc-aaa)',  fg:'var(--teal)'    },
-        { label:'Cash/MM',  val:ca,           color:'var(--dc-mkt)',  fg:'var(--green)'   },
-        { label:'Gold',     val:finalGold,    color:'#b8860b',        fg:'#b8860b'        },
-        { label:'Silver',   val:silverPct,    color:'#888',           fg:'var(--muted2)'  },
-        { label:'Commodity',val:otherCommPct, color:'#9a6b00',        fg:'#9a6b00'        },
+        { label:'Equity',    val:eq,          color:'var(--lc)',     fg:'var(--lc)'     },
+        { label:'Debt',      val:dt,          color:'var(--dc-aaa)', fg:'var(--teal)'   },
+        { label:'Cash/MM',   val:ca,          color:'var(--dc-mkt)', fg:'var(--green)'  },
+        { label:'Gold',      val:goldWt,      color:'#b8860b',       fg:'#b8860b'       },
+        { label:'Silver',    val:silverWt,    color:'#888',          fg:'var(--muted2)' },
+        { label:'Commodity', val:otherCommWt, color:'#9a6b00',       fg:'#9a6b00'       },
       ].filter(c => c.val > 0.5);
 
       const barSegs = classes.map(c =>
