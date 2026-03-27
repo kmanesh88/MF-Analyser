@@ -6365,14 +6365,12 @@ async function loadMarketMonitor() {
   const upd = document.getElementById('monitor-last-updated');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
 
-  // Show loading state in all panels
   const loadingHtml = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem 0"><span class="spin"></span> Loading…</div>';
   ['fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
     .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=loadingHtml; });
   const indEl = document.getElementById('indices-strip');
   if (indEl) indEl.innerHTML = loadingHtml;
 
-  // Gather portfolio stocks for news context
   const portfolioStocks = [];
   allFunds().forEach(({data}) => {
     (data.equityStocks||[]).forEach(s => {
@@ -6381,11 +6379,10 @@ async function loadMarketMonitor() {
   });
   const topStocks = portfolioStocks.slice(0, 15).join(', ');
 
-  // Call our Render API server which proxies Claude
   const apiUrl = getMfApiUrl();
   if (!apiUrl) {
     const errMsg = `<div style="color:var(--red);font-size:.7rem;padding:.5rem">
-      ⚠ API server not configured. Set your Render URL in Add Factsheets → Test Connection.
+      ⚠ API server URL not set. Go to Add Factsheets page and enter your Render URL.
     </div>`;
     ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
       .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=errMsg; });
@@ -6393,19 +6390,36 @@ async function loadMarketMonitor() {
     return;
   }
 
+  // Wake up Render free tier first (it sleeps after 15 min inactivity)
+  if (indEl) indEl.innerHTML = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem 0"><span class="spin"></span> Waking server…</div>';
+  try {
+    await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(10000) });
+  } catch(e) { /* ignore — server may still be waking */ }
+
+  if (indEl) indEl.innerHTML = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem 0"><span class="spin"></span> Fetching market data…</div>';
+
   try {
     const params = topStocks ? `?stocks=${encodeURIComponent(topStocks)}` : '';
     const res = await fetch(`${apiUrl}/market-data${params}`, {
-      signal: AbortSignal.timeout(30000)  // Claude may take a few seconds
+      signal: AbortSignal.timeout(60000)   // 60s — Claude Haiku + cold start
     });
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Server error ${res.status}: ${err.slice(0,100)}`);
+      const isAuthErr = err.includes('API_KEY') || err.includes('authentication') || res.status === 503;
+      if (isAuthErr) {
+        const msg = `<div style="background:rgba(224,122,58,.08);border:1px solid rgba(224,122,58,.25);border-radius:var(--r-sm);padding:.75rem;font-size:.7rem;color:var(--orange)">
+          ⚙ <strong>Add your Anthropic API key:</strong> Render dashboard → mf-holdings-api → Environment → Add <code>ANTHROPIC_API_KEY</code>
+        </div>`;
+        ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
+          .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=msg; });
+        if (btn) { btn.disabled=false; btn.textContent='⟳ Refresh'; }
+        return;
+      }
+      throw new Error(`Server error ${res.status}`);
     }
 
     const data = await res.json();
-
     renderIndices(data.indices || []);
     renderFiiDii(data.fii_dii || {});
     renderEarnings(data.earnings || []);
@@ -6418,14 +6432,14 @@ async function loadMarketMonitor() {
 
   } catch(e) {
     console.error('[Monitor]', e);
-    const isAuthErr = e.message?.includes('API_KEY') || e.message?.includes('authentication') || e.message?.includes('503');
-    const errMsg = isAuthErr
-      ? `<div style="background:rgba(224,122,58,.08);border:1px solid rgba(224,122,58,.25);border-radius:var(--r-sm);padding:.75rem;font-size:.7rem;color:var(--orange)">
-          ⚙ <strong>Setup required:</strong> Add your <code>ANTHROPIC_API_KEY</code> in Render dashboard → mf-holdings-api → Environment, then redeploy.
+    const isTimeout = e.name === 'TimeoutError' || e.message?.includes('timeout');
+    const msg = isTimeout
+      ? `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">
+          ⏱ Server took too long to respond (Render free tier waking up). Wait 30 seconds and try Refresh again.
          </div>`
-      : `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">✗ ${e.message || 'Could not load market data'}. Try refreshing.</div>`;
+      : `<div style="color:var(--muted);font-size:.7rem;padding:.5rem">✗ ${e.message || 'Fetch failed'}. Check your API URL and try again.</div>`;
     ['indices-strip','fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
-      .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=errMsg; });
+      .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=msg; });
   }
 
   if (btn) { btn.disabled=false; btn.textContent='⟳ Refresh'; }
