@@ -8633,11 +8633,9 @@ window.MFPortfolioBuilder.scoreMidCapFunds = async function(cb) {
   // Using Motilal Oswal Midcap 150 Index Fund as proxy
   log('Fetching benchmark NAV...', 12);
   let bNav = [];
-  try { const r=await fetch('https://api.mfapi.in/mf/135781'); bNav=(await r.json()).data||[]; } catch(e) {
-    // Fallback to Nifty 50 proxy
+try { const r=await fetch('https://api.mfapi.in/mf/118989'); bNav=(await r.json()).data||[]; } catch(e) {
     try { const r=await fetch('https://api.mfapi.in/mf/120716'); bNav=(await r.json()).data||[]; } catch(e2) {}
   }
-
   const metrics=[]; let done=0;
   for(let i=0;i<funds.length;i+=10) {
     await Promise.all(funds.slice(i,i+10).map(async f => {
