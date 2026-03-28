@@ -8156,20 +8156,24 @@ const snap  = await getDocs(query(collection(db,'fund_universe'), where('framewo
   const fail = metrics.filter(m => m.age < 5 || m.return5yr === null || m.return5yr === 0 || m.return1yr === null);
   log(`Gateway: ${qual.length} passed, ${fail.length} failed`, 80);
 
-  const aDC = qual.map(f=>f.dc).filter(v=>v!==null);
-  const aRC = qual.map(f=>f.rc).filter(v=>v!==null);
-  const aSH = qual.map(f=>f.sh).filter(v=>v!==null);
-  const aAL = qual.map(f=>f.al).filter(v=>v!==null);
-
-  for (const f of qual) {
-    const sc = {
-      downsideCapture:    f.dc!==null ? pctRank(f.dc, aDC,'lower')  : 50,
-      rollingConsistency: f.rc!==null ? pctRank(f.rc, aRC,'lower')  : 50,
-      sharpe:             f.sh!==null ? pctRank(f.sh, aSH,'higher') : 50,
-      alpha:              f.al!==null ? pctRank(f.al, aAL,'higher') : 50,
-    };
-    f.cs = sc;
-    f.ps = Math.round(sc.downsideCapture*0.40 + sc.rollingConsistency*0.33 + sc.sharpe*0.17 + sc.alpha*0.10);
+  const categories = [...new Set(qual.map(f => f.category))];
+  for (const cat of categories) {
+    const catFunds = qual.filter(f => f.category === cat);
+    const aDC = catFunds.map(f=>f.dc).filter(v=>v!==null);
+    const aRC = catFunds.map(f=>f.rc).filter(v=>v!==null);
+    const aSH = catFunds.map(f=>f.sh).filter(v=>v!==null);
+    const aAL = catFunds.map(f=>f.al).filter(v=>v!==null);
+    for (const f of catFunds) {
+      const sc = {
+        downsideCapture:    f.dc!==null ? pctRank(f.dc, aDC,'lower')  : 50,
+        rollingConsistency: f.rc!==null ? pctRank(f.rc, aRC,'lower')  : 50,
+        sharpe:             f.sh!==null ? pctRank(f.sh, aSH,'higher') : 50,
+        alpha:              f.al!==null ? pctRank(f.al, aAL,'higher') : 50,
+      };
+      f.cs = sc;
+      f.ps = Math.round(sc.downsideCapture*0.40 + sc.rollingConsistency*0.33 + sc.sharpe*0.17 + sc.alpha*0.10);
+      f.scoredWithinCategory = cat;
+    }
   }
 
   log('Saving to Firestore...', 88);
