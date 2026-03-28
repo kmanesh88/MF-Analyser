@@ -8531,7 +8531,7 @@ window.MFPortfolioBuilder.scoreGARPFunds = async function(cb) {
           rollingAvg3yr:f.ra3,rollingAvg5yr:f.ra5,rollingConsistency:f.rc,
           sharpe:f.sh,alpha:f.al,downsideCapture:f.dc,maxDrawdown:f.md,
           vsCategory5yr:f.vsCategory5yr||null,categoryAvg5yr:Math.round(catAvg5yr*100)/100,
-          growthLegPass:f.growthLegPass,valuationLegPass:f.valuationLegPass,bothLegsPass:f.bothLegsPass,
+          growthLegPass:f.growthLegPass||false,valuationLegPass:f.valuationLegPass||false,bothLegsPass:f.bothLegsPass||false,
         },
         componentScores:f.cs||{},perfScore:f.ps||0,compositeScore:f.ps||0,
         balanceTestPassed:f.bothLegsPass||false,
