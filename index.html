@@ -8010,7 +8010,47 @@ window.MFPortfolioBuilder.initFirestore = async function() {
   }
 };
 
-console.log('✅ MF Portfolio Builder loaded. Run: MFPortfolioBuilder.initFirestore()');
+window.MFPortfolioBuilder.fixMidSmallCap = async function() {
+  const db = getFirestore();
+  console.log('🔧 Fixing Mid/Small Cap classifications...');
+  try {
+    const res  = await fetch('https://api.mfapi.in/mf');
+    const list = await res.json();
+    const toFix = list.filter(s => {
+      const n = s.schemeName.toLowerCase();
+      return n.includes('mid-cap') || n.includes('midcap') || n.includes('small-cap') || n.includes('smallcap');
+    });
+    console.log('Found ' + toFix.length + ' funds to reclassify');
+    const cfMap = window.MFPortfolioBuilder.REF.categoryFramework;
+    let fixed = 0;
+    for(let i=0;i<toFix.length;i+=400) {
+      const wb = writeBatch(db);
+      for(const s of toFix.slice(i,i+400)) {
+        const name = s.schemeName.toLowerCase();
+        const cat  = name.includes('mid-cap')||name.includes('midcap') ? 'Mid Cap Fund' : 'Small Cap Fund';
+        const fw   = cfMap[cat] || {framework:'MidSmallCap',assetClass:'equity'};
+        const plan = name.includes('direct') ? 'Direct' : 'Regular';
+        const opt  = (name.includes('idcw')||name.includes('dividend')) ? 'IDCW' : 'Growth';
+        const ref  = doc(collection(db,'fund_universe'), String(s.schemeCode));
+        wb.set(ref, {
+          schemeCode:String(s.schemeCode), schemeName:s.schemeName,
+          category:cat, framework:fw.framework, assetClass:fw.assetClass,
+          planType:plan, optionType:opt, isActive:true, inModelPortfolio:false,
+          updatedAt:new Date(),
+        },{merge:true});
+      }
+      await wb.commit();
+      fixed += Math.min(400, toFix.length-i);
+      console.log('Fixed ' + fixed + '/' + toFix.length);
+    }
+    console.log('✅ Reclassification complete!');
+    alert('✅ Fixed ' + fixed + ' Mid/Small Cap funds!');
+  } catch(e) {
+    console.error('❌ Fix failed:', e);
+    alert('❌ Error: ' + e.message);
+  }
+};
+  console.log('✅ MF Portfolio Builder loaded. Run: MFPortfolioBuilder.initFirestore()');
 </script>
 <script type="module">
 import { getFirestore, collection, doc, getDocs, query, where, writeBatch }
