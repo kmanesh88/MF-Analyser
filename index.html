@@ -9205,7 +9205,7 @@ window.MFPortfolioBuilder.fixCategories = async function() {
   const db = getFirestore();
   console.log('🔧 Fixing fund categories using mfapi scheme_category...');
   const snap = await getDocs(collection(db,'fund_universe'));
-  const funds = snap.docs.map(d=>d.data()).filter(f=>f.category==='Other'||!f.category);
+  const funds = snap.docs.map(d=>d.data());
   console.log('Found '+funds.length+' uncategorised funds to fix');
   const cfMap = window.MFPortfolioBuilder.REF.categoryFramework;
   const categoryMap = {
