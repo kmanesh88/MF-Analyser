@@ -9117,7 +9117,7 @@ window.MFPortfolioBuilder.scoreMomentumFunds = async function(cb) {
     m.age>=3 &&
     m.return3yr!==null &&
     m.return1yr!==null &&
-    m.return1yr>=15
+    m.return1yr>=12
   );
   const fail=metrics.filter(m=>
     m.age<3||m.return3yr===null||m.return1yr===null||m.return1yr<15
