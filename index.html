@@ -8353,7 +8353,7 @@ window.MFPortfolioBuilder.scoreValueFunds = async function(cb) {
   log(`Metrics done: ${metrics.length} funds`, 75);
 
   // Gateway — fund age ≥ 3 years, must have 5yr return data
- const qual = metrics.filter(m => m.age >= 5 && m.return5yr !== null && m.return5yr !== 0 && m.return1yr !== null);
+ const qual = metrics.filter(m => m.age >= 5 && m.return5yr !== null && m.return5yr >= 8 && m.return1yr !== null);
  const fail = metrics.filter(m => m.age < 5 || m.return5yr === null || m.return5yr === 0 || m.return1yr === null);
   log(`Gateway: ${qual.length} passed, ${fail.length} failed`, 80);
 
