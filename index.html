@@ -8116,7 +8116,7 @@ window.MFPortfolioBuilder.scoreQualityFunds = async function(cb) {
   const log = (msg, pct) => { console.log(msg); cb?.(msg, pct); };
   log('Fetching Quality funds from Firestore...', 5);
 const snap  = await getDocs(query(collection(db,'fund_universe'), where('framework','in',['Quality']), where('planType','==','Regular')));
- const funds = snap.docs.map(d => d.data()).filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend'));
+ const funds = snap.docs.map(d => d.data()).filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && f.category !== 'ELSS');.filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && f.category !== 'ELSS' && f.category !== 'Multi Asset Allocation Fund');
   log(`Found ${funds.length} Quality Growth funds`, 10);
 
   log('Fetching benchmark NAV...', 12);
