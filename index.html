@@ -28,7 +28,7 @@ const firebaseConfig = {
 const fbApp  = initializeApp(firebaseConfig);
 const auth   = getAuth(fbApp);
 const db     = getFirestore(fbApp);
-
+window._mfDb = db;
 // ── Expose to global scope so rest of app can use ──
 window._fb = {
   auth, db,
@@ -7990,7 +7990,78 @@ window.MFPortfolioBuilder.initFirestore = async function() {
 };
 
 // ── Category detector ────────────────────────────────────────────────────────
-window.MFPortfolioBuilder.detectCategory = function(name) {
+window.MFPortfolioBuilder.initFirestore = async function() {
+  const db = window._mfDb;
+  if (!db) { alert('❌ Database not ready. Please sign in first.'); return; }
+  const ts = firebase.firestore.FieldValue.serverTimestamp();
+  console.log('🚀 MF Portfolio Builder — initialising Firestore...');
+  try {
+    await db.collection('reference_data').doc('category_framework').set(
+      { map: window.MFPortfolioBuilder.REF.categoryFramework, updatedAt: new Date() }, { merge: true }
+    );
+    await db.collection('reference_data').doc('tax_rules').set(
+      { rules: window.MFPortfolioBuilder.REF.taxRules, updatedAt: new Date() }, { merge: true }
+    );
+    await db.collection('reference_data').doc('allocation_matrix').set(
+      { matrix: window.MFPortfolioBuilder.REF.allocationMatrix,
+        goalInflation: window.MFPortfolioBuilder.REF.goalInflation,
+        priorityModifier: window.MFPortfolioBuilder.REF.priorityModifier,
+        updatedAt: new Date() }, { merge: true }
+    );
+    await db.collection('market_context').doc('current').set(
+      { nifty500PE:0, nifty500PB:0, goldPriceMCX:0, silverPriceMCX:0,
+        goldSilverRatio:0, rbiRepoRate:6.50, tenYearGiltYield:6.82,
+        inflationCPI:4.80, marketPhase:'neutral', rbiRateCyclePhase:'pause',
+        updatedAt: new Date() }, { merge: true }
+    );
+    console.log('✅ Reference data seeded.');
+    console.log('🌐 Fetching fund universe from AMFI...');
+    const res  = await fetch('https://api.mfapi.in/mf');
+    const list = await res.json();
+    console.log('Found ' + list.length + ' schemes. Syncing...');
+    const cfMap = window.MFPortfolioBuilder.REF.categoryFramework;
+    const BATCH = 400;
+    let synced  = 0;
+    for (let i = 0; i < list.length; i += BATCH) {
+      const batch = db.batch();
+      const slice = list.slice(i, i + BATCH);
+      for (const s of slice) {
+        const name = s.schemeName || '';
+        const cat  = window.MFPortfolioBuilder.detectCategory(name);
+        const fw   = cfMap[cat] || { framework:'Uncategorised', assetClass:'other' };
+        const plan = name.toLowerCase().includes('direct') ? 'Direct' : 'Regular';
+        const opt  = (name.toLowerCase().includes('idcw') || name.toLowerCase().includes('dividend')) ? 'IDCW' : 'Growth';
+        const ref  = db.collection('fund_universe').doc(String(s.schemeCode));
+        batch.set(ref, {
+          schemeCode: String(s.schemeCode),
+          schemeName: name,
+          category:   cat,
+          framework:  fw.framework,
+          assetClass: fw.assetClass,
+          planType:   plan,
+          optionType: opt,
+          isActive:   true,
+          inModelPortfolio: false,
+          updatedAt:  new Date(),
+        }, { merge: true });
+      }
+      await batch.commit();
+      synced += slice.length;
+      console.log('Synced ' + synced + ' / ' + list.length);
+    }
+    await db.collection('data_pipeline_log').add({
+      source: 'init_full_sync', status: 'success',
+      recordsSynced: synced, completedAt: new Date(),
+    });
+    console.log('✅ Fund universe synced: ' + synced + ' funds.');
+    console.log('✅ MF Portfolio Builder Phase 1 — COMPLETE.');
+    alert('✅ Portfolio Builder initialised successfully!');
+  } catch(e) {
+    console.error('❌ Init failed:', e);
+    alert('❌ Error: ' + e.message);
+  }
+};
+    window.MFPortfolioBuilder.detectCategory = function(name) {
   const n = name.toLowerCase();
   if (n.includes('overnight'))                          return 'Overnight Fund';
   if (n.includes('liquid') && !n.includes('ity'))      return 'Liquid Fund';
