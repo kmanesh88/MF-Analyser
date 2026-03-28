@@ -8152,7 +8152,7 @@ const snap  = await getDocs(query(collection(db,'fund_universe'), where('framewo
   }
 
   log(`Metrics done: ${metrics.length} funds`, 75);
-  const qual = metrics.filter(m => m.age >= 5 && m.return5yr !== null && m.return5yr !== 0 && m.return1yr !== null);
+  const qual = metrics.filter(m => m.age >= 5 && m.return5yr !== null && m.return5yr >= 8 && m.return1yr !== null);
   const fail = metrics.filter(m => m.age < 5 || m.return5yr === null || m.return5yr === 0 || m.return1yr === null);
   log(`Gateway: ${qual.length} passed, ${fail.length} failed`, 80);
 
@@ -8173,6 +8173,7 @@ const snap  = await getDocs(query(collection(db,'fund_universe'), where('framewo
       f.cs = sc;
       f.ps = Math.round(sc.downsideCapture*0.40 + sc.rollingConsistency*0.33 + sc.sharpe*0.17 + sc.alpha*0.10);
       f.scoredWithinCategory = cat;
+      f.dedupKey = `${f.amcName}_${f.category}`;
     }
   }
 
@@ -8193,7 +8194,13 @@ const snap  = await getDocs(query(collection(db,'fund_universe'), where('framewo
     log(`Saved ${i+400}/${all.length}`, 90+Math.round((i/all.length)*8));
   }
 
-  const top10 = qual.sort((a,b)=>b.ps-a.ps).slice(0,10);
+  const seen = new Set();
+const deduped = qual.filter(f => {
+  if (seen.has(f.dedupKey)) return false;
+  seen.add(f.dedupKey);
+  return true;
+});
+const top10 = deduped.sort((a,b)=>b.ps-a.ps).slice(0,10);
   console.log('\n🏆 TOP 10 QUALITY FUNDS:');
   top10.forEach((f,i) => console.log(`${i+1}. ${f.schemeName}\n   Score:${f.ps} | DC:${f.dc} | Sharpe:${f.sh} | Alpha:${f.al} | 5yr:${f.return5yr}%`));
   log('✅ Quality scoring complete!', 100);
