@@ -7992,7 +7992,6 @@ window.MFPortfolioBuilder.initFirestore = async function() {
 window.MFPortfolioBuilder.initFirestore = async function() {
   const db = window._mfDb;
   if (!db) { alert('❌ Database not ready. Please sign in first.'); return; }
-  const ts = firebase.firestore.FieldValue.serverTimestamp();
   console.log('🚀 MF Portfolio Builder — initialising Firestore...');
   try {
     await db.collection('reference_data').doc('category_framework').set(
