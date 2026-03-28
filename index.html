@@ -9344,7 +9344,7 @@ window.MFPortfolioBuilder.fixCategories = async function() {
 window.MFPortfolioBuilder.addSectoralFunds = async function() {
   const db = getFirestore();
   const cfMap = window.MFPortfolioBuilder.REF.categoryFramework;
-  const searches = ['pharma','technology','banking','infrastructure','consumption','energy','fmcg','mnc','psu','defence','manufacturing','realty','auto','healthcare','quant','momentum','business cycle','opportunities','innovation'];
+const searches = ['pharma','technology','banking','infrastructure','consumption','energy','fmcg','mnc','psu','defence','manufacturing','realty','auto','healthcare','quant','momentum','business cycle','opportunities','innovation','power','digital','natural resources','esi','export','transportation','logistics','commodities','special situations','flexi','focused','value','contra','mobility'];
   const found = new Map();
   console.log('🔍 Searching for sectoral/thematic funds...');
   for(const q of searches) {
