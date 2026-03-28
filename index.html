@@ -9059,7 +9059,7 @@ window.MFPortfolioBuilder.scoreMomentumFunds = async function(cb) {
   // We fetch all Regular Growth funds and filter by framework
   const snap = await getDocs(query(
     collection(db,'fund_universe'),
-    where('framework','==','Momentum'),
+   where('assetClass','==','equity'),
     where('planType','==','Regular')
   ));
   const funds = snap.docs.map(d => d.data()).filter(f =>
