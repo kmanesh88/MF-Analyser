@@ -8944,12 +8944,10 @@ window.MFPortfolioBuilder.scoreSmallCapFunds = async function(cb) {
     // Small cap weights — liquidity score most important but computed from holdings
     // From NAV: rolling return 30%, downside 25%, top quartile 20%, consistency 15%, others 10%
     f.ps=Math.round(
-      sc.rollingReturn5yr*0.30+
-      sc.downsideCapture*0.25+
-      sc.topQuartileConsistency*0.20+
-      sc.rollingConsistency*0.15+
-      sc.sharpe*0.05+
-      sc.drawdownRecovery*0.05
+     sc.rollingReturn5yr*0.35+
+      sc.topQuartileConsistency*0.30+
+      sc.rollingConsistency*0.25+
+      sc.sharpe*0.10
     );
     f.vsCategory5yr=f.return5yr!==null?Math.round((f.return5yr-catAvg5yr)*100)/100:null;
     f.dedupKey=f.amcName+'_SmallCap';
