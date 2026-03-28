@@ -8152,8 +8152,8 @@ const snap  = await getDocs(query(collection(db,'fund_universe'), where('framewo
   }
 
   log(`Metrics done: ${metrics.length} funds`, 75);
-  const qual = metrics.filter(m => m.age >= 3);
-  const fail = metrics.filter(m => m.age < 3);
+  const qual = metrics.filter(m => m.age >= 5 && m.return5yr !== null && m.return5yr !== 0 && m.return1yr !== null);
+  const fail = metrics.filter(m => m.age < 5 || m.return5yr === null || m.return5yr === 0 || m.return1yr === null);
   log(`Gateway: ${qual.length} passed, ${fail.length} failed`, 80);
 
   const aDC = qual.map(f=>f.dc).filter(v=>v!==null);
