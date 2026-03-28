@@ -8053,7 +8053,7 @@ window.MFPortfolioBuilder.fixMidSmallCap = async function() {
   console.log('✅ MF Portfolio Builder loaded. Run: MFPortfolioBuilder.initFirestore()');
 </script>
 <script type="module">
-import { getFirestore, collection, doc, getDocs, query, where, writeBatch }
+import { getFirestore, collection, doc, setDoc, getDocs, query, where, writeBatch }
   from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 
 window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
@@ -9201,7 +9201,79 @@ window.MFPortfolioBuilder.scoreMomentumFunds = async function(cb) {
   return {total:metrics.length,qualified:qual.length,failed:fail.length,top20};
 };
 
-console.log('✅ Momentum Scorer loaded. Run: MFPortfolioBuilder.scoreMomentumFunds(console.log)');
+window.MFPortfolioBuilder.fixCategories = async function() {
+  const db = getFirestore();
+  console.log('🔧 Fixing fund categories using mfapi scheme_category...');
+  const snap = await getDocs(collection(db,'fund_universe'));
+  const funds = snap.docs.map(d=>d.data()).filter(f=>f.category==='Other'||!f.category);
+  console.log('Found '+funds.length+' uncategorised funds to fix');
+  const cfMap = window.MFPortfolioBuilder.REF.categoryFramework;
+  const categoryMap = {
+    'Equity Scheme - Large Cap Fund':          'Large Cap Fund',
+    'Equity Scheme - Mid Cap Fund':            'Mid Cap Fund',
+    'Equity Scheme - Small Cap Fund':          'Small Cap Fund',
+    'Equity Scheme - Multi Cap Fund':          'Multi Cap Fund',
+    'Equity Scheme - Flexi Cap Fund':          'Flexi Cap Fund',
+    'Equity Scheme - Large & Mid Cap Fund':    'Large & Mid Cap Fund',
+    'Equity Scheme - Value Fund':              'Value Fund',
+    'Equity Scheme - Contra Fund':             'Contra Fund',
+    'Equity Scheme - Focused Fund':            'Focused Fund',
+    'Equity Scheme - ELSS':                    'ELSS',
+    'Equity Scheme - Dividend Yield Fund':     'Other',
+    'Equity Scheme - Sectoral Fund-Technology': 'Sectoral Fund',
+    'Equity Scheme - Sectoral Fund-Banking':   'Sectoral Fund',
+    'Equity Scheme - Sectoral Fund-Pharma':    'Sectoral Fund',
+    'Equity Scheme - Sectoral Fund-Infrastructure': 'Sectoral Fund',
+    'Equity Scheme - Sectoral Fund-Consumption': 'Sectoral Fund',
+    'Equity Scheme - Sectoral Fund-Energy':    'Sectoral Fund',
+    'Equity Scheme - Sectoral Fund-FMCG':      'Sectoral Fund',
+    'Equity Scheme - Sectoral Fund-MNC':       'Sectoral Fund',
+    'Equity Scheme - Thematic Fund':           'Thematic Fund',
+    'Other Scheme - FoF Domestic':             'Other',
+    'Other Scheme - FoF Overseas':             'Other',
+    'Solution Oriented Scheme - Retirement Fund': 'Other',
+    'Solution Oriented Scheme - Childrens Fund': 'Other',
+  };
+  let fixed=0, processed=0;
+  for(let i=0;i<funds.length;i+=10) {
+    await Promise.all(funds.slice(i,i+10).map(async f => {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+f.schemeCode);
+        const d=await r.json();
+        const schemeCat=d.meta?.scheme_category||'';
+        let cat='Other';
+        for(const [key,val] of Object.entries(categoryMap)) {
+          if(schemeCat.includes(key.split('-')[0].trim())) { cat=val; break; }
+        }
+        if(schemeCat.includes('Mid Cap')) cat='Mid Cap Fund';
+        if(schemeCat.includes('Small Cap')) cat='Small Cap Fund';
+        if(schemeCat.includes('Large Cap')) cat='Large Cap Fund';
+        if(schemeCat.includes('Flexi Cap')) cat='Flexi Cap Fund';
+        if(schemeCat.includes('Multi Cap')) cat='Multi Cap Fund';
+        if(schemeCat.includes('Value')) cat='Value Fund';
+        if(schemeCat.includes('Contra')) cat='Contra Fund';
+        if(schemeCat.includes('Focused')) cat='Focused Fund';
+        if(schemeCat.includes('ELSS')) cat='ELSS';
+        if(schemeCat.includes('Sectoral')) cat='Sectoral Fund';
+        if(schemeCat.includes('Thematic')) cat='Thematic Fund';
+        if(schemeCat.includes('Multi Asset')) cat='Multi Asset Allocation Fund';
+        if(schemeCat.includes('Large & Mid') || schemeCat.includes('Large and Mid')) cat='Large & Mid Cap Fund';
+        if(cat==='Other') return;
+        const fw=cfMap[cat]||{framework:'Uncategorised',assetClass:'other'};
+        await setDoc(doc(db,'fund_universe',String(f.schemeCode)),{
+          category:cat, framework:fw.framework, assetClass:fw.assetClass, updatedAt:new Date()
+        },{merge:true});
+        fixed++;
+      } catch(e) {}
+    }));
+    processed+=Math.min(10,funds.length-i);
+    if(processed%100===0) console.log('Processed '+processed+'/'+funds.length+' | Fixed: '+fixed);
+    await new Promise(r=>setTimeout(r,200));
+  }
+  console.log('✅ Category fix complete! Fixed '+fixed+' funds.');
+  alert('✅ Fixed '+fixed+' fund categories!');
+};
+  console.log('✅ Momentum Scorer loaded. Run: MFPortfolioBuilder.scoreMomentumFunds(console.log)');
 </script>
 </body>
 </html>
