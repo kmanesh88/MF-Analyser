@@ -8385,5 +8385,180 @@ window.MFPortfolioBuilder.scoreValueFunds = async function(cb) {
 
 console.log('✅ Value Scorer loaded. Run: MFPortfolioBuilder.scoreValueFunds(console.log)');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, getDocs, query, where, writeBatch }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+function parseNavDate(str) { const [d,m,y]=str.split('-'); return new Date(y,m-1,d); }
+function calcCAGR(s,e,y) { if(!s||!e||y<=0)return null; return ((e/s)**(1/y)-1)*100; }
+function getNavOnDate(nav,target) { for(const e of nav){if(parseNavDate(e.date)<=target)return parseFloat(e.nav);} return null; }
+function calcDailyReturns(nav) { const s=[...nav].reverse(),r=[]; for(let i=1;i<s.length;i++){const p=parseFloat(s[i-1].nav),c=parseFloat(s[i].nav);if(p>0)r.push((c-p)/p);} return r; }
+function stdDev(arr) { if(arr.length<2)return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.map(v=>(v-m)**2).reduce((s,v)=>s+v,0)/(arr.length-1)); }
+function arrMean(arr) { return arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0; }
+function calcRollingReturns(nav,years) { const s=[...nav].reverse(),days=Math.round(years*365),r=[]; for(let i=days;i<s.length;i++){const e=parseFloat(s[i].nav),b=parseFloat(s[i-days].nav);if(b>0){const c=calcCAGR(b,e,years);if(c!==null)r.push(c);}} return r; }
+function calcMonthlyReturns(nav) { const r=[];let cm='',ms=null,me=null; for(const e of [...nav].reverse()){const d=parseNavDate(e.date);const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;if(p!==cm){if(cm&&ms&&me)r.push({period:cm,return:(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)});cm=p;ms=e;}me=e;} return r; }
+function calcDownsideCapture(fNav,bNav) { const fm=calcMonthlyReturns(fNav),bm=calcMonthlyReturns(bNav);const bMap={};bm.forEach(m=>{bMap[m.period]=m.return;});let fd=0,bd=0,n=0;fm.forEach(m=>{const br=bMap[m.period];if(br!==undefined&&br<0){fd+=m.return;bd+=br;n++;}});if(!n||!bd)return 85;return Math.round((fd/bd)*100); }
+function calcSharpe(r) { if(r.length<30)return null;const sd=stdDev(r);if(!sd)return null;return Math.round(((arrMean(r)-0.000177)/sd)*Math.sqrt(252)*100)/100; }
+function calcAlpha(fNav,bNav) { const today=new Date(),ago=new Date(today);ago.setFullYear(ago.getFullYear()-5);const fe=parseFloat(fNav[0]?.nav),fs=getNavOnDate(fNav,ago);const be=parseFloat(bNav[0]?.nav),bs=getNavOnDate(bNav,ago);if(!fs||!bs)return null;const fc=calcCAGR(fs,fe,5),bc=calcCAGR(bs,be,5);if(fc===null||bc===null)return null;return Math.round((fc-bc)*100)/100; }
+function calcFundAge(nav) { const o=nav[nav.length-1];if(!o)return 0;return Math.round(((new Date()-parseNavDate(o.date))/(1000*60*60*24*365.25))*10)/10; }
+function calcStdReturns(nav) { const today=new Date(),cn=parseFloat(nav[0]?.nav),r={};for(const [k,y] of [['return1yr',1],['return3yr',3],['return5yr',5],['return7yr',7]]){const pd=new Date(today);pd.setFullYear(pd.getFullYear()-y);const pn=getNavOnDate(nav,pd);r[k]=pn?Math.round(calcCAGR(pn,cn,y)*100)/100:null;}return r; }
+function pctRank(val,arr,dir) { if(!arr.length)return 50;const s=[...arr].sort((a,b)=>a-b);const p=(s.filter(v=>v<val).length/s.length)*100;return dir==='higher'?Math.round(p):Math.round(100-p); }
+
+window.MFPortfolioBuilder.scoreGARPFunds = async function(cb) {
+  const db = getFirestore();
+  const log = (msg,pct) => { console.log(msg); cb?.(msg,pct); };
+  log('Fetching GARP funds...', 5);
+
+  // GARP categories: Flexi Cap, Multi Cap, Focused
+  const snap = await getDocs(query(
+    collection(db,'fund_universe'),
+    where('framework','==','GARP'),
+    where('planType','==','Regular')
+  ));
+  const funds = snap.docs.map(d => d.data()).filter(f =>
+    !f.schemeName.toLowerCase().includes('idcw') &&
+    !f.schemeName.toLowerCase().includes('dividend')
+  );
+  log('Found ' + funds.length + ' GARP Regular Growth funds', 10);
+
+  // Benchmark — Nifty 500 proxy
+  log('Fetching benchmark NAV...', 12);
+  let bNav = [];
+  try { const r=await fetch('https://api.mfapi.in/mf/120716'); bNav=(await r.json()).data||[]; } catch(e) {}
+
+  const metrics=[]; let done=0;
+  for(let i=0;i<funds.length;i+=10) {
+    await Promise.all(funds.slice(i,i+10).map(async f => {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+f.schemeCode);
+        const d=await r.json();
+        const nav=d.data||[];
+        if(nav.length<252)return;
+        const age=calcFundAge(nav);
+        const dr=calcDailyReturns(nav);
+        const sr=calcStdReturns(nav);
+        const r3=calcRollingReturns(nav,3);
+        const r5=calcRollingReturns(nav,5);
+        const sh=calcSharpe(dr);
+        const al=bNav.length?calcAlpha(nav,bNav):null;
+        const dc=bNav.length?calcDownsideCapture(nav,bNav):null;
+        const rc=r3.length>4?Math.round(stdDev(r3)*100)/100:null;
+        const sorted=[...nav].reverse();let peak=0,md=0;
+        for(const e of sorted){const n=parseFloat(e.nav);if(n>peak)peak=n;const dd=(peak-n)/peak*100;if(dd>md)md=dd;}
+        metrics.push({
+          schemeCode:f.schemeCode,schemeName:f.schemeName,
+          category:f.category,amcName:d.meta?.fund_house||'',
+          age,...sr,
+          ra3:r3.length?Math.round(arrMean(r3)*100)/100:null,
+          ra5:r5.length?Math.round(arrMean(r5)*100)/100:null,
+          rc,sh,al,dc,md:Math.round(md*100)/100
+        });
+      } catch(e) { console.warn('Skip '+f.schemeCode); }
+    }));
+    done+=Math.min(10,funds.length-i);
+    log('Computing: '+done+'/'+funds.length, 15+Math.round((done/funds.length)*60));
+    await new Promise(r=>setTimeout(r,200));
+  }
+
+  log('Metrics done: '+metrics.length+' funds', 75);
+
+  // Gateway — 5yr track record + minimum 10% return (GARP needs growth evidence)
+  const qual=metrics.filter(m=>m.age>=5&&m.return5yr!==null&&m.return5yr>=10&&m.return1yr!==null);
+  const fail=metrics.filter(m=>m.age<5||m.return5yr===null||m.return5yr<10||m.return1yr===null);
+  log('Gateway: '+qual.length+' passed, '+fail.length+' failed', 80);
+
+  // Category averages for GARP balance test
+  const catAvg5yr = arrMean(qual.map(f=>f.return5yr).filter(v=>v!==null));
+  const catAvg3yr = arrMean(qual.map(f=>f.return3yr).filter(v=>v!==null));
+  log('Category avg 5yr: '+Math.round(catAvg5yr*100)/100+'%', 82);
+
+  // GARP balance test
+  // Growth leg: 5yr return >= category average
+  // Valuation leg: downside capture <= 100 (not amplifying falls)
+  for(const f of qual) {
+    f.growthLegPass    = f.return5yr >= catAvg5yr;
+    f.valuationLegPass = f.dc === null || f.dc <= 100;
+    f.bothLegsPass     = f.growthLegPass && f.valuationLegPass;
+    f.balancePenalty   = f.bothLegsPass ? 1.0 : 0.80; // 20% penalty if either leg fails
+  }
+
+  // Score within each SEBI category
+  const categories=[...new Set(qual.map(f=>f.category))];
+  for(const cat of categories) {
+    const cf=qual.filter(f=>f.category===cat);
+    const a5yr=cf.map(f=>f.return5yr).filter(v=>v!==null);
+    const aRA5=cf.map(f=>f.ra5).filter(v=>v!==null);
+    const aDC =cf.map(f=>f.dc).filter(v=>v!==null);
+    const aRC =cf.map(f=>f.rc).filter(v=>v!==null);
+    const aSH =cf.map(f=>f.sh).filter(v=>v!==null);
+    const aAL =cf.map(f=>f.al).filter(v=>v!==null);
+
+    for(const f of cf) {
+      const sc = {
+        return5yr:          f.return5yr!==null  ? pctRank(f.return5yr,a5yr,'higher')  : 50,
+        rollingReturn5yr:   f.ra5!==null         ? pctRank(f.ra5,aRA5,'higher')        : 50,
+        downsideCapture:    f.dc!==null          ? pctRank(f.dc,aDC,'lower')           : 50,
+        rollingConsistency: f.rc!==null          ? pctRank(f.rc,aRC,'lower')           : 50,
+        sharpe:             f.sh!==null          ? pctRank(f.sh,aSH,'higher')          : 50,
+        alpha:              f.al!==null          ? pctRank(f.al,aAL,'higher')          : 50,
+      };
+      f.cs = sc;
+      // GARP weights — normalised auto portion
+      // return5yr: 20%, rollingReturn: 15%, downside: 15%, consistency: 10%, sharpe: 10%, alpha: 10%
+      const rawScore = Math.round(
+        sc.return5yr*0.25 + sc.rollingReturn5yr*0.20 +
+        sc.downsideCapture*0.25 + sc.rollingConsistency*0.15 +
+        sc.sharpe*0.10 + sc.alpha*0.05
+      );
+      f.ps = Math.round(rawScore * f.balancePenalty);
+      f.vsCategory5yr = f.return5yr!==null ? Math.round((f.return5yr-catAvg5yr)*100)/100 : null;
+      f.dedupKey = f.amcName+'_'+f.category;
+    }
+  }
+
+  // Save to Firestore
+  log('Saving to Firestore...', 88);
+  const all=[...qual.map(f=>({...f,gp:true})),...fail.map(f=>({...f,gp:false,ps:0,cs:{}}))];
+  for(let i=0;i<all.length;i+=400) {
+    const wb=writeBatch(db);
+    for(const f of all.slice(i,i+400)) {
+      wb.set(doc(db,'framework_scores',f.schemeCode+'_GARP'),{
+        schemeCode:f.schemeCode,schemeName:f.schemeName,category:f.category,amcName:f.amcName,
+        framework:'GARP',scoredAt:new Date(),gatewayPassed:f.gp,
+        rawValues:{
+          fundAge:f.age,return1yr:f.return1yr,return3yr:f.return3yr,return5yr:f.return5yr,
+          rollingAvg3yr:f.ra3,rollingAvg5yr:f.ra5,rollingConsistency:f.rc,
+          sharpe:f.sh,alpha:f.al,downsideCapture:f.dc,maxDrawdown:f.md,
+          vsCategory5yr:f.vsCategory5yr||null,categoryAvg5yr:Math.round(catAvg5yr*100)/100,
+          growthLegPass:f.growthLegPass,valuationLegPass:f.valuationLegPass,bothLegsPass:f.bothLegsPass,
+        },
+        componentScores:f.cs||{},perfScore:f.ps||0,compositeScore:f.ps||0,
+        balanceTestPassed:f.bothLegsPass||false,
+        scoringComplete:false,manualDataAdded:false,updatedAt:new Date(),
+      },{merge:true});
+    }
+    await wb.commit();
+    log('Saved batch '+(Math.floor(i/400)+1), 92);
+  }
+
+  // Deduplicated top 10
+  const seen=new Set();
+  const deduped=qual.filter(f=>{if(seen.has(f.dedupKey))return false;seen.add(f.dedupKey);return true;});
+  const top10=deduped.sort((a,b)=>b.ps-a.ps).slice(0,10);
+  console.log('\n🏆 TOP 10 GARP FUNDS:');
+  top10.forEach((f,i)=>console.log(
+    (i+1)+'. '+f.schemeName+
+    '\n   Score:'+f.ps+' | 5yr:'+f.return5yr+'% | vs cat:'+f.vsCategory5yr+'% | DC:'+f.dc+' | Sharpe:'+f.sh+' | Alpha:'+f.al+
+    ' | Balance:'+( f.bothLegsPass?'✅':'⚠️ penalty applied')
+  ));
+  log('✅ GARP scoring complete!', 100);
+  alert('✅ GARP scoring done!\n'+qual.length+' funds scored.\nCheck console for Top 10.');
+  return {total:metrics.length,qualified:qual.length,failed:fail.length,top10};
+};
+
+console.log('✅ GARP Scorer loaded. Run: MFPortfolioBuilder.scoreGARPFunds(console.log)');
+</script>
 </body>
 </html>
