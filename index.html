@@ -9340,7 +9340,56 @@ window.MFPortfolioBuilder.fixCategories = async function() {
   alert('✅ Fixed '+fixed+' fund categories!');
 };
 
-console.log('✅ Category Fixer loaded. Run: MFPortfolioBuilder.fixCategories()');
+window.MFPortfolioBuilder.addSectoralFunds = async function() {
+  const db = getFirestore();
+  const cfMap = window.MFPortfolioBuilder.REF.categoryFramework;
+  const searches = ['pharma','technology','banking','infrastructure','consumption','energy','fmcg','mnc','psu','defence','manufacturing','realty','auto','healthcare','quant','momentum','business cycle','opportunities','innovation'];
+  const found = new Map();
+  console.log('🔍 Searching for sectoral/thematic funds...');
+  for(const q of searches) {
+    try {
+      const r = await fetch('https://api.mfapi.in/mf/search?q='+q);
+      const d = await r.json();
+      d.forEach(f => found.set(f.schemeCode, f.schemeName));
+      console.log(q+': '+d.length+' funds');
+    } catch(e) {}
+    await new Promise(r=>setTimeout(r,200));
+  }
+  console.log('Total unique funds: '+found.size);
+  let added=0;
+  for(let i=0;i<[...found.keys()].length;i+=10) {
+    await Promise.all([...found.keys()].slice(i,i+10).map(async code => {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+code);
+        const d=await r.json();
+        const sc=d.meta?.scheme_category||'';
+        const name=d.meta?.scheme_name||'';
+        let cat='Other';
+        if(sc.includes('Sectoral'))    cat='Sectoral Fund';
+        else if(sc.includes('Thematic'))    cat='Thematic Fund';
+        else if(sc.includes('Multi Asset')) cat='Multi Asset Allocation Fund';
+        else if(sc.includes('Flexi Cap'))   cat='Flexi Cap Fund';
+        else if(sc.includes('Mid Cap'))     cat='Mid Cap Fund';
+        else if(sc.includes('Small Cap'))   cat='Small Cap Fund';
+        if(cat==='Other') return;
+        const fw=cfMap[cat]||{framework:'Momentum',assetClass:'equity'};
+        const plan=name.toLowerCase().includes('direct')?'Direct':'Regular';
+        const opt=(name.toLowerCase().includes('idcw')||name.toLowerCase().includes('dividend'))?'IDCW':'Growth';
+        await setDoc(doc(db,'fund_universe',String(code)),{
+          schemeCode:String(code),schemeName:name,
+          category:cat,framework:fw.framework,assetClass:fw.assetClass,
+          planType:plan,optionType:opt,isActive:true,inModelPortfolio:false,
+          updatedAt:new Date(),
+        },{merge:true});
+        added++;
+      } catch(e) {}
+    }));
+    await new Promise(r=>setTimeout(r,200));
+  }
+  console.log('✅ Added '+added+' sectoral/thematic funds!');
+  alert('✅ Added '+added+' funds to universe!');
+};
+  console.log('✅ Category Fixer loaded. Run: MFPortfolioBuilder.fixCategories()');
 </script>
 </body>
 </html>
