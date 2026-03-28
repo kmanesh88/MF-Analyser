@@ -8857,7 +8857,7 @@ window.MFPortfolioBuilder.scoreSmallCapFunds = async function(cb) {
   // Using Nippon India Nifty Smallcap 250 Index Fund
   log('Fetching benchmark NAV...', 12);
   let bNav = [];
-  try { const r=await fetch('https://api.mfapi.in/mf/118716'); bNav=(await r.json()).data||[]; } catch(e) {
+  try { const r=await fetch('https://api.mfapi.in/mf/120716'); bNav=(await r.json()).data||[]; } catch(e) {
     try { const r=await fetch('https://api.mfapi.in/mf/120716'); bNav=(await r.json()).data||[]; } catch(e2) {}
   }
 
