@@ -7907,7 +7907,6 @@ window.MFPortfolioBuilder.REF = {
 // ── Firestore initialiser ────────────────────────────────────────────────────
 window.MFPortfolioBuilder.initFirestore = async function() {
   const db = firebase.firestore();
-  const ts = firebase.firestore.FieldValue.serverTimestamp();
   console.log('🚀 MF Portfolio Builder — initialising Firestore...');
 
   try {
