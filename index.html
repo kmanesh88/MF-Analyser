@@ -9275,5 +9275,72 @@ window.MFPortfolioBuilder.fixCategories = async function() {
 };
   console.log('✅ Momentum Scorer loaded. Run: MFPortfolioBuilder.scoreMomentumFunds(console.log)');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, setDoc, getDocs } 
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+window.MFPortfolioBuilder.fixCategories = async function() {
+  const db = getFirestore();
+  console.log('🔧 Fixing fund categories...');
+  const snap  = await getDocs(collection(db,'fund_universe'));
+  const funds = snap.docs.map(d=>d.data());
+  console.log('Total funds: '+funds.length);
+  const cfMap = window.MFPortfolioBuilder.REF.categoryFramework;
+  let fixed=0, processed=0;
+  for(let i=0;i<funds.length;i+=10) {
+    await Promise.all(funds.slice(i,i+10).map(async f => {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+f.schemeCode);
+        const d=await r.json();
+        const sc=d.meta?.scheme_category||'';
+        let cat='Other';
+        if(sc.includes('Small Cap'))   cat='Small Cap Fund';
+        else if(sc.includes('Mid Cap'))     cat='Mid Cap Fund';
+        else if(sc.includes('Large & Mid')||sc.includes('Large and Mid')) cat='Large & Mid Cap Fund';
+        else if(sc.includes('Large Cap'))   cat='Large Cap Fund';
+        else if(sc.includes('Flexi Cap'))   cat='Flexi Cap Fund';
+        else if(sc.includes('Multi Cap'))   cat='Multi Cap Fund';
+        else if(sc.includes('Value'))       cat='Value Fund';
+        else if(sc.includes('Contra'))      cat='Contra Fund';
+        else if(sc.includes('Focused'))     cat='Focused Fund';
+        else if(sc.includes('ELSS'))        cat='ELSS';
+        else if(sc.includes('Sectoral'))    cat='Sectoral Fund';
+        else if(sc.includes('Thematic'))    cat='Thematic Fund';
+        else if(sc.includes('Multi Asset')) cat='Multi Asset Allocation Fund';
+        else if(sc.includes('Overnight'))   cat='Overnight Fund';
+        else if(sc.includes('Liquid'))      cat='Liquid Fund';
+        else if(sc.includes('Ultra Short')) cat='Ultra Short Duration Fund';
+        else if(sc.includes('Low Duration')) cat='Low Duration Fund';
+        else if(sc.includes('Money Market')) cat='Money Market Fund';
+        else if(sc.includes('Short Duration')) cat='Short Duration Fund';
+        else if(sc.includes('Medium Duration')) cat='Medium Duration Fund';
+        else if(sc.includes('Corporate Bond')) cat='Corporate Bond Fund';
+        else if(sc.includes('Banking and PSU')||sc.includes('Banking & PSU')) cat='Banking and PSU Fund';
+        else if(sc.includes('Long Duration')) cat='Long Duration Fund';
+        else if(sc.includes('Gilt') && sc.includes('10')) cat='Gilt Fund with 10 year constant duration';
+        else if(sc.includes('Gilt'))        cat='Gilt Fund';
+        else if(sc.includes('Dynamic Bond')) cat='Dynamic Bond Fund';
+        else if(sc.includes('Gold'))        cat='Gold ETF';
+        else if(sc.includes('Silver'))      cat='Silver ETF';
+        if(cat===f.category) return; // already correct
+        const fw=cfMap[cat]||{framework:'Uncategorised',assetClass:'other'};
+        await setDoc(doc(db,'fund_universe',String(f.schemeCode)),{
+          category:cat, framework:fw.framework, assetClass:fw.assetClass, updatedAt:new Date()
+        },{merge:true});
+        fixed++;
+      } catch(e) {}
+    }));
+    processed+=Math.min(10,funds.length-i);
+    if(processed%100===0) console.log('Processed '+processed+'/'+funds.length+' | Fixed: '+fixed);
+    await new Promise(r=>setTimeout(r,200));
+  }
+  console.log('✅ Done! Fixed '+fixed+' funds.');
+  alert('✅ Fixed '+fixed+' fund categories!');
+};
+
+console.log('✅ Category Fixer loaded. Run: MFPortfolioBuilder.fixCategories()');
+</script>
 </body>
 </html>
