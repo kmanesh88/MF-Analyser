@@ -9975,5 +9975,214 @@ window.MFPortfolioBuilder.scoreRateStrategyFunds = async function(cb) {
 
 console.log('✅ Rate Strategy Scorer loaded. Run: MFPortfolioBuilder.scoreRateStrategyFunds(console.log)');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, getDocs, query, where, writeBatch }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+function parseNavDate(str) { const [d,m,y]=str.split('-'); return new Date(y,m-1,d); }
+function calcCAGR(s,e,y) { if(!s||!e||y<=0)return null; return ((e/s)**(1/y)-1)*100; }
+function getNavOnDate(nav,target) { for(const e of nav){if(parseNavDate(e.date)<=target)return parseFloat(e.nav);} return null; }
+function stdDev(arr) { if(arr.length<2)return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.map(v=>(v-m)**2).reduce((s,v)=>s+v,0)/(arr.length-1)); }
+function arrMean(arr) { return arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0; }
+function calcFundAge(nav) { const o=nav[nav.length-1];if(!o)return 0;return Math.round(((new Date()-parseNavDate(o.date))/(1000*60*60*24*365.25))*10)/10; }
+function calcStdReturns(nav) { const today=new Date(),cn=parseFloat(nav[0]?.nav),r={};for(const [k,y] of [['return1yr',1],['return3yr',3],['return5yr',5]]){const pd=new Date(today);pd.setFullYear(pd.getFullYear()-y);const pn=getNavOnDate(nav,pd);r[k]=pn?Math.round(calcCAGR(pn,cn,y)*100)/100:null;}return r; }
+function pctRank(val,arr,dir) { if(!arr.length)return 50;const s=[...arr].sort((a,b)=>a-b);const p=(s.filter(v=>v<val).length/s.length)*100;return dir==='higher'?Math.round(p):Math.round(100-p); }
+
+// Tracking error vs gold category average
+// Since we don't have MCX gold price directly, we use the category average NAV
+// as a proxy benchmark — funds that deviate least from category avg track gold best
+function calcTrackingError(nav, categoryAvgReturns) {
+  const sorted=[...nav].reverse();
+  const monthlyReturns=[];
+  let cm='',ms=null,me=null;
+  for(const e of sorted){
+    const d=parseNavDate(e.date);
+    const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(p!==cm){
+      if(cm&&ms&&me){
+        const ret=(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)*100;
+        monthlyReturns.push({period:cm,return:ret});
+      }
+      cm=p;ms=e;
+    }
+    me=e;
+  }
+  if(monthlyReturns.length<12) return null;
+
+  // Tracking error = std dev of (fund return - category avg return) per month
+  const diffs=[];
+  for(const m of monthlyReturns) {
+    const catRet=categoryAvgReturns[m.period];
+    if(catRet!==undefined) diffs.push(m.return-catRet);
+  }
+  if(diffs.length<6) return null;
+  return Math.round(stdDev(diffs)*Math.sqrt(12)*100)/100; // annualised
+}
+
+window.MFPortfolioBuilder.scoreGoldFunds = async function(cb) {
+  const db = getFirestore();
+  const log = (msg,pct) => { console.log(msg); cb?.(msg,pct); };
+  log('Fetching Gold funds...', 5);
+
+  const categories = ['Gold ETF','Gold Fund'];
+  let allFunds = [];
+  for(const cat of categories) {
+    const snap = await getDocs(query(collection(db,'fund_universe'), where('category','==',cat), where('planType','==','Regular')));
+    const funds = snap.docs.map(d=>d.data()).filter(f=>
+      !f.schemeName.toLowerCase().includes('idcw') &&
+      !f.schemeName.toLowerCase().includes('dividend') &&
+      !f.schemeName.toLowerCase().includes('defunct') &&
+      !f.schemeName.toLowerCase().includes('bonus')
+    );
+    allFunds = [...allFunds, ...funds];
+    log('Found '+funds.length+' '+cat+' funds', 5);
+  }
+  log('Total Gold funds: '+allFunds.length, 10);
+
+  // Step 1: Fetch all NAV data first
+  log('Fetching NAV data...', 12);
+  const navDataMap={};
+  let done=0;
+  for(let i=0;i<allFunds.length;i+=10) {
+    await Promise.all(allFunds.slice(i,i+10).map(async f => {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+f.schemeCode);
+        const d=await r.json();
+        if((d.data||[]).length>=252) navDataMap[f.schemeCode]={meta:d.meta,nav:d.data};
+      } catch(e) {}
+    }));
+    done+=Math.min(10,allFunds.length-i);
+    log('Fetching: '+done+'/'+allFunds.length, 12+Math.round((done/allFunds.length)*20));
+    await new Promise(r=>setTimeout(r,200));
+  }
+
+  // Step 2: Compute category average monthly returns (gold benchmark proxy)
+  log('Computing gold category average...', 33);
+  const categoryAvgReturns={};
+  const allMonthlyReturns={};
+
+  for(const [code, data] of Object.entries(navDataMap)) {
+    const sorted=[...data.nav].reverse();
+    let cm='',ms=null,me=null;
+    for(const e of sorted){
+      const d=parseNavDate(e.date);
+      const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      if(p!==cm){
+        if(cm&&ms&&me){
+          const ret=(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)*100;
+          if(!allMonthlyReturns[p]) allMonthlyReturns[p]=[];
+          allMonthlyReturns[p].push(ret);
+        }
+        cm=p;ms=e;
+      }
+      me=e;
+    }
+  }
+  for(const [period, returns] of Object.entries(allMonthlyReturns)) {
+    categoryAvgReturns[period]=arrMean(returns);
+  }
+
+  // Step 3: Compute metrics
+  log('Computing metrics...', 35);
+  const metrics=[];
+  for(const f of allFunds) {
+    const data=navDataMap[f.schemeCode];
+    if(!data) continue;
+    const nav=data.nav;
+    const age=calcFundAge(nav);
+    const sr=calcStdReturns(nav);
+    const te=calcTrackingError(nav,categoryAvgReturns);
+    metrics.push({
+      schemeCode:f.schemeCode,schemeName:f.schemeName,
+      category:f.category,amcName:data.meta?.fund_house||'',
+      age,...sr,trackingError:te,
+    });
+  }
+
+  log('Metrics done: '+metrics.length+' funds', 75);
+
+  // Gateway
+  const qual=metrics.filter(m=>
+    m.age>=3 &&
+    m.return3yr!==null &&
+    m.return3yr>0 &&
+    m.return1yr!==null
+  );
+  const fail=metrics.filter(m=>m.age<3||m.return3yr===null||m.return3yr<=0);
+  log('Gateway: '+qual.length+' passed, '+fail.length+' failed', 80);
+
+  const catAvg5yr=arrMean(qual.map(f=>f.return5yr).filter(v=>v!==null));
+  const catAvg3yr=arrMean(qual.map(f=>f.return3yr).filter(v=>v!==null));
+
+  // Score within each category
+  const cats=[...new Set(qual.map(f=>f.category))];
+  for(const cat of cats) {
+    const cf=qual.filter(f=>f.category===cat);
+    const aTE=cf.map(f=>f.trackingError).filter(v=>v!==null);
+    const aR3=cf.map(f=>f.return3yr).filter(v=>v!==null);
+    const aR5=cf.map(f=>f.return5yr).filter(v=>v!==null);
+
+    for(const f of cf) {
+      const sc={
+        // Gold framework weights:
+        // tracking error: 55% (most important — must track gold)
+        // return3yr: 25% (higher return = better tracking + lower cost)
+        // return5yr: 20%
+        trackingError: f.trackingError!==null ? pctRank(f.trackingError,aTE,'lower') : 50,
+        return3yr:     f.return3yr!==null     ? pctRank(f.return3yr,aR3,'higher')   : 50,
+        return5yr:     f.return5yr!==null     ? pctRank(f.return5yr,aR5,'higher')   : 50,
+      };
+      f.cs=sc;
+      f.ps=Math.round(
+        sc.trackingError*0.55+
+        sc.return3yr*0.25+
+        sc.return5yr*0.20
+      );
+      f.vsCategory3yr=f.return3yr!==null?Math.round((f.return3yr-catAvg3yr)*100)/100:null;
+      f.dedupKey=f.amcName+'_'+f.category;
+    }
+  }
+
+  // Save to Firestore
+  log('Saving to Firestore...', 88);
+  const all=[...qual.map(f=>({...f,gp:true})),...fail.map(f=>({...f,gp:false,ps:0,cs:{}}))];
+  for(let i=0;i<all.length;i+=400) {
+    const wb=writeBatch(db);
+    for(const f of all.slice(i,i+400)) {
+      wb.set(doc(db,'framework_scores',f.schemeCode+'_Gold'),{
+        schemeCode:f.schemeCode,schemeName:f.schemeName,category:f.category,amcName:f.amcName,
+        framework:'Gold',scoredAt:new Date(),gatewayPassed:f.gp,
+        rawValues:{
+          fundAge:f.age,return1yr:f.return1yr,return3yr:f.return3yr,
+          return5yr:f.return5yr||null,trackingError:f.trackingError||null,
+          vsCategory3yr:f.vsCategory3yr||null,
+          categoryAvg3yr:Math.round(catAvg3yr*100)/100,
+          categoryAvg5yr:Math.round(catAvg5yr*100)/100,
+        },
+        componentScores:f.cs||{},perfScore:f.ps||0,compositeScore:f.ps||0,
+        scoringComplete:false,manualDataAdded:false,updatedAt:new Date(),
+      },{merge:true});
+    }
+    await wb.commit();
+    log('Saved batch '+(Math.floor(i/400)+1), 92);
+  }
+
+  const seen=new Set();
+  const deduped=qual.filter(f=>{if(seen.has(f.dedupKey))return false;seen.add(f.dedupKey);return true;});
+  const top10=deduped.sort((a,b)=>b.ps-a.ps).slice(0,10);
+  console.log('\n🏆 TOP 10 GOLD FUNDS:');
+  top10.forEach((f,i)=>console.log(
+    (i+1)+'. ['+f.category+'] '+f.schemeName+
+    '\n   Score:'+f.ps+' | 3yr:'+f.return3yr+'% | 5yr:'+f.return5yr+'% | TrackingError:'+f.trackingError+'% | vs cat:'+f.vsCategory3yr+'%'
+  ));
+  log('✅ Gold scoring complete!', 100);
+  alert('✅ Gold scoring done!\n'+qual.length+' funds scored.');
+  return {total:metrics.length,qualified:qual.length,failed:fail.length,top10};
+};
+
+console.log('✅ Gold Scorer loaded. Run: MFPortfolioBuilder.scoreGoldFunds(console.log)');
+</script>
 </body>
 </html>
