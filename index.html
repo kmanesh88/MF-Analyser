@@ -10034,7 +10034,10 @@ window.MFPortfolioBuilder.scoreGoldFunds = async function(cb) {
       !f.schemeName.toLowerCase().includes('idcw') &&
       !f.schemeName.toLowerCase().includes('dividend') &&
       !f.schemeName.toLowerCase().includes('defunct') &&
-      !f.schemeName.toLowerCase().includes('bonus')
+    !f.schemeName.toLowerCase().includes('bonus') &&
+      !f.schemeName.toLowerCase().includes('mining') &&
+      !f.schemeName.toLowerCase().includes('overseas') &&
+      !f.schemeName.toLowerCase().includes('payout')
     );
     allFunds = [...allFunds, ...funds];
     log('Found '+funds.length+' '+cat+' funds', 5);
