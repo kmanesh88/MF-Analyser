@@ -8050,7 +8050,6 @@ window.MFPortfolioBuilder.fixMidSmallCap = async function() {
     alert('❌ Error: ' + e.message);
   }
 };
- // Global fund filter — applied in all scorers
 window.MFPortfolioBuilder.filterFunds = function(funds) {
   return funds.filter(f => {
     const n = f.schemeName.toLowerCase();
@@ -8098,7 +8097,7 @@ window.MFPortfolioBuilder.scoreQualityFunds = async function(cb) {
   const funds = snap.docs.map(d => d.data()).filter(f =>
    !f.schemeName.toLowerCase().includes('idcw') &&
     !f.schemeName.toLowerCase().includes('dividend') &&
-    !f.schemeName.toLowerCase().includes('bonus') &&
+    !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
     f.category !== 'ELSS' &&
     !f.schemeName.toLowerCase().includes('direct')                                                
   );
@@ -8274,7 +8273,7 @@ window.MFPortfolioBuilder.scoreValueFunds = async function(cb) {
     where('planType', '==', 'Regular')
   ));
   const funds = snap.docs.map(d => d.data())
-  .filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct'));
+  .filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct'));
   log(`Found ${funds.length} Value/Contra Regular Growth funds`, 10);
 
   // Fetch benchmark — Nifty 500 proxy
@@ -8473,7 +8472,7 @@ window.MFPortfolioBuilder.scoreGARPFunds = async function(cb) {
   ));
   const funds = snap.docs.map(d => d.data()).filter(f =>
    !f.schemeName.toLowerCase().includes('dividend') &&
-    !f.schemeName.toLowerCase().includes('bonus') &&
+    !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
     !f.schemeName.toLowerCase().includes('direct')
   );
   log('Found ' + funds.length + ' GARP Regular Growth funds', 10);
@@ -8681,7 +8680,7 @@ window.MFPortfolioBuilder.scoreMidCapFunds = async function(cb) {
   ));
   const funds = snap.docs.map(d => d.data()).filter(f =>
    !f.schemeName.toLowerCase().includes('dividend') &&
-    !f.schemeName.toLowerCase().includes('bonus') &&
+    !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
     !f.schemeName.toLowerCase().includes('direct')
   );
   log('Found ' + funds.length + ' Mid Cap Regular Growth funds', 10);
@@ -8866,7 +8865,7 @@ window.MFPortfolioBuilder.scoreSmallCapFunds = async function(cb) {
   ));
   const funds = snap.docs.map(d => d.data()).filter(f =>
    !f.schemeName.toLowerCase().includes('dividend') &&
-    !f.schemeName.toLowerCase().includes('bonus') &&
+    !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
     !f.schemeName.toLowerCase().includes('direct')
   );
   log('Found ' + funds.length + ' Small Cap Regular Growth funds', 10);
@@ -9082,7 +9081,7 @@ window.MFPortfolioBuilder.scoreMomentumFunds = async function(cb) {
   ));
   const funds = snap.docs.map(d => d.data()).filter(f =>
    !f.schemeName.toLowerCase().includes('dividend') &&
-    !f.schemeName.toLowerCase().includes('bonus') &&
+    !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
     !f.schemeName.toLowerCase().includes('direct') &&
     f.category !== 'Multi Asset Allocation Fund'
   );
@@ -9646,7 +9645,7 @@ window.MFPortfolioBuilder.scoreIncomeGenerationFunds = async function(cb) {
       !f.schemeName.toLowerCase().includes('idcw') &&
       !f.schemeName.toLowerCase().includes('dividend') &&
      !f.schemeName.toLowerCase().includes('defunct') &&
-     !f.schemeName.toLowerCase().includes('bonus') &&
+     !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
       !f.schemeName.toLowerCase().includes('direct')
     );
     allFunds = [...allFunds, ...funds];
@@ -9854,7 +9853,7 @@ window.MFPortfolioBuilder.scoreRateStrategyFunds = async function(cb) {
       !f.schemeName.toLowerCase().includes('idcw') &&
       !f.schemeName.toLowerCase().includes('dividend') &&
      !f.schemeName.toLowerCase().includes('defunct') &&
-      !f.schemeName.toLowerCase().includes('bonus')
+      !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct')
     );
     allFunds = [...allFunds, ...funds];
     log('Found '+funds.length+' '+cat+' funds', 5);
@@ -10054,7 +10053,7 @@ window.MFPortfolioBuilder.scoreGoldFunds = async function(cb) {
       !f.schemeName.toLowerCase().includes('idcw') &&
       !f.schemeName.toLowerCase().includes('dividend') &&
       !f.schemeName.toLowerCase().includes('defunct') &&
-    !f.schemeName.toLowerCase().includes('bonus') &&
+    !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
       !f.schemeName.toLowerCase().includes('mining') &&
       !f.schemeName.toLowerCase().includes('overseas') &&
       !f.schemeName.toLowerCase().includes('payout')
@@ -10571,7 +10570,7 @@ window.MFPortfolioBuilder.scoreSilverFunds = async function(cb) {
       !f.schemeName.toLowerCase().includes('idcw') &&
       !f.schemeName.toLowerCase().includes('dividend') &&
       !f.schemeName.toLowerCase().includes('defunct') &&
-      !f.schemeName.toLowerCase().includes('bonus') &&
+      !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
      !f.schemeName.toLowerCase().includes('direct') &&
       (f.schemeName.toLowerCase().includes('silver') || f.category === 'Silver ETF')
     );
