@@ -9392,5 +9392,189 @@ const searches = ['pharma','technology','banking','infrastructure','consumption'
 };
   console.log('✅ Category Fixer loaded. Run: MFPortfolioBuilder.fixCategories()');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, getDocs, query, where, writeBatch }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+function parseNavDate(str) { const [d,m,y]=str.split('-'); return new Date(y,m-1,d); }
+function calcCAGR(s,e,y) { if(!s||!e||y<=0)return null; return ((e/s)**(1/y)-1)*100; }
+function getNavOnDate(nav,target) { for(const e of nav){if(parseNavDate(e.date)<=target)return parseFloat(e.nav);} return null; }
+function stdDev(arr) { if(arr.length<2)return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.map(v=>(v-m)**2).reduce((s,v)=>s+v,0)/(arr.length-1)); }
+function arrMean(arr) { return arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0; }
+function calcFundAge(nav) { const o=nav[nav.length-1];if(!o)return 0;return Math.round(((new Date()-parseNavDate(o.date))/(1000*60*60*24*365.25))*10)/10; }
+function calcStdReturns(nav) { const today=new Date(),cn=parseFloat(nav[0]?.nav),r={};for(const [k,y] of [['return1yr',1],['return3yr',3],['return5yr',5]]){const pd=new Date(today);pd.setFullYear(pd.getFullYear()-y);const pn=getNavOnDate(nav,pd);r[k]=pn?Math.round(calcCAGR(pn,cn,y)*100)/100:null;}return r; }
+function pctRank(val,arr,dir) { if(!arr.length)return 50;const s=[...arr].sort((a,b)=>a-b);const p=(s.filter(v=>v<val).length/s.length)*100;return dir==='higher'?Math.round(p):Math.round(100-p); }
+
+// Monthly return consistency — std dev of monthly returns
+// For debt funds, lower is better — we want boring, predictable returns
+function calcMonthlyConsistency(nav) {
+  const sorted=[...nav].reverse();
+  const monthly=[];
+  let cm='',ms=null,me=null;
+  for(const e of sorted){
+    const d=parseNavDate(e.date);
+    const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(p!==cm){if(cm&&ms&&me){const ret=(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)*100;monthly.push(ret);}cm=p;ms=e;}me=e;
+  }
+  if(monthly.length<12)return null;
+  return Math.round(stdDev(monthly)*100)/100;
+}
+
+// Check for any negative NAV months — credit event signal
+function countNegativeMonths(nav) {
+  const sorted=[...nav].reverse();
+  let count=0,cm='',ms=null,me=null;
+  for(const e of sorted){
+    const d=parseNavDate(e.date);
+    const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(p!==cm){if(cm&&ms&&me){const ret=(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)*100;if(ret<-0.5)count++;}cm=p;ms=e;}me=e;
+  }
+  return count;
+}
+
+// Rolling 1yr returns for debt
+function calcRolling1yr(nav) {
+  const sorted=[...nav].reverse();
+  const days=365;
+  const results=[];
+  for(let i=days;i<sorted.length;i++){
+    const e=parseFloat(sorted[i].nav),b=parseFloat(sorted[i-days].nav);
+    if(b>0){const c=calcCAGR(b,e,1);if(c!==null)results.push(c);}
+  }
+  return results;
+}
+
+window.MFPortfolioBuilder.scoreCapitalPreservationFunds = async function(cb) {
+  const db = getFirestore();
+  const log = (msg,pct) => { console.log(msg); cb?.(msg,pct); };
+  log('Fetching Capital Preservation funds...', 5);
+
+  // Categories: Overnight, Liquid, Ultra Short, Low Duration, Money Market
+  const categories = ['Overnight Fund','Liquid Fund','Ultra Short Duration Fund','Low Duration Fund','Money Market Fund'];
+  let allFunds = [];
+  for(const cat of categories) {
+    const snap = await getDocs(query(collection(db,'fund_universe'), where('category','==',cat), where('planType','==','Regular')));
+    const funds = snap.docs.map(d=>d.data()).filter(f=>!f.schemeName.toLowerCase().includes('idcw')&&!f.schemeName.toLowerCase().includes('dividend'));
+    allFunds = [...allFunds, ...funds];
+    log('Found '+funds.length+' '+cat+' funds', 5);
+  }
+  log('Total Capital Preservation funds: '+allFunds.length, 10);
+
+  const metrics=[]; let done=0;
+  for(let i=0;i<allFunds.length;i+=10) {
+    await Promise.all(allFunds.slice(i,i+10).map(async f => {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+f.schemeCode);
+        const d=await r.json();
+        const nav=d.data||[];
+        if(nav.length<252)return;
+        const age=calcFundAge(nav);
+        const sr=calcStdReturns(nav);
+        const mc=calcMonthlyConsistency(nav);
+        const negMonths=countNegativeMonths(nav);
+        const rolling1yr=calcRolling1yr(nav);
+        const rollingAvg1yr=rolling1yr.length?Math.round(arrMean(rolling1yr)*100)/100:null;
+        const rollingConsistency=rolling1yr.length>4?Math.round(stdDev(rolling1yr)*100)/100:null;
+        metrics.push({
+          schemeCode:f.schemeCode,schemeName:f.schemeName,
+          category:f.category,amcName:d.meta?.fund_house||'',
+          age,...sr,rollingAvg1yr,rollingConsistency,
+          monthlyConsistency:mc,negativeMonths:negMonths,
+        });
+      } catch(e) { console.warn('Skip '+f.schemeCode); }
+    }));
+    done+=Math.min(10,allFunds.length-i);
+    log('Computing: '+done+'/'+allFunds.length, 15+Math.round((done/allFunds.length)*60));
+    await new Promise(r=>setTimeout(r,200));
+  }
+
+  log('Metrics done: '+metrics.length+' funds', 75);
+
+  // Gateway
+  // No credit events (negative months > 2 = flag)
+  // Fund age >= 3 years
+  // Must have 3yr return data
+  const qual=metrics.filter(m=>
+    m.age>=3 &&
+    m.return3yr!==null &&
+    m.negativeMonths<=2
+  );
+  const fail=metrics.filter(m=>
+    m.age<3||m.return3yr===null||m.negativeMonths>2
+  );
+  log('Gateway: '+qual.length+' passed, '+fail.length+' failed', 80);
+
+  // Score within each category
+  const cats=[...new Set(qual.map(f=>f.category))];
+  for(const cat of cats) {
+    const cf=qual.filter(f=>f.category===cat);
+    const aR3 =cf.map(f=>f.return3yr).filter(v=>v!==null);
+    const aRC =cf.map(f=>f.rollingConsistency).filter(v=>v!==null);
+    const aMC =cf.map(f=>f.monthlyConsistency).filter(v=>v!==null);
+    const aRA =cf.map(f=>f.rollingAvg1yr).filter(v=>v!==null);
+    const aNM =cf.map(f=>f.negativeMonths).filter(v=>v!==null);
+
+    for(const f of cf) {
+      const sc={
+        // Capital preservation weights:
+        // return consistency: 35%, yield (3yr return): 30%, negative months: 20%, rolling avg: 15%
+        returnConsistency:  f.rollingConsistency!==null ? pctRank(f.rollingConsistency,aRC,'lower') : 50,
+        monthlyConsistency: f.monthlyConsistency!==null ? pctRank(f.monthlyConsistency,aMC,'lower') : 50,
+        return3yr:          f.return3yr!==null          ? pctRank(f.return3yr,aR3,'higher')         : 50,
+        rollingAvg1yr:      f.rollingAvg1yr!==null      ? pctRank(f.rollingAvg1yr,aRA,'higher')     : 50,
+        negativeMonths:     pctRank(f.negativeMonths,aNM,'lower'),
+      };
+      f.cs=sc;
+      f.ps=Math.round(
+        sc.returnConsistency*0.25+
+        sc.monthlyConsistency*0.25+
+        sc.return3yr*0.25+
+        sc.rollingAvg1yr*0.15+
+        sc.negativeMonths*0.10
+      );
+      f.dedupKey=f.amcName+'_'+f.category;
+    }
+  }
+
+  // Save to Firestore
+  log('Saving to Firestore...', 88);
+  const all=[...qual.map(f=>({...f,gp:true})),...fail.map(f=>({...f,gp:false,ps:0,cs:{}}))];
+  for(let i=0;i<all.length;i+=400) {
+    const wb=writeBatch(db);
+    for(const f of all.slice(i,i+400)) {
+      wb.set(doc(db,'framework_scores',f.schemeCode+'_CapPres'),{
+        schemeCode:f.schemeCode,schemeName:f.schemeName,category:f.category,amcName:f.amcName,
+        framework:'CapitalPreservation',scoredAt:new Date(),gatewayPassed:f.gp,
+        rawValues:{
+          fundAge:f.age,return1yr:f.return1yr,return3yr:f.return3yr,
+          return5yr:f.return5yr||null,rollingAvg1yr:f.rollingAvg1yr,
+          rollingConsistency:f.rollingConsistency,monthlyConsistency:f.monthlyConsistency,
+          negativeMonths:f.negativeMonths,
+        },
+        componentScores:f.cs||{},perfScore:f.ps||0,compositeScore:f.ps||0,
+        scoringComplete:false,manualDataAdded:false,updatedAt:new Date(),
+      },{merge:true});
+    }
+    await wb.commit();
+    log('Saved batch '+(Math.floor(i/400)+1), 92);
+  }
+
+  const seen=new Set();
+  const deduped=qual.filter(f=>{if(seen.has(f.dedupKey))return false;seen.add(f.dedupKey);return true;});
+  const top10=deduped.sort((a,b)=>b.ps-a.ps).slice(0,10);
+  console.log('\n🏆 TOP 10 CAPITAL PRESERVATION FUNDS:');
+  top10.forEach((f,i)=>console.log(
+    (i+1)+'. ['+f.category+'] '+f.schemeName+
+    '\n   Score:'+f.ps+' | 3yr:'+f.return3yr+'% | NegMonths:'+f.negativeMonths+' | Consistency:'+f.rollingConsistency
+  ));
+  log('✅ Capital Preservation scoring complete!', 100);
+  alert('✅ Capital Preservation scoring done!\n'+qual.length+' funds scored.');
+  return {total:metrics.length,qualified:qual.length,failed:fail.length,top10};
+};
+
+console.log('✅ Capital Preservation Scorer loaded. Run: MFPortfolioBuilder.scoreCapitalPreservationFunds(console.log)');
+</script>
 </body>
 </html>
