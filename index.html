@@ -8050,6 +8050,19 @@ window.MFPortfolioBuilder.fixMidSmallCap = async function() {
     alert('❌ Error: ' + e.message);
   }
 };
+ // Global fund filter — applied in all scorers
+window.MFPortfolioBuilder.filterFunds = function(funds) {
+  return funds.filter(f => {
+    const n = f.schemeName.toLowerCase();
+    return !n.includes('direct') &&
+           !n.includes('idcw') &&
+           !n.includes('dividend') &&
+           !n.includes('bonus') &&
+           !n.includes('defunct') &&
+           !n.includes('payout') &&
+           !n.includes('reinvestment');
+  });
+};
   console.log('✅ MF Portfolio Builder loaded. Run: MFPortfolioBuilder.initFirestore()');
 </script>
 <script type="module">
