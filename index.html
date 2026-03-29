@@ -8856,7 +8856,7 @@ window.MFPortfolioBuilder.scoreSmallCapFunds = async function(cb) {
     where('category','==','Small Cap Fund'),
     where('planType','==','Regular')
   ));
- const funds = snap.docs.map(d => d.data()).filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct'));
+ const funds = snap.docs.map(d => d.data()).filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('payout'));
   log('Found ' + funds.length + ' Small Cap Regular Growth funds', 10);
 
   // Benchmark — Nifty Smallcap 250 proxy
