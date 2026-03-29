@@ -10247,7 +10247,7 @@ window.MFPortfolioBuilder.IndicatorEngine = {
       ind.nifty50Return1yr=pn?Math.round(((cn-pn)/pn*100)*100)/100:null;
     } catch(e){ind.nifty50Return1yr=null;}
     try {
-      const r=await fetch('https://api.mfapi.in/mf/109923');
+      const r=await fetch('https://api.mfapi.in/mf/111954');
       const d=await r.json(); const nav=d.data;
       const cn=parseFloat(nav[0]?.nav); const today=new Date();
       const ago=new Date(today); ago.setFullYear(ago.getFullYear()-1);
@@ -10256,7 +10256,7 @@ window.MFPortfolioBuilder.IndicatorEngine = {
       ind.goldNAV=cn;
     } catch(e){ind.goldReturn1yr=null;}
     try {
-      const r=await fetch('https://api.mfapi.in/mf/150296');
+      const r=await fetch('https://api.mfapi.in/mf/149759');
       const d=await r.json(); const nav=d.data;
       const cn=parseFloat(nav[0]?.nav);
       ind.silverNAV=cn;
