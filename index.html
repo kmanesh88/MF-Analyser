@@ -10260,6 +10260,9 @@ window.MFPortfolioBuilder.IndicatorEngine = {
       const d=await r.json(); const nav=d.data;
       const cn=parseFloat(nav[0]?.nav);
       ind.silverNAV=cn;
+      const today2=new Date(); const ago2=new Date(today2); ago2.setFullYear(ago2.getFullYear()-1);
+      let pn2=null; for(const e of nav){const dt=new Date(e.date.split('-').reverse().join('-'));if(dt<=ago2){pn2=parseFloat(e.nav);break;}}
+      ind.silverReturn1yr=pn2?Math.round(((cn-pn2)/pn2*100)*100)/100:null;
     } catch(e){}
     if(ind.goldNAV&&ind.silverNAV) ind.goldSilverRatio=Math.round(ind.goldNAV/ind.silverNAV*10)/10;
     return ind;
@@ -10335,6 +10338,14 @@ window.MFPortfolioBuilder.IndicatorEngine = {
       if(gr>=15) f={...THRESHOLDS.gold.momentum.strong,value:gr+'%',indicator:'Gold 1yr Return',assetClass:'gold'};
       else if(gr>=5) f={...THRESHOLDS.gold.momentum.moderate,value:gr+'%',indicator:'Gold 1yr Return',assetClass:'gold'};
       else{f={...THRESHOLDS.gold.momentum.weak,value:gr+'%',indicator:'Gold 1yr Return',assetClass:'gold'};adj.gold-=2;}
+      flags.push(f);
+    }
+   const sr=auto.silverReturn1yr;
+    if(sr!=null){
+      let f;
+      if(sr>=20) f={label:'🟢 Strong silver momentum',suggestion:'Silver in strong uptrend — consider increasing allocation',value:sr+'%',indicator:'Silver 1yr Return',assetClass:'silver'};
+      else if(sr>=8) f={label:'✅ Moderate silver trend',suggestion:'Silver trending — maintain allocation',value:sr+'%',indicator:'Silver 1yr Return',assetClass:'silver'};
+      else f={label:'⚠️ Weak silver momentum',suggestion:'Silver weak — reduce or maintain minimal allocation',value:sr+'%',indicator:'Silver 1yr Return',assetClass:'silver'};
       flags.push(f);
     }
     for(const k of Object.keys(adj)) adj[k]=Math.max(-10,Math.min(10,adj[k]));
@@ -10458,7 +10469,7 @@ window.MFPortfolioBuilder.showIndicatorDashboard = async function(baseAllocation
         <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#4fc3f7;font-weight:600;margin-bottom:10px;font-size:12px;">📈 EQUITY</div>${fHTML(eFlags)}</div>
         <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#81c784;font-weight:600;margin-bottom:10px;font-size:12px;">🏦 DEBT</div>${fHTML(dFlags)}${realRate!=null?`<div style="background:#0d1117;border-radius:7px;padding:8px;margin-top:7px;font-size:11px;color:#888;">Real rate: <strong style="color:#e0e0e0;">${realRate}%</strong></div>`:''}</div>
         <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#ffb74d;font-weight:600;margin-bottom:10px;font-size:12px;">🥇 GOLD</div>${fHTML(gFlags)}${auto.goldReturn1yr!=null?`<div style="background:#0d1117;border-radius:7px;padding:8px;margin-top:7px;font-size:11px;color:#888;">Gold 1yr return: <strong style="color:#ffb74d;">${auto.goldReturn1yr}%</strong></div>`:''}</div>
-        <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#ce93d8;font-weight:600;margin-bottom:10px;font-size:12px;">🥈 SILVER</div>${fHTML(sFlags)}${auto.goldSilverRatio?`<div style="background:#0d1117;border-radius:7px;padding:8px;margin-top:7px;font-size:11px;color:#888;">Gold-Silver ratio: <strong style="color:#ce93d8;">${auto.goldSilverRatio}</strong></div>`:''}</div>
+        <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#ce93d8;font-weight:600;margin-bottom:10px;font-size:12px;">🥈 SILVER</div>${fHTML(sFlags)}${auto.goldSilverRatio?`<div style="background:#0d1117;border-radius:7px;padding:8px;margin-top:7px;font-size:11px;color:#888;">Gold-Silver ratio: <strong style="color:#ce93d8;">${auto.goldSilverRatio}</strong></div>`:''}${auto.silverReturn1yr!=null?`<div style="background:#0d1117;border-radius:7px;padding:8px;margin-top:7px;font-size:11px;color:#888;">Silver 1yr return: <strong style="color:#ce93d8;">${auto.silverReturn1yr}%</strong></div>`:''}</div>
       </div>
       <div style="background:#0a0e1a;border-radius:9px;padding:18px;margin-bottom:18px;">
         <div style="font-weight:600;margin-bottom:14px;font-size:13px;">📐 ALLOCATION REVIEW</div>
