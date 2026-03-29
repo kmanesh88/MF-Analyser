@@ -9765,5 +9765,214 @@ window.MFPortfolioBuilder.scoreIncomeGenerationFunds = async function(cb) {
 
 console.log('✅ Income Generation Scorer loaded. Run: MFPortfolioBuilder.scoreIncomeGenerationFunds(console.log)');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, getDocs, query, where, writeBatch }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+function parseNavDate(str) { const [d,m,y]=str.split('-'); return new Date(y,m-1,d); }
+function calcCAGR(s,e,y) { if(!s||!e||y<=0)return null; return ((e/s)**(1/y)-1)*100; }
+function getNavOnDate(nav,target) { for(const e of nav){if(parseNavDate(e.date)<=target)return parseFloat(e.nav);} return null; }
+function stdDev(arr) { if(arr.length<2)return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.map(v=>(v-m)**2).reduce((s,v)=>s+v,0)/(arr.length-1)); }
+function arrMean(arr) { return arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0; }
+function calcFundAge(nav) { const o=nav[nav.length-1];if(!o)return 0;return Math.round(((new Date()-parseNavDate(o.date))/(1000*60*60*24*365.25))*10)/10; }
+function calcStdReturns(nav) { const today=new Date(),cn=parseFloat(nav[0]?.nav),r={};for(const [k,y] of [['return1yr',1],['return3yr',3],['return5yr',5],['return7yr',7]]){const pd=new Date(today);pd.setFullYear(pd.getFullYear()-y);const pn=getNavOnDate(nav,pd);r[k]=pn?Math.round(calcCAGR(pn,cn,y)*100)/100:null;}return r; }
+function pctRank(val,arr,dir) { if(!arr.length)return 50;const s=[...arr].sort((a,b)=>a-b);const p=(s.filter(v=>v<val).length/s.length)*100;return dir==='higher'?Math.round(p):Math.round(100-p); }
+function calcMonthlyConsistency(nav) {
+  const sorted=[...nav].reverse();const monthly=[];let cm='',ms=null,me=null;
+  for(const e of sorted){const d=parseNavDate(e.date);const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;if(p!==cm){if(cm&&ms&&me){const ret=(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)*100;monthly.push(ret);}cm=p;ms=e;}me=e;}
+  if(monthly.length<12)return null;
+  const sd=stdDev(monthly);
+  return sd<50?Math.round(sd*100)/100:null;
+}
+function countNegativeMonths(nav) {
+  const sorted=[...nav].reverse();let count=0,cm='',ms=null,me=null;
+  for(const e of sorted){const d=parseNavDate(e.date);const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;if(p!==cm){if(cm&&ms&&me){const ret=(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)*100;if(ret<-0.5)count++;}cm=p;ms=e;}me=e;}
+  return count;
+}
+function calcRollingReturns(nav,years) {
+  const s=[...nav].reverse(),days=Math.round(years*365),r=[];
+  for(let i=days;i<s.length;i++){const e=parseFloat(s[i].nav),b=parseFloat(s[i-days].nav);if(b>0){const c=calcCAGR(b,e,years);if(c!==null)r.push(c);}}
+  return r;
+}
+
+// Rate cycle performance — how did fund do during RBI rate cut cycles
+// RBI rate cut cycles: Jun 2019 - Mar 2020, May 2020 - Apr 2022 pause, Feb 2023 - present
+// During rate cuts, long duration funds should deliver strong returns
+// We measure: return during known cut periods vs overall return
+function calcRateCycleScore(nav) {
+  // Rate cut period 1: Jun 2019 to Feb 2020
+  const cutStart1 = new Date('2019-06-01');
+  const cutEnd1   = new Date('2020-02-28');
+  // Rate cut period 2: May 2020 to Apr 2022
+  const cutStart2 = new Date('2020-05-01');
+  const cutEnd2   = new Date('2022-04-30');
+
+  const scores = [];
+  for(const [start, end] of [[cutStart1,cutEnd1],[cutStart2,cutEnd2]]) {
+    const navStart = getNavOnDate(nav, end);   // nav at end of cut period
+    const navEnd   = getNavOnDate(nav, start); // nav at start of cut period
+    if(!navStart||!navEnd||navEnd<=0) continue;
+    const years = (end-start)/(1000*60*60*24*365.25);
+    const periodReturn = calcCAGR(navEnd, navStart, years);
+    if(periodReturn!==null) scores.push(periodReturn);
+  }
+  return scores.length ? Math.round(arrMean(scores)*100)/100 : null;
+}
+
+window.MFPortfolioBuilder.scoreRateStrategyFunds = async function(cb) {
+  const db = getFirestore();
+  const log = (msg,pct) => { console.log(msg); cb?.(msg,pct); };
+  log('Fetching Rate Strategy funds...', 5);
+
+  const categories = ['Long Duration Fund','Gilt Fund','Gilt Fund with 10 year constant duration','Dynamic Bond Fund'];
+  let allFunds = [];
+  for(const cat of categories) {
+    const snap = await getDocs(query(collection(db,'fund_universe'), where('category','==',cat), where('planType','==','Regular')));
+    const funds = snap.docs.map(d=>d.data()).filter(f=>
+      !f.schemeName.toLowerCase().includes('idcw') &&
+      !f.schemeName.toLowerCase().includes('dividend') &&
+      !f.schemeName.toLowerCase().includes('defunct')
+    );
+    allFunds = [...allFunds, ...funds];
+    log('Found '+funds.length+' '+cat+' funds', 5);
+  }
+  log('Total Rate Strategy funds: '+allFunds.length, 10);
+
+  const metrics=[]; let done=0;
+  for(let i=0;i<allFunds.length;i+=10) {
+    await Promise.all(allFunds.slice(i,i+10).map(async f => {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+f.schemeCode);
+        const d=await r.json();
+        const nav=d.data||[];
+        if(nav.length<365)return;
+        const age=calcFundAge(nav);
+        const sr=calcStdReturns(nav);
+        const mc=calcMonthlyConsistency(nav);
+        const negMonths=countNegativeMonths(nav);
+        const r5=calcRollingReturns(nav,5);
+        const r3=calcRollingReturns(nav,3);
+        const rollingAvg5yr=r5.length?Math.round(arrMean(r5)*100)/100:null;
+        const rollingAvg3yr=r3.length?Math.round(arrMean(r3)*100)/100:null;
+        const rollingConsistency=r5.length>4?Math.round(stdDev(r5)*100)/100:null;
+        const rc=rollingConsistency!==null&&rollingConsistency<50?rollingConsistency:null;
+        const rateCycleScore=calcRateCycleScore(nav);
+        metrics.push({
+          schemeCode:f.schemeCode,schemeName:f.schemeName,
+          category:f.category,amcName:d.meta?.fund_house||'',
+          age,...sr,rollingAvg5yr,rollingAvg3yr,rollingConsistency:rc,
+          monthlyConsistency:mc,negativeMonths:negMonths,rateCycleScore,
+        });
+      } catch(e) { console.warn('Skip '+f.schemeCode); }
+    }));
+    done+=Math.min(10,allFunds.length-i);
+    log('Computing: '+done+'/'+allFunds.length, 15+Math.round((done/allFunds.length)*60));
+    await new Promise(r=>setTimeout(r,200));
+  }
+
+  log('Metrics done: '+metrics.length+' funds', 75);
+
+  // Gateway — rate strategy needs longer track record
+  // Must have navigated at least one rate cycle (5yr minimum)
+  // Negative months acceptable — rate funds are volatile
+  const qual=metrics.filter(m=>
+    m.age>=5 &&
+    m.return5yr!==null &&
+    m.return5yr>0 &&
+    m.return3yr!==null &&
+    m.return3yr>0 &&
+    m.return1yr!==null &&
+    !m.schemeName.toLowerCase().includes('defunct')
+  );
+  const fail=metrics.filter(m=>
+    m.age<5||m.return5yr===null||m.return5yr<=0
+  );
+  log('Gateway: '+qual.length+' passed, '+fail.length+' failed', 80);
+
+  const catAvg5yr=arrMean(qual.map(f=>f.return5yr).filter(v=>v!==null));
+  log('Category avg 5yr: '+Math.round(catAvg5yr*100)/100+'%', 82);
+
+  // Score within each category
+  const cats=[...new Set(qual.map(f=>f.category))];
+  for(const cat of cats) {
+    const cf=qual.filter(f=>f.category===cat);
+    const aR5 =cf.map(f=>f.return5yr).filter(v=>v!==null);
+    const aR3 =cf.map(f=>f.return3yr).filter(v=>v!==null);
+    const aRA5=cf.map(f=>f.rollingAvg5yr).filter(v=>v!==null);
+    const aRC =cf.map(f=>f.rollingConsistency).filter(v=>v!==null);
+    const aRCS=cf.map(f=>f.rateCycleScore).filter(v=>v!==null);
+    const aNM =cf.map(f=>f.negativeMonths).filter(v=>v!==null);
+
+    for(const f of cf) {
+      const sc={
+        // Rate strategy weights:
+        // rateCycleScore: 30% — did manager position correctly during rate cycles
+        // rollingReturn5yr: 25% — long term performance
+        // return3yr: 20% — medium term
+        // rollingConsistency: 15% — consistency of returns
+        // negMonths: 10% — lower weight since rate funds are inherently volatile
+        rateCycleScore:     f.rateCycleScore!==null    ? pctRank(f.rateCycleScore,aRCS,'higher')    : 50,
+        rollingReturn5yr:   f.rollingAvg5yr!==null     ? pctRank(f.rollingAvg5yr,aRA5,'higher')     : 50,
+        return3yr:          f.return3yr!==null         ? pctRank(f.return3yr,aR3,'higher')          : 50,
+        return5yr:          f.return5yr!==null         ? pctRank(f.return5yr,aR5,'higher')          : 50,
+        rollingConsistency: f.rollingConsistency!==null ? pctRank(f.rollingConsistency,aRC,'lower') : 50,
+        negativeMonths:     pctRank(f.negativeMonths,aNM,'lower'),
+      };
+      f.cs=sc;
+      f.ps=Math.round(
+        sc.rateCycleScore*0.30+
+        sc.rollingReturn5yr*0.25+
+        sc.return3yr*0.20+
+        sc.rollingConsistency*0.15+
+        sc.negativeMonths*0.10
+      );
+      f.vsCategory5yr=f.return5yr!==null?Math.round((f.return5yr-catAvg5yr)*100)/100:null;
+      f.dedupKey=f.amcName+'_'+f.category;
+    }
+  }
+
+  // Save to Firestore
+  log('Saving to Firestore...', 88);
+  const all=[...qual.map(f=>({...f,gp:true})),...fail.map(f=>({...f,gp:false,ps:0,cs:{}}))];
+  for(let i=0;i<all.length;i+=400) {
+    const wb=writeBatch(db);
+    for(const f of all.slice(i,i+400)) {
+      wb.set(doc(db,'framework_scores',f.schemeCode+'_RateStrategy'),{
+        schemeCode:f.schemeCode,schemeName:f.schemeName,category:f.category,amcName:f.amcName,
+        framework:'RateStrategy',scoredAt:new Date(),gatewayPassed:f.gp,
+        rawValues:{
+          fundAge:f.age,return1yr:f.return1yr,return3yr:f.return3yr,
+          return5yr:f.return5yr,rollingAvg3yr:f.rollingAvg3yr,
+          rollingAvg5yr:f.rollingAvg5yr,rollingConsistency:f.rollingConsistency,
+          monthlyConsistency:f.monthlyConsistency,negativeMonths:f.negativeMonths,
+          rateCycleScore:f.rateCycleScore||null,
+          vsCategory5yr:f.vsCategory5yr||null,
+          categoryAvg5yr:Math.round(catAvg5yr*100)/100,
+        },
+        componentScores:f.cs||{},perfScore:f.ps||0,compositeScore:f.ps||0,
+        scoringComplete:false,manualDataAdded:false,updatedAt:new Date(),
+      },{merge:true});
+    }
+    await wb.commit();
+    log('Saved batch '+(Math.floor(i/400)+1), 92);
+  }
+
+  const seen=new Set();
+  const deduped=qual.filter(f=>{if(seen.has(f.dedupKey))return false;seen.add(f.dedupKey);return true;});
+  const top10=deduped.sort((a,b)=>b.ps-a.ps).slice(0,10);
+  console.log('\n🏆 TOP 10 RATE STRATEGY FUNDS:');
+  top10.forEach((f,i)=>console.log(
+    (i+1)+'. ['+f.category+'] '+f.schemeName+
+    '\n   Score:'+f.ps+' | 5yr:'+f.return5yr+'% | 3yr:'+f.return3yr+'% | RateCycle:'+f.rateCycleScore+'% | NegMonths:'+f.negativeMonths
+  ));
+  log('✅ Rate Strategy scoring complete!', 100);
+  alert('✅ Rate Strategy scoring done!\n'+qual.length+' funds scored.');
+  return {total:metrics.length,qualified:qual.length,failed:fail.length,top10};
+};
+
+console.log('✅ Rate Strategy Scorer loaded. Run: MFPortfolioBuilder.scoreRateStrategyFunds(console.log)');
+</script>
 </body>
 </html>
