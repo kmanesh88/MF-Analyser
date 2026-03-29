@@ -8470,10 +8470,7 @@ window.MFPortfolioBuilder.scoreGARPFunds = async function(cb) {
     where('framework','==','GARP'),
     where('planType','==','Regular')
   ));
-  const funds = snap.docs.map(d => d.data()).filter(f =>
-   !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') &&
-    !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
-    !f.schemeName.toLowerCase().includes('direct')
+ const funds = snap.docs.map(d => d.data()).filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct'));
   );
   log('Found ' + funds.length + ' GARP Regular Growth funds', 10);
 
