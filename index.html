@@ -10563,7 +10563,7 @@ window.MFPortfolioBuilder.scoreSilverFunds = async function(cb) {
   if(allFunds.length===0) {
     log('No silver funds found in universe. Adding manually...', 15);
     // Silver ETF FOF scheme codes — Regular Growth plans
-    const silverCodes = ['149759','150747','150296'];
+   const silverCodes = ['149759','150296'];
     for(const code of silverCodes) {
       try {
         const r=await fetch('https://api.mfapi.in/mf/'+code);
