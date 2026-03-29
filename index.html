@@ -9476,7 +9476,8 @@ window.MFPortfolioBuilder.scoreCapitalPreservationFunds = async function(cb) {
         const negMonths=countNegativeMonths(nav);
         const rolling1yr=calcRolling1yr(nav);
         const rollingAvg1yr=rolling1yr.length?Math.round(arrMean(rolling1yr)*100)/100:null;
-        const rollingConsistency=rolling1yr.length>4?Math.round(stdDev(rolling1yr)*100)/100:null;
+       const rc=rolling1yr.length>4?Math.round(stdDev(rolling1yr)*100)/100:null;
+const rollingConsistency=rc!==null&&rc<50?rc:null;
         metrics.push({
           schemeCode:f.schemeCode,schemeName:f.schemeName,
           category:f.category,amcName:d.meta?.fund_house||'',
