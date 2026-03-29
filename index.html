@@ -9626,8 +9626,8 @@ window.MFPortfolioBuilder.scoreIncomeGenerationFunds = async function(cb) {
     const funds = snap.docs.map(d=>d.data()).filter(f=>
       !f.schemeName.toLowerCase().includes('idcw') &&
       !f.schemeName.toLowerCase().includes('dividend') &&
-      !f.schemeName.toLowerCase().includes('defunct') &&
-      !f.schemeName.toLowerCase().includes('bonus plan')
+     !f.schemeName.toLowerCase().includes('defunct') &&
+      !f.schemeName.toLowerCase().includes('bonus')
     );
     allFunds = [...allFunds, ...funds];
     log('Found '+funds.length+' '+cat+' funds', 5);
@@ -9833,7 +9833,8 @@ window.MFPortfolioBuilder.scoreRateStrategyFunds = async function(cb) {
     const funds = snap.docs.map(d=>d.data()).filter(f=>
       !f.schemeName.toLowerCase().includes('idcw') &&
       !f.schemeName.toLowerCase().includes('dividend') &&
-      !f.schemeName.toLowerCase().includes('defunct')
+     !f.schemeName.toLowerCase().includes('defunct') &&
+      !f.schemeName.toLowerCase().includes('bonus')
     );
     allFunds = [...allFunds, ...funds];
     log('Found '+funds.length+' '+cat+' funds', 5);
