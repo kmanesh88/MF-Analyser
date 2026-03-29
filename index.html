@@ -10552,7 +10552,8 @@ window.MFPortfolioBuilder.scoreSilverFunds = async function(cb) {
       !f.schemeName.toLowerCase().includes('dividend') &&
       !f.schemeName.toLowerCase().includes('defunct') &&
       !f.schemeName.toLowerCase().includes('bonus') &&
-      !f.schemeName.toLowerCase().includes('direct')
+     !f.schemeName.toLowerCase().includes('direct') &&
+      (f.schemeName.toLowerCase().includes('silver') || f.category === 'Silver ETF')
     );
     allFunds=[...allFunds,...funds];
     log('Found '+funds.length+' '+cat+' funds', 5);
