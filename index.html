@@ -8083,9 +8083,10 @@ window.MFPortfolioBuilder.scoreQualityFunds = async function(cb) {
 
   const snap = await getDocs(query(collection(db,'fund_universe'), where('framework','in',['Quality']), where('planType','==','Regular')));
   const funds = snap.docs.map(d => d.data()).filter(f =>
-    !f.schemeName.toLowerCase().includes('idcw') &&
+   !f.schemeName.toLowerCase().includes('idcw') &&
     !f.schemeName.toLowerCase().includes('dividend') &&
-    f.category !== 'ELSS'
+    !f.schemeName.toLowerCase().includes('bonus') &&
+    f.category !== 'ELSS' &&
     !f.schemeName.toLowerCase().includes('direct')                                                
   );
   log('Found ' + funds.length + ' Quality Regular Growth funds', 10);
