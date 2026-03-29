@@ -10189,5 +10189,311 @@ window.MFPortfolioBuilder.scoreGoldFunds = async function(cb) {
 
 console.log('✅ Gold Scorer loaded. Run: MFPortfolioBuilder.scoreGoldFunds(console.log)');
 </script>
+<script type="module">
+import { getFirestore, doc, getDoc, setDoc }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+const THRESHOLDS = {
+  equity: {
+    pe: {
+      cheap:    { max:18,  label:'🟢 Cheap',              suggestion:'Consider increasing equity by 5-10%' },
+      fair:     { max:24,  label:'✅ Fair value',          suggestion:'Maintain target equity allocation' },
+      expensive:{ max:30,  label:'⚠️ Slightly expensive',  suggestion:'Consider trimming equity by 5%' },
+      veryExp:  { max:999, label:'🔴 Expensive',           suggestion:'Reduce equity by 8-10%, increase debt/gold' },
+    },
+    vix: {
+      complacent:{ max:12,  label:'😴 Complacent',         suggestion:'Market complacent — be cautious on new equity' },
+      normal:    { max:20,  label:'✅ Normal volatility',   suggestion:'Normal volatility — proceed as planned' },
+      fear:      { max:999, label:'😰 High fear',           suggestion:'High fear = buying opportunity for long term' },
+    },
+  },
+  debt: {
+    rateCycle: {
+      cutting: { label:'✅ Rate cut cycle',  suggestion:'Increase long duration — gilt/dynamic bond favourable' },
+      pause:   { label:'⏸️ Pause',           suggestion:'Neutral — maintain current debt allocation' },
+      hiking:  { label:'⚠️ Rate hike cycle', suggestion:'Reduce long duration — prefer short duration/liquid' },
+    },
+    yield10yr: {
+      low:    { max:6.5, label:'📉 Low yields',      suggestion:'Low yields — long duration less attractive' },
+      normal: { max:7.5, label:'✅ Normal range',     suggestion:'Yields in normal range — balanced approach' },
+      high:   { max:999, label:'📈 High yields',      suggestion:'High yields — lock in long duration now' },
+    },
+  },
+  gold: {
+    gsr: {
+      silverCheap: { min:85, label:'⚠️ Silver cheap vs gold', suggestion:'Consider tilt toward silver over gold' },
+      balanced:    { min:65, label:'✅ Balanced ratio',        suggestion:'Gold-Silver ratio normal' },
+      goldCheap:   { min:0,  label:'🟢 Gold cheap vs silver', suggestion:'Gold relatively attractive' },
+    },
+    momentum: {
+      strong:   { min:15,   label:'🟢 Strong gold momentum', suggestion:'Gold in strong uptrend — maintain or increase' },
+      moderate: { min:5,    label:'✅ Moderate gold trend',   suggestion:'Gold trending — maintain allocation' },
+      weak:     { min:-999, label:'⚠️ Weak gold',             suggestion:'Gold weak — consider reducing gold allocation' },
+    },
+  },
+};
+
+window.MFPortfolioBuilder.IndicatorEngine = {
+  async fetchAutoIndicators() {
+    const ind = {};
+    try {
+      const r=await fetch('https://api.mfapi.in/mf/120716');
+      const d=await r.json(); const nav=d.data;
+      const cn=parseFloat(nav[0]?.nav); const today=new Date();
+      const ago=new Date(today); ago.setFullYear(ago.getFullYear()-1);
+      let pn=null; for(const e of nav){const dt=new Date(e.date.split('-').reverse().join('-'));if(dt<=ago){pn=parseFloat(e.nav);break;}}
+      ind.nifty50Return1yr=pn?Math.round(((cn-pn)/pn*100)*100)/100:null;
+    } catch(e){ind.nifty50Return1yr=null;}
+    try {
+      const r=await fetch('https://api.mfapi.in/mf/109923');
+      const d=await r.json(); const nav=d.data;
+      const cn=parseFloat(nav[0]?.nav); const today=new Date();
+      const ago=new Date(today); ago.setFullYear(ago.getFullYear()-1);
+      let pn=null; for(const e of nav){const dt=new Date(e.date.split('-').reverse().join('-'));if(dt<=ago){pn=parseFloat(e.nav);break;}}
+      ind.goldReturn1yr=pn?Math.round(((cn-pn)/pn*100)*100)/100:null;
+      ind.goldNAV=cn;
+    } catch(e){ind.goldReturn1yr=null;}
+    try {
+      const r=await fetch('https://api.mfapi.in/mf/150296');
+      const d=await r.json(); const nav=d.data;
+      const cn=parseFloat(nav[0]?.nav);
+      ind.silverNAV=cn;
+    } catch(e){}
+    if(ind.goldNAV&&ind.silverNAV) ind.goldSilverRatio=Math.round(ind.goldNAV/ind.silverNAV*10)/10;
+    return ind;
+  },
+
+  async loadManual(db) {
+    const s=await getDoc(doc(db,'market_context','current'));
+    return s.exists()?s.data():{};
+  },
+
+  interpret(manual, auto) {
+    const flags=[]; const adj={equity:0,debt:0,gold:0,silver:0};
+    const pe=manual.nifty500PE;
+    if(pe){
+      let f;
+      if(pe<18){f={...THRESHOLDS.equity.pe.cheap,    value:pe,indicator:'Nifty 500 P/E',assetClass:'equity'};adj.equity+=8;}
+      else if(pe<24){f={...THRESHOLDS.equity.pe.fair,value:pe,indicator:'Nifty 500 P/E',assetClass:'equity'};}
+      else if(pe<30){f={...THRESHOLDS.equity.pe.expensive,value:pe,indicator:'Nifty 500 P/E',assetClass:'equity'};adj.equity-=5;}
+      else{f={...THRESHOLDS.equity.pe.veryExp,value:pe,indicator:'Nifty 500 P/E',assetClass:'equity'};adj.equity-=10;}
+      flags.push(f);
+    }
+    const vix=manual.indiaVIX;
+    if(vix){
+      let f;
+      if(vix<12) f={...THRESHOLDS.equity.vix.complacent,value:vix,indicator:'India VIX',assetClass:'equity'};
+      else if(vix<20) f={...THRESHOLDS.equity.vix.normal,value:vix,indicator:'India VIX',assetClass:'equity'};
+      else f={...THRESHOLDS.equity.vix.fear,value:vix,indicator:'India VIX',assetClass:'equity'};
+      flags.push(f);
+    }
+    const nr=auto.nifty50Return1yr;
+    if(nr!=null){
+      let f;
+      if(nr>=15) f={label:'🟢 Strong equity momentum',suggestion:'Equity in uptrend — maintain allocation',value:nr+'%',indicator:'Nifty 50 1yr Return',assetClass:'equity'};
+      else if(nr>=5) f={label:'✅ Moderate equity trend',suggestion:'Moderate trend — proceed normally',value:nr+'%',indicator:'Nifty 50 1yr Return',assetClass:'equity'};
+      else f={label:'⚠️ Weak equity momentum',suggestion:'Market weak — consider phased entry via SIP',value:nr+'%',indicator:'Nifty 50 1yr Return',assetClass:'equity'};
+      flags.push(f);
+    }
+    const rc=manual.rbiRateCyclePhase;
+    if(rc){
+      let f;
+      if(rc==='cutting'){f={...THRESHOLDS.debt.rateCycle.cutting,value:'Cutting',indicator:'RBI Rate Cycle',assetClass:'debt'};adj.debt+=5;}
+      else if(rc==='pause') f={...THRESHOLDS.debt.rateCycle.pause,value:'Pause',indicator:'RBI Rate Cycle',assetClass:'debt'};
+      else{f={...THRESHOLDS.debt.rateCycle.hiking,value:'Hiking',indicator:'RBI Rate Cycle',assetClass:'debt'};adj.debt-=5;}
+      flags.push(f);
+    }
+    const y=manual.tenYearGiltYield;
+    if(y){
+      let f;
+      if(y<6.5) f={...THRESHOLDS.debt.yield10yr.low,value:y+'%',indicator:'10yr G-Sec Yield',assetClass:'debt'};
+      else if(y<7.5) f={...THRESHOLDS.debt.yield10yr.normal,value:y+'%',indicator:'10yr G-Sec Yield',assetClass:'debt'};
+      else f={...THRESHOLDS.debt.yield10yr.high,value:y+'%',indicator:'10yr G-Sec Yield',assetClass:'debt'};
+      flags.push(f);
+    }
+    const rr=y&&manual.inflationCPI?Math.round((y-manual.inflationCPI)*100)/100:null;
+    if(rr!=null){
+      let f;
+      if(rr<0){f={label:'📉 Negative real rates',suggestion:'Negative real rates — gold favourable',value:rr+'%',indicator:'Real Rate',assetClass:'gold'};adj.gold+=3;}
+      else if(rr<1){f={label:'✅ Low real rates',suggestion:'Low real rates — balanced approach',value:rr+'%',indicator:'Real Rate',assetClass:'gold'};adj.gold+=1;}
+      else f={label:'📈 Positive real rates',suggestion:'Positive real rates — debt attractive',value:rr+'%',indicator:'Real Rate',assetClass:'gold'};
+      flags.push(f);
+    }
+    const gsr=auto.goldSilverRatio;
+    if(gsr){
+      let f;
+      if(gsr>=85){f={...THRESHOLDS.gold.gsr.silverCheap,value:gsr,indicator:'Gold-Silver Ratio',assetClass:'silver'};adj.silver+=2;adj.gold-=1;}
+      else if(gsr>=65) f={...THRESHOLDS.gold.gsr.balanced,value:gsr,indicator:'Gold-Silver Ratio',assetClass:'silver'};
+      else{f={...THRESHOLDS.gold.gsr.goldCheap,value:gsr,indicator:'Gold-Silver Ratio',assetClass:'gold'};adj.gold+=1;}
+      flags.push(f);
+    }
+    const gr=auto.goldReturn1yr;
+    if(gr!=null){
+      let f;
+      if(gr>=15) f={...THRESHOLDS.gold.momentum.strong,value:gr+'%',indicator:'Gold 1yr Return',assetClass:'gold'};
+      else if(gr>=5) f={...THRESHOLDS.gold.momentum.moderate,value:gr+'%',indicator:'Gold 1yr Return',assetClass:'gold'};
+      else{f={...THRESHOLDS.gold.momentum.weak,value:gr+'%',indicator:'Gold 1yr Return',assetClass:'gold'};adj.gold-=2;}
+      flags.push(f);
+    }
+    for(const k of Object.keys(adj)) adj[k]=Math.max(-10,Math.min(10,adj[k]));
+    return {flags,adj,realRate:rr};
+  },
+
+  applyAdj(base,adj) {
+    const a={...base};
+    a.equity=Math.max(5,Math.min(95,base.equity+adj.equity));
+    a.gold=Math.max(0,Math.min(20,base.gold+adj.gold));
+    a.silver=Math.max(0,Math.min(10,base.silver+adj.silver));
+    a.debt=Math.max(0,100-a.equity-a.gold-a.silver);
+    return a;
+  },
+};
+
+window.MFPortfolioBuilder.showMarketUpdateForm = async function() {
+  const db=getFirestore();
+  const ex=await window.MFPortfolioBuilder.IndicatorEngine.loadManual(db);
+  const m=document.createElement('div');
+  m.id='mkt-update-modal';
+  m.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  m.innerHTML=`<div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;width:500px;max-height:85vh;overflow-y:auto;font-family:sans-serif;color:#e0e0e0;">
+    <h2 style="margin:0 0 6px;color:#4fc3f7;">📊 Update Market Indicators</h2>
+    <p style="margin:0 0 20px;color:#666;font-size:12px;">Update monthly. Last updated: ${ex.updatedAt?new Date(ex.updatedAt.seconds*1000).toLocaleDateString('en-IN'):'Never'}</p>
+    <div style="display:grid;gap:14px;">
+      <div style="background:#0d1117;border-radius:8px;padding:14px;">
+        <div style="color:#4fc3f7;font-weight:600;margin-bottom:10px;font-size:13px;">📈 EQUITY</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div><label style="font-size:11px;color:#888;">Nifty 500 P/E</label>
+            <input id="u-pe" type="number" step="0.1" value="${ex.nifty500PE||''}" placeholder="e.g. 24.8"
+              style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;margin-top:3px;box-sizing:border-box;">
+            <div style="font-size:10px;color:#555;margin-top:2px;">NSE India → Indices → PE</div></div>
+          <div><label style="font-size:11px;color:#888;">India VIX</label>
+            <input id="u-vix" type="number" step="0.1" value="${ex.indiaVIX||''}" placeholder="e.g. 14.2"
+              style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;margin-top:3px;box-sizing:border-box;">
+            <div style="font-size:10px;color:#555;margin-top:2px;">NSE India → VIX</div></div>
+        </div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px;">
+        <div style="color:#81c784;font-weight:600;margin-bottom:10px;font-size:13px;">🏦 DEBT</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div><label style="font-size:11px;color:#888;">RBI Repo Rate %</label>
+            <input id="u-repo" type="number" step="0.25" value="${ex.rbiRepoRate||''}" placeholder="e.g. 6.50"
+              style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;margin-top:3px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#888;">10yr G-Sec Yield %</label>
+            <input id="u-yield" type="number" step="0.01" value="${ex.tenYearGiltYield||''}" placeholder="e.g. 6.82"
+              style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;margin-top:3px;box-sizing:border-box;">
+            <div style="font-size:10px;color:#555;margin-top:2px;">RBI website</div></div>
+          <div><label style="font-size:11px;color:#888;">CPI Inflation %</label>
+            <input id="u-cpi" type="number" step="0.1" value="${ex.inflationCPI||''}" placeholder="e.g. 4.8"
+              style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;margin-top:3px;box-sizing:border-box;">
+            <div style="font-size:10px;color:#555;margin-top:2px;">MOSPI / RBI</div></div>
+          <div><label style="font-size:11px;color:#888;">RBI Rate Cycle</label>
+            <select id="u-cycle" style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;margin-top:3px;box-sizing:border-box;">
+              <option value="cutting" ${ex.rbiRateCyclePhase==='cutting'?'selected':''}>Cutting</option>
+              <option value="pause"   ${ex.rbiRateCyclePhase==='pause'?'selected':''}>Pause</option>
+              <option value="hiking"  ${ex.rbiRateCyclePhase==='hiking'?'selected':''}>Hiking</option>
+            </select></div>
+        </div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px;">
+        <div style="color:#ffb74d;font-weight:600;margin-bottom:10px;font-size:13px;">🌐 MARKET PHASE</div>
+        <select id="u-phase" style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;box-sizing:border-box;">
+          <option value="bull"    ${ex.marketPhase==='bull'?'selected':''}>Bull Market</option>
+          <option value="neutral" ${ex.marketPhase==='neutral'?'selected':''}>Neutral</option>
+          <option value="bear"    ${ex.marketPhase==='bear'?'selected':''}>Bear Market</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button id="u-save" style="flex:1;background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px;font-weight:600;cursor:pointer;">💾 Save</button>
+      <button id="u-close" style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 18px;cursor:pointer;">Cancel</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  document.getElementById('u-close').onclick=()=>m.remove();
+  document.getElementById('u-save').onclick=async()=>{
+    const data={
+      nifty500PE:       parseFloat(document.getElementById('u-pe').value)||null,
+      indiaVIX:         parseFloat(document.getElementById('u-vix').value)||null,
+      rbiRepoRate:      parseFloat(document.getElementById('u-repo').value)||null,
+      tenYearGiltYield: parseFloat(document.getElementById('u-yield').value)||null,
+      inflationCPI:     parseFloat(document.getElementById('u-cpi').value)||null,
+      rbiRateCyclePhase:document.getElementById('u-cycle').value,
+      marketPhase:      document.getElementById('u-phase').value,
+      updatedAt:        new Date(),
+    };
+    try{await setDoc(doc(db,'market_context','current'),data,{merge:true});alert('✅ Saved!');m.remove();}
+    catch(e){alert('❌ '+e.message);}
+  };
+};
+
+window.MFPortfolioBuilder.showIndicatorDashboard = async function(baseAllocation, onProceed) {
+  const db=getFirestore();
+  const modal=document.createElement('div');
+  modal.id='ind-dashboard';
+  modal.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML='<div style="background:#1a1a2e;border-radius:12px;padding:28px;font-family:sans-serif;color:#e0e0e0;text-align:center;"><div style="font-size:24px;">⏳</div><div style="margin-top:8px;color:#888;">Fetching market indicators...</div></div>';
+  document.body.appendChild(modal);
+  try {
+    const [manual,auto]=await Promise.all([
+      window.MFPortfolioBuilder.IndicatorEngine.loadManual(db),
+      window.MFPortfolioBuilder.IndicatorEngine.fetchAutoIndicators(),
+    ]);
+    const {flags,adj,realRate}=window.MFPortfolioBuilder.IndicatorEngine.interpret(manual,auto);
+    const sug=window.MFPortfolioBuilder.IndicatorEngine.applyAdj(baseAllocation,adj);
+    const lastUpd=manual.updatedAt?new Date(manual.updatedAt.seconds*1000).toLocaleDateString('en-IN'):'Never';
+    const eFlags=flags.filter(f=>f.assetClass==='equity');
+    const dFlags=flags.filter(f=>f.assetClass==='debt');
+    const gFlags=flags.filter(f=>f.assetClass==='gold');
+    const sFlags=flags.filter(f=>f.assetClass==='silver');
+    const fHTML=arr=>arr.length?arr.map(f=>`<div style="background:#0d1117;border-radius:7px;padding:10px;margin-bottom:7px;"><div style="display:flex;justify-content:space-between;"><span style="font-size:11px;color:#666;">${f.indicator}</span><span style="font-size:12px;font-weight:600;">${f.value}</span></div><div style="font-size:12px;margin-top:3px;">${f.label}</div><div style="font-size:11px;color:#999;margin-top:3px;font-style:italic;">${f.suggestion}</div></div>`).join(''):'<div style="color:#555;font-size:12px;">No data — update indicators</div>';
+    const diff=(b,s,k)=>{const d=s[k]-b[k];if(!d)return`<span style="color:#888;">${s[k]}%</span>`;const c=d>0?'#81c784':'#ef9a9a';const a=d>0?'▲':'▼';return`<span style="color:${c};">${s[k]}% ${a}${Math.abs(d)}%</span>`;};
+    modal.innerHTML=`<div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;width:660px;max-height:87vh;overflow-y:auto;font-family:sans-serif;color:#e0e0e0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+        <div><h2 style="margin:0;color:#4fc3f7;font-size:18px;">📊 Market Indicators</h2><div style="font-size:11px;color:#555;margin-top:3px;">Manual data: ${lastUpd}</div></div>
+        <button onclick="MFPortfolioBuilder.showMarketUpdateForm()" style="background:#333;color:#e0e0e0;border:none;border-radius:7px;padding:7px 12px;cursor:pointer;font-size:11px;">✏️ Update</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;">
+        <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#4fc3f7;font-weight:600;margin-bottom:10px;font-size:12px;">📈 EQUITY</div>${fHTML(eFlags)}</div>
+        <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#81c784;font-weight:600;margin-bottom:10px;font-size:12px;">🏦 DEBT</div>${fHTML(dFlags)}${realRate!=null?`<div style="background:#0d1117;border-radius:7px;padding:8px;margin-top:7px;font-size:11px;color:#888;">Real rate: <strong style="color:#e0e0e0;">${realRate}%</strong></div>`:''}</div>
+        <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#ffb74d;font-weight:600;margin-bottom:10px;font-size:12px;">🥇 GOLD</div>${fHTML(gFlags)}${auto.goldReturn1yr!=null?`<div style="background:#0d1117;border-radius:7px;padding:8px;margin-top:7px;font-size:11px;color:#888;">Gold 1yr return: <strong style="color:#ffb74d;">${auto.goldReturn1yr}%</strong></div>`:''}</div>
+        <div style="background:#0a0e1a;border-radius:9px;padding:14px;"><div style="color:#ce93d8;font-weight:600;margin-bottom:10px;font-size:12px;">🥈 SILVER</div>${fHTML(sFlags)}${auto.goldSilverRatio?`<div style="background:#0d1117;border-radius:7px;padding:8px;margin-top:7px;font-size:11px;color:#888;">Gold-Silver ratio: <strong style="color:#ce93d8;">${auto.goldSilverRatio}</strong></div>`:''}</div>
+      </div>
+      <div style="background:#0a0e1a;border-radius:9px;padding:18px;margin-bottom:18px;">
+        <div style="font-weight:600;margin-bottom:14px;font-size:13px;">📐 ALLOCATION REVIEW</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;text-align:center;margin-bottom:14px;">
+          <div><div style="font-size:11px;color:#888;">Equity</div><div style="font-size:12px;color:#555;">${baseAllocation.equity}% base</div><div style="font-size:15px;font-weight:600;margin-top:3px;">${diff(baseAllocation,sug,'equity')}</div></div>
+          <div><div style="font-size:11px;color:#888;">Debt</div><div style="font-size:12px;color:#555;">${baseAllocation.debt}% base</div><div style="font-size:15px;font-weight:600;margin-top:3px;">${diff(baseAllocation,sug,'debt')}</div></div>
+          <div><div style="font-size:11px;color:#888;">Gold</div><div style="font-size:12px;color:#555;">${baseAllocation.gold}% base</div><div style="font-size:15px;font-weight:600;margin-top:3px;">${diff(baseAllocation,sug,'gold')}</div></div>
+          <div><div style="font-size:11px;color:#888;">Silver</div><div style="font-size:12px;color:#555;">${baseAllocation.silver}% base</div><div style="font-size:15px;font-weight:600;margin-top:3px;">${diff(baseAllocation,sug,'silver')}</div></div>
+        </div>
+        <div style="font-size:12px;color:#666;margin-bottom:10px;">Adjust if needed:</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+          <div><label style="font-size:10px;color:#888;">Equity %</label><input id="f-eq" type="number" value="${sug.equity}" style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;box-sizing:border-box;margin-top:3px;"></div>
+          <div><label style="font-size:10px;color:#888;">Debt %</label><input id="f-dt" type="number" value="${sug.debt}" style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;box-sizing:border-box;margin-top:3px;"></div>
+          <div><label style="font-size:10px;color:#888;">Gold %</label><input id="f-gd" type="number" value="${sug.gold}" style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;box-sizing:border-box;margin-top:3px;"></div>
+          <div><label style="font-size:10px;color:#888;">Silver %</label><input id="f-sv" type="number" value="${sug.silver}" style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;box-sizing:border-box;margin-top:3px;"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button id="btn-proceed" style="flex:1;background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:13px;font-weight:600;cursor:pointer;font-size:13px;">Proceed with this allocation →</button>
+        <button id="btn-base" style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:13px 18px;cursor:pointer;font-size:12px;">Use base</button>
+      </div>
+    </div>`;
+    document.getElementById('btn-proceed').onclick=()=>{
+      const fa={equity:parseFloat(document.getElementById('f-eq').value)||sug.equity,debt:parseFloat(document.getElementById('f-dt').value)||sug.debt,gold:parseFloat(document.getElementById('f-gd').value)||sug.gold,silver:parseFloat(document.getElementById('f-sv').value)||sug.silver};
+      modal.remove();onProceed(fa,'adjusted');
+    };
+    document.getElementById('btn-base').onclick=()=>{modal.remove();onProceed(baseAllocation,'base');};
+  } catch(e) {
+    modal.innerHTML=`<div style="background:#1a1a2e;border-radius:12px;padding:28px;font-family:sans-serif;color:#e0e0e0;text-align:center;"><div style="color:#ef9a9a;">❌ ${e.message}</div><button onclick="document.getElementById('ind-dashboard').remove()" style="margin-top:14px;background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:9px 18px;cursor:pointer;">Close</button></div>`;
+  }
+};
+
+console.log('✅ Indicator Engine loaded.');
+console.log('   Update: MFPortfolioBuilder.showMarketUpdateForm()');
+console.log('   Test: MFPortfolioBuilder.showIndicatorDashboard({equity:74,debt:20,gold:5,silver:1},console.log)');
+</script>
 </body>
 </html>
