@@ -8086,6 +8086,7 @@ window.MFPortfolioBuilder.scoreQualityFunds = async function(cb) {
     !f.schemeName.toLowerCase().includes('idcw') &&
     !f.schemeName.toLowerCase().includes('dividend') &&
     f.category !== 'ELSS'
+    !f.schemeName.toLowerCase().includes('direct')                                                
   );
   log('Found ' + funds.length + ' Quality Regular Growth funds', 10);
 
