@@ -9632,10 +9632,13 @@ window.MFPortfolioBuilder.scoreIncomeGenerationFunds = async function(cb) {
     const snap = await getDocs(query(collection(db,'fund_universe'), where('category','==',cat), where('planType','==','Regular')));
     const funds = snap.docs.map(d=>d.data()).filter(f=>
       !f.schemeName.toLowerCase().includes('idcw') &&
-      !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') &&
-     !f.schemeName.toLowerCase().includes('defunct') &&
-     !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
-      !f.schemeName.toLowerCase().includes('direct')
+    !f.schemeName.toLowerCase().includes('idcw') &&
+      !f.schemeName.toLowerCase().includes('dividend') &&
+      !f.schemeName.toLowerCase().includes('bonus') &&
+      !f.schemeName.toLowerCase().includes('direct') &&
+      !f.schemeName.toLowerCase().includes('defunct') &&
+      !f.schemeName.toLowerCase().includes('discontinued') &&
+      !f.schemeName.toLowerCase().includes('payout')
     );
     allFunds = [...allFunds, ...funds];
     log('Found '+funds.length+' '+cat+' funds', 5);
