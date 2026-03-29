@@ -10569,6 +10569,7 @@ window.MFPortfolioBuilder.scoreSilverFunds = async function(cb) {
         const r=await fetch('https://api.mfapi.in/mf/'+code);
         const d=await r.json();
         if(d.meta&&d.data?.length>0) {
+        if(d.meta.scheme_name.toLowerCase().includes('silver')) {
           allFunds.push({
             schemeCode:String(code),
             schemeName:d.meta.scheme_name,
@@ -10576,6 +10577,7 @@ window.MFPortfolioBuilder.scoreSilverFunds = async function(cb) {
             planType:'Regular',
             optionType:'Growth',
           });
+        }
           log('Added: '+d.meta.scheme_name, 20);
         }
       } catch(e) {}
