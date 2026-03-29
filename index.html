@@ -8676,7 +8676,6 @@ window.MFPortfolioBuilder.scoreMidCapFunds = async function(cb) {
     where('planType','==','Regular')
   ));
  const funds = snap.docs.map(d => d.data()).filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct'));
-  );
   log('Found ' + funds.length + ' Mid Cap Regular Growth funds', 10);
 
   // Benchmark — Nifty Midcap 150 proxy
