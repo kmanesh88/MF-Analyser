@@ -10264,7 +10264,7 @@ window.MFPortfolioBuilder.IndicatorEngine = {
       let pn2=null; for(const e of nav){const dt=new Date(e.date.split('-').reverse().join('-'));if(dt<=ago2){pn2=parseFloat(e.nav);break;}}
       ind.silverReturn1yr=pn2?Math.round(((cn-pn2)/pn2*100)*100)/100:null;
     } catch(e){}
-    if(ind.goldNAV&&ind.silverNAV) ind.goldSilverRatio=Math.round(ind.goldNAV/ind.silverNAV*10)/10;
+   ind.goldSilverRatio=null;
     return ind;
   },
 
@@ -10324,7 +10324,7 @@ window.MFPortfolioBuilder.IndicatorEngine = {
       else f={label:'📈 Positive real rates',suggestion:'Positive real rates — debt attractive',value:rr+'%',indicator:'Real Rate',assetClass:'gold'};
       flags.push(f);
     }
-    const gsr=auto.goldSilverRatio;
+   const gsr=manual.goldSilverRatio||auto.goldSilverRatio;
     if(gsr){
       let f;
       if(gsr>=85){f={...THRESHOLDS.gold.gsr.silverCheap,value:gsr,indicator:'Gold-Silver Ratio',assetClass:'silver'};adj.silver+=2;adj.gold-=1;}
@@ -10408,7 +10408,13 @@ window.MFPortfolioBuilder.showMarketUpdateForm = async function() {
         </div>
       </div>
       <div style="background:#0d1117;border-radius:8px;padding:14px;">
-        <div style="color:#ffb74d;font-weight:600;margin-bottom:10px;font-size:13px;">🌐 MARKET PHASE</div>
+        <div style="color:#ffb74d;font-weight:600;margin-bottom:10px;font-size:13px;"><div style="background:#0d1117;border-radius:8px;padding:14px;">
+        <div style="color:#ffb74d;font-weight:600;margin-bottom:10px;font-size:13px;">🥇 GOLD & SILVER</div>
+        <div><label style="font-size:11px;color:#888;">Gold-Silver Ratio</label>
+          <input id="u-gsr" type="number" step="0.1" value="${ex.goldSilverRatio||''}" placeholder="e.g. 88.5"
+            style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;margin-top:3px;box-sizing:border-box;">
+          <div style="font-size:10px;color:#555;margin-top:2px;">Gold price ÷ Silver price (MCX)</div></div>
+      </div>🌐 MARKET PHASE</div>
         <select id="u-phase" style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;box-sizing:border-box;">
           <option value="bull"    ${ex.marketPhase==='bull'?'selected':''}>Bull Market</option>
           <option value="neutral" ${ex.marketPhase==='neutral'?'selected':''}>Neutral</option>
@@ -10431,6 +10437,7 @@ window.MFPortfolioBuilder.showMarketUpdateForm = async function() {
       tenYearGiltYield: parseFloat(document.getElementById('u-yield').value)||null,
       inflationCPI:     parseFloat(document.getElementById('u-cpi').value)||null,
       rbiRateCyclePhase:document.getElementById('u-cycle').value,
+      goldSilverRatio:  parseFloat(document.getElementById('u-gsr').value)||null,
       marketPhase:      document.getElementById('u-phase').value,
       updatedAt:        new Date(),
     };
