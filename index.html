@@ -10513,5 +10513,197 @@ console.log('✅ Indicator Engine loaded.');
 console.log('   Update: MFPortfolioBuilder.showMarketUpdateForm()');
 console.log('   Test: MFPortfolioBuilder.showIndicatorDashboard({equity:74,debt:20,gold:5,silver:1},console.log)');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, getDocs, query, where, writeBatch }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+function parseNavDate(str) { const [d,m,y]=str.split('-'); return new Date(y,m-1,d); }
+function calcCAGR(s,e,y) { if(!s||!e||y<=0)return null; return ((e/s)**(1/y)-1)*100; }
+function getNavOnDate(nav,target) { for(const e of nav){if(parseNavDate(e.date)<=target)return parseFloat(e.nav);} return null; }
+function stdDev(arr) { if(arr.length<2)return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.map(v=>(v-m)**2).reduce((s,v)=>s+v,0)/(arr.length-1)); }
+function arrMean(arr) { return arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0; }
+function calcFundAge(nav) { const o=nav[nav.length-1];if(!o)return 0;return Math.round(((new Date()-parseNavDate(o.date))/(1000*60*60*24*365.25))*10)/10; }
+function calcStdReturns(nav) { const today=new Date(),cn=parseFloat(nav[0]?.nav),r={};for(const [k,y] of [['return1yr',1],['return3yr',3]]){const pd=new Date(today);pd.setFullYear(pd.getFullYear()-y);const pn=getNavOnDate(nav,pd);r[k]=pn?Math.round(calcCAGR(pn,cn,y)*100)/100:null;}return r; }
+function pctRank(val,arr,dir) { if(!arr.length)return 50;const s=[...arr].sort((a,b)=>a-b);const p=(s.filter(v=>v<val).length/s.length)*100;return dir==='higher'?Math.round(p):Math.round(100-p); }
+
+function calcTrackingError(nav, categoryAvgReturns) {
+  const sorted=[...nav].reverse();const monthlyReturns=[];let cm='',ms=null,me=null;
+  for(const e of sorted){const d=parseNavDate(e.date);const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;if(p!==cm){if(cm&&ms&&me){const ret=(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)*100;monthlyReturns.push({period:cm,return:ret});}cm=p;ms=e;}me=e;}
+  if(monthlyReturns.length<6)return null;
+  const diffs=[];
+  for(const m of monthlyReturns){const cr=categoryAvgReturns[m.period];if(cr!==undefined)diffs.push(m.return-cr);}
+  if(diffs.length<4)return null;
+  return Math.round(stdDev(diffs)*Math.sqrt(12)*100)/100;
+}
+
+window.MFPortfolioBuilder.scoreSilverFunds = async function(cb) {
+  const db = getFirestore();
+  const log = (msg,pct) => { console.log(msg); cb?.(msg,pct); };
+  log('Fetching Silver funds...', 5);
+
+  const categories = ['Silver ETF','Silver Fund'];
+  let allFunds = [];
+  for(const cat of categories) {
+    const snap = await getDocs(query(collection(db,'fund_universe'), where('category','==',cat), where('planType','==','Regular')));
+    const funds = snap.docs.map(d=>d.data()).filter(f=>
+      !f.schemeName.toLowerCase().includes('idcw') &&
+      !f.schemeName.toLowerCase().includes('dividend') &&
+      !f.schemeName.toLowerCase().includes('defunct') &&
+      !f.schemeName.toLowerCase().includes('bonus') &&
+      !f.schemeName.toLowerCase().includes('direct')
+    );
+    allFunds=[...allFunds,...funds];
+    log('Found '+funds.length+' '+cat+' funds', 5);
+  }
+  log('Total Silver funds: '+allFunds.length, 10);
+
+  if(allFunds.length===0) {
+    log('No silver funds found in universe. Adding manually...', 15);
+    // Silver ETF FOF scheme codes — Regular Growth plans
+    const silverCodes = ['149759','150747','150296'];
+    for(const code of silverCodes) {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+code);
+        const d=await r.json();
+        if(d.meta&&d.data?.length>0) {
+          allFunds.push({
+            schemeCode:String(code),
+            schemeName:d.meta.scheme_name,
+            category:'Silver Fund',
+            planType:'Regular',
+            optionType:'Growth',
+          });
+          log('Added: '+d.meta.scheme_name, 20);
+        }
+      } catch(e) {}
+    }
+  }
+
+  log('Processing '+allFunds.length+' silver funds...', 25);
+
+  // Fetch all NAV data
+  const navDataMap={};
+  let done=0;
+  for(let i=0;i<allFunds.length;i+=10) {
+    await Promise.all(allFunds.slice(i,i+10).map(async f => {
+      try {
+        const r=await fetch('https://api.mfapi.in/mf/'+f.schemeCode);
+        const d=await r.json();
+        if((d.data||[]).length>=30) navDataMap[f.schemeCode]={meta:d.meta,nav:d.data,fund:f};
+      } catch(e) {}
+    }));
+    done+=Math.min(10,allFunds.length-i);
+    await new Promise(r=>setTimeout(r,200));
+  }
+
+  // Compute category average monthly returns
+  const categoryAvgReturns={};
+  const allMonthly={};
+  for(const [code,data] of Object.entries(navDataMap)) {
+    const sorted=[...data.nav].reverse();let cm='',ms=null,me=null;
+    for(const e of sorted){const d=parseNavDate(e.date);const p=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;if(p!==cm){if(cm&&ms&&me){const ret=(parseFloat(me.nav)-parseFloat(ms.nav))/parseFloat(ms.nav)*100;if(!allMonthly[p])allMonthly[p]=[];allMonthly[p].push(ret);}cm=p;ms=e;}me=e;}
+  }
+  for(const [p,returns] of Object.entries(allMonthly)) categoryAvgReturns[p]=arrMean(returns);
+
+  // Compute metrics
+  const metrics=[];
+  for(const [code,data] of Object.entries(navDataMap)) {
+    const nav=data.nav;
+    const f=data.fund;
+    const age=calcFundAge(nav);
+    const sr=calcStdReturns(nav);
+    const te=calcTrackingError(nav,categoryAvgReturns);
+    metrics.push({
+      schemeCode:f.schemeCode,schemeName:f.schemeName||data.meta?.scheme_name,
+      category:f.category,amcName:data.meta?.fund_house||'',
+      age,...sr,trackingError:te,
+    });
+  }
+
+  log('Metrics done: '+metrics.length+' funds', 75);
+
+  // Gateway — silver ETFs are very new, lower bar
+  // Min 1 year track record, positive 1yr return
+  const qual=metrics.filter(m=>
+    m.age>=1 &&
+    m.return1yr!==null &&
+    m.return1yr>0
+  );
+  const fail=metrics.filter(m=>m.age<1||m.return1yr===null||m.return1yr<=0);
+  log('Gateway: '+qual.length+' passed, '+fail.length+' failed', 80);
+
+  if(qual.length===0) {
+    log('❌ No silver funds passed gateway', 100);
+    alert('No silver funds found or qualified. Check fund universe.');
+    return {total:metrics.length,qualified:0,failed:metrics.length};
+  }
+
+  const catAvg1yr=arrMean(qual.map(f=>f.return1yr).filter(v=>v!==null));
+  const catAvg3yr=arrMean(qual.map(f=>f.return3yr).filter(v=>v!==null));
+
+  // Percentile ranking
+  const aTE=qual.map(f=>f.trackingError).filter(v=>v!==null);
+  const aR1=qual.map(f=>f.return1yr).filter(v=>v!==null);
+  const aR3=qual.map(f=>f.return3yr).filter(v=>v!==null);
+
+  for(const f of qual) {
+    const sc={
+      // Silver weights same as gold:
+      // tracking error: 55%, return1yr: 25%, return3yr: 20%
+      // Use 1yr instead of 3yr as primary since silver ETFs are new
+      trackingError: f.trackingError!==null ? pctRank(f.trackingError,aTE,'lower') : 50,
+      return1yr:     f.return1yr!==null     ? pctRank(f.return1yr,aR1,'higher')   : 50,
+      return3yr:     f.return3yr!==null     ? pctRank(f.return3yr,aR3,'higher')   : 50,
+    };
+    f.cs=sc;
+    // If no 3yr data, weight 1yr more
+    if(f.return3yr===null) {
+      f.ps=Math.round(sc.trackingError*0.60+sc.return1yr*0.40);
+    } else {
+      f.ps=Math.round(sc.trackingError*0.55+sc.return1yr*0.25+sc.return3yr*0.20);
+    }
+    f.vsCategory1yr=f.return1yr!==null?Math.round((f.return1yr-catAvg1yr)*100)/100:null;
+    f.dedupKey=f.amcName+'_Silver';
+  }
+
+  // Save to Firestore
+  log('Saving to Firestore...', 88);
+  const all=[...qual.map(f=>({...f,gp:true})),...fail.map(f=>({...f,gp:false,ps:0,cs:{}}))];
+  for(let i=0;i<all.length;i+=400) {
+    const wb=writeBatch(db);
+    for(const f of all.slice(i,i+400)) {
+      wb.set(doc(db,'framework_scores',f.schemeCode+'_Silver'),{
+        schemeCode:f.schemeCode,schemeName:f.schemeName,category:f.category,amcName:f.amcName,
+        framework:'Silver',scoredAt:new Date(),gatewayPassed:f.gp,
+        rawValues:{
+          fundAge:f.age,return1yr:f.return1yr,return3yr:f.return3yr||null,
+          trackingError:f.trackingError||null,
+          vsCategory1yr:f.vsCategory1yr||null,
+          categoryAvg1yr:Math.round(catAvg1yr*100)/100,
+        },
+        componentScores:f.cs||{},perfScore:f.ps||0,compositeScore:f.ps||0,
+        scoringComplete:true,manualDataAdded:false,updatedAt:new Date(),
+      },{merge:true});
+    }
+    await wb.commit();
+  }
+
+  const seen=new Set();
+  const deduped=qual.filter(f=>{if(seen.has(f.dedupKey))return false;seen.add(f.dedupKey);return true;});
+  const top5=deduped.sort((a,b)=>b.ps-a.ps).slice(0,5);
+  console.log('\n🏆 TOP SILVER FUNDS:');
+  top5.forEach((f,i)=>console.log(
+    (i+1)+'. '+f.schemeName+
+    '\n   Score:'+f.ps+' | 1yr:'+f.return1yr+'% | 3yr:'+f.return3yr+'% | TrackingError:'+f.trackingError+'%'
+  ));
+  log('✅ Silver scoring complete!', 100);
+  alert('✅ Silver scoring done!\n'+qual.length+' funds scored.');
+  return {total:metrics.length,qualified:qual.length,failed:fail.length,top5};
+};
+
+console.log('✅ Silver Scorer loaded. Run: MFPortfolioBuilder.scoreSilverFunds(console.log)');
+</script>
 </body>
 </html>
