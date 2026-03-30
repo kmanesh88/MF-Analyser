@@ -11436,8 +11436,10 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
     function fundRow(f) {
      const sip = clientData.monthlySIP || 0;
       const lumpsum = clientData.lumpsumAmount || 0;
-      const sipAmt = sip > 0 ? Math.round(sip * (f.allocationPct||0) / 100) : 0;
-      const lsAmt  = lumpsum > 0 ? Math.round(lumpsum * (f.allocationPct||0) / 100) : 0;
+     const sipPct = f.sipPct !== undefined ? f.sipPct : 60;
+      const lsPct  = f.lsPct  !== undefined ? f.lsPct  : 40;
+      const sipAmt = sip > 0     ? Math.round(sip     * (f.allocationPct||0) / 100 * sipPct / 100) : 0;
+      const lsAmt  = lumpsum > 0 ? Math.round(lumpsum * (f.allocationPct||0) / 100 * lsPct  / 100) : 0;
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#0d1117;border-radius:8px;margin-bottom:6px;">
           <div style="flex:1;">
@@ -11731,9 +11733,22 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
                 ${tabs.map(fw=>`<button class="fw-tab" data-fw="${fw}" style="background:${fw===activeFw?'#4fc3f7':'#0d1117'};color:${fw===activeFw?'#000':'#888'};border:1px solid ${fw===activeFw?'#4fc3f7':'#333'};border-radius:20px;padding:4px 10px;cursor:pointer;font-size:11px;">${fwLabels[fw]||fw}</button>`).join('')}
               </div>
-              <div style="margin-bottom:12px;">
-                <input id="fund-picker-alloc" type="number" placeholder="Allocation % for this fund" min="0" max="50" step="0.5"
-                  style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:9px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+                <div>
+                  <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Portfolio Allocation %</label>
+                  <input id="fund-picker-alloc" type="number" placeholder="e.g. 10" min="0" max="50" step="0.5"
+                    style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div>
+                  <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">SIP % of allocation</label>
+                  <input id="fund-picker-sip-pct" type="number" placeholder="e.g. 60" min="0" max="100" step="5" value="60"
+                    style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#4fc3f7;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div>
+                  <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Lumpsum % of allocation</label>
+                  <input id="fund-picker-ls-pct" type="number" placeholder="e.g. 40" min="0" max="100" step="5" value="40"
+                    style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#ffb74d;font-size:13px;box-sizing:border-box;">
+                </div>
               </div>
               <div style="display:grid;gap:7px;">
                 ${funds.length ? funds.map(f=>`
@@ -11751,12 +11766,25 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
           modal.querySelectorAll('.fw-tab').forEach(btn => {
             btn.addEventListener('click', () => { activeFw=btn.dataset.fw; renderModal(); });
           });
+          // Set suggested SIP/Lumpsum split based on framework
+          const sipDefaults = {
+            Quality:60, Value:60, GARP:60, MidCap:70, SmallCap:80, Momentum:70,
+            CapitalPreservation:20, IncomeGeneration:30, RateStrategy:20,
+            Gold:20, Silver:20,
+          };
+          const sipPct = sipDefaults[activeFw] || 60;
+          const sipEl = document.getElementById('fund-picker-sip-pct');
+          const lsEl  = document.getElementById('fund-picker-ls-pct');
+          if(sipEl) { sipEl.value = sipPct; }
+          if(lsEl)  { lsEl.value  = 100 - sipPct; }
           modal.querySelectorAll('.fund-pick-item').forEach(item => {
             item.addEventListener('click', () => {
               const code = item.dataset.code;
-              const alloc = parseFloat(document.getElementById('fund-picker-alloc').value)||0;
+            const alloc  = parseFloat(document.getElementById('fund-picker-alloc').value)||0;
+              const sipPct = parseFloat(document.getElementById('fund-picker-sip-pct').value)||60;
+              const lsPct  = parseFloat(document.getElementById('fund-picker-ls-pct').value)||40;
               const fund = mpFunds.find(f=>f.schemeCode===code);
-              if(fund) selectedFunds.push({...fund, allocationPct:alloc});
+              if(fund) selectedFunds.push({...fund, allocationPct:alloc, sipPct, lsPct});
               modal.remove();
               currentStep=4; renderStep();
             });
