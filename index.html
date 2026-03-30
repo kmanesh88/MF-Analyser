@@ -11566,7 +11566,9 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
                   <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
                   <div style="font-size:10px;color:#666;">${f.framework} | ${f.allocationPct||0}%</div>
                 </div>
-                ${sip>0?`<div style="font-size:12px;color:#4fc3f7;font-weight:600;">₹${sipAmt.toLocaleString('en-IN')}/mo</div>`:''}
+               <div>
+                ${sip>0?`<div style="font-size:11px;color:#4fc3f7;font-weight:600;">SIP: ₹${sipAmt.toLocaleString('en-IN')}/mo</div>`:''}
+                ${lsAmt2>0?`<div style="font-size:11px;color:#ffb74d;font-weight:600;">LS: ₹${lsAmt2.toLocaleString('en-IN')}</div>`:''}
               </div>
             `;
           }).join('')}
@@ -11804,6 +11806,9 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
               allocationPct: f.allocationPct||0,
               monthlySIP: clientData.monthlySIP
                 ? Math.round(clientData.monthlySIP*(f.allocationPct||0)/100)
+                : 0,
+              lumpsumAmount: clientData.lumpsumAmount
+                ? Math.round(clientData.lumpsumAmount*(f.allocationPct||0)/100)
                 : 0,
             })),
             createdAt: new Date(),
