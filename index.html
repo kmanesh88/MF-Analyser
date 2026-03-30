@@ -11732,9 +11732,9 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
               currentStep=4; renderStep();
             });
           });
-        }
-        renderModal();
+     }
         document.body.appendChild(modal);
+        renderModal();
       }
       document.getElementById('btn-add-equity').onclick  = () => showFundPicker('equity');
       document.getElementById('btn-add-debt').onclick    = () => showFundPicker('debt');
