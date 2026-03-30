@@ -11104,5 +11104,685 @@ window.MFPortfolioBuilder.showAddFundModal = function(db,onSuccess) {
 
 console.log('✅ Model Portfolio UI loaded. Run: MFPortfolioBuilder.showModelPortfolio()');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc, query, where }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+// ─── Risk Questionnaire ───────────────────────────────────────────────────
+const QUESTIONS = [
+  { id:'q1', text:'What is your investment horizon?', options:[
+    {score:1,label:'Less than 2 years'},
+    {score:2,label:'2–3 years'},
+    {score:3,label:'3–5 years'},
+    {score:4,label:'5–10 years'},
+    {score:5,label:'More than 10 years'},
+  ]},
+  { id:'q2', text:'If your portfolio dropped 20% in 3 months, what would you do?', options:[
+    {score:1,label:'Sell everything immediately'},
+    {score:2,label:'Sell some to reduce risk'},
+    {score:3,label:'Do nothing, wait and watch'},
+    {score:4,label:'Stay invested and review'},
+    {score:5,label:'Buy more — great opportunity'},
+  ]},
+  { id:'q3', text:'What is your primary investment goal?', options:[
+    {score:1,label:'Capital protection'},
+    {score:2,label:'Regular income'},
+    {score:3,label:'Balanced growth'},
+    {score:4,label:'Long term wealth creation'},
+    {score:5,label:'Aggressive wealth creation'},
+  ]},
+  { id:'q4', text:'How would you describe your income stability?', options:[
+    {score:1,label:'Retired, no active income'},
+    {score:2,label:'Variable or irregular income'},
+    {score:3,label:'Stable salary, tight budget'},
+    {score:4,label:'Stable salary, good savings capacity'},
+    {score:5,label:'High income, high savings rate'},
+  ]},
+  { id:'q5', text:'What is your investment experience?', options:[
+    {score:1,label:'No experience at all'},
+    {score:2,label:'Only FD / savings accounts'},
+    {score:3,label:'Some mutual fund experience'},
+    {score:4,label:'Equity and MF experience'},
+    {score:5,label:'Experienced across multiple asset classes'},
+  ]},
+  { id:'q6', text:'How likely are you to need this money before the goal?', options:[
+    {score:1,label:'Very likely — within 1 year'},
+    {score:2,label:'Possible — within 2–3 years'},
+    {score:3,label:'Unlikely — not for 3–5 years'},
+    {score:4,label:'Very unlikely'},
+    {score:5,label:'No chance — fully committed long term'},
+  ]},
+  { id:'q7', text:'What is your income tax bracket?', options:[
+    {score:1,label:'Nil / lowest bracket'},
+    {score:2,label:'10%'},
+    {score:3,label:'20%'},
+    {score:4,label:'30%'},
+    {score:5,label:'30% + surcharge'},
+  ]},
+];
+
+const RISK_PROFILES = [
+  { min:7,  max:14, label:'Conservative',           equity:20, debt:65, gold:10, silver:5,  color:'#81c784' },
+  { min:15, max:21, label:'Moderately Conservative',equity:35, debt:50, gold:10, silver:5,  color:'#a5d6a7' },
+  { min:22, max:28, label:'Moderate',               equity:55, debt:35, gold:7,  silver:3,  color:'#4fc3f7' },
+  { min:29, max:32, label:'Moderately Aggressive',  equity:70, debt:22, gold:6,  silver:2,  color:'#ffb74d' },
+  { min:33, max:35, label:'Aggressive',             equity:80, debt:14, gold:4,  silver:2,  color:'#ef9a9a' },
+];
+
+function getRiskProfile(score) {
+  return RISK_PROFILES.find(p => score >= p.min && score <= p.max) || RISK_PROFILES[2];
+}
+
+// ─── Portfolio Builder ────────────────────────────────────────────────────
+window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
+  const db = getFirestore();
+
+  // Load client data if exists
+  let client = {};
+  if(clientId) {
+    const snap = await getDoc(doc(db, 'clients', clientId));
+    if(snap.exists()) client = snap.data();
+  }
+
+  const page = document.createElement('div');
+  page.id = 'pb-page';
+  page.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#0a0e1a;z-index:8888;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;display:block;';
+
+  // State
+  let currentStep = 1;
+  let answers = {};
+  let riskProfile = null;
+  let baseAllocation = null;
+  let finalAllocation = null;
+  let selectedFunds = [];
+  let clientData = { ...client };
+
+  function renderStep() {
+    page.innerHTML = `
+      <div style="max-width:800px;margin:0 auto;padding:24px;display:block;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px;">
+          <button onclick="document.getElementById('pb-page').remove()"
+            style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">← Back</button>
+          <h1 style="margin:0;font-size:20px;color:#fff;">Portfolio Builder</h1>
+          ${clientData.name ? `<span style="color:#666;font-size:14px;">— ${clientData.name}</span>` : ''}
+        </div>
+
+        <!-- Step indicator -->
+        <div style="display:flex;gap:8px;margin-bottom:28px;">
+          ${[1,2,3,4,5].map(s => `
+            <div style="flex:1;height:4px;border-radius:2px;background:${s<=currentStep?'#4fc3f7':'#1a1a2e'};transition:background 0.3s;"></div>
+          `).join('')}
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:-20px;margin-bottom:20px;">
+          ${['Client Profile','Risk Assessment','Allocation','Fund Selection','Summary'].map((l,i) => `
+            <div style="font-size:10px;color:${i+1===currentStep?'#4fc3f7':'#555'};text-align:center;flex:1;">${l}</div>
+          `).join('')}
+        </div>
+
+        <!-- Step content -->
+        <div id="pb-step-content">
+          ${currentStep===1 ? renderStep1() : ''}
+          ${currentStep===2 ? renderStep2() : ''}
+          ${currentStep===3 ? renderStep3() : ''}
+          ${currentStep===4 ? renderStep4() : ''}
+          ${currentStep===5 ? renderStep5() : ''}
+        </div>
+
+      </div>
+    `;
+    attachStepHandlers();
+  }
+
+  // ── Step 1: Client Profile ──
+  function renderStep1() {
+    return `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;">
+        <h2 style="margin:0 0 20px;font-size:17px;color:#fff;">Client Profile</h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Full Name *</label>
+            <input id="pb-name" type="text" value="${clientData.name||''}" placeholder="Client name"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Age</label>
+            <input id="pb-age" type="number" value="${clientData.age||''}" placeholder="e.g. 35"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Monthly Income (₹)</label>
+            <input id="pb-income" type="number" value="${clientData.monthlyIncome||''}" placeholder="e.g. 150000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Monthly SIP Capacity (₹)</label>
+            <input id="pb-sip" type="number" value="${clientData.monthlySIP||''}" placeholder="e.g. 50000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Investment Goal</label>
+            <select id="pb-goal" style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+              <option value="wealth" ${clientData.goal==='wealth'?'selected':''}>Wealth Creation</option>
+              <option value="retirement" ${clientData.goal==='retirement'?'selected':''}>Retirement Planning</option>
+              <option value="education" ${clientData.goal==='education'?'selected':''}>Child Education</option>
+              <option value="house" ${clientData.goal==='house'?'selected':''}>House Purchase</option>
+              <option value="income" ${clientData.goal==='income'?'selected':''}>Regular Income</option>
+              <option value="other" ${clientData.goal==='other'?'selected':''}>Other</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Target Amount (₹)</label>
+            <input id="pb-target" type="number" value="${clientData.targetAmount||''}" placeholder="e.g. 10000000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div style="grid-column:1/-1;">
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Notes</label>
+            <textarea id="pb-notes" rows="2" placeholder="Any additional context about the client..."
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;resize:none;box-sizing:border-box;">${clientData.notes||''}</textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:20px;">
+          <button id="pb-next-1" style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 24px;cursor:pointer;font-size:13px;font-weight:600;">
+            Next: Risk Assessment →
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Step 2: Risk Questionnaire ──
+  function renderStep2() {
+    return `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;">
+        <h2 style="margin:0 0 6px;font-size:17px;color:#fff;">Risk Assessment</h2>
+        <p style="margin:0 0 24px;color:#666;font-size:13px;">Answer all 7 questions to determine the appropriate risk profile.</p>
+        <div style="display:grid;gap:20px;">
+          ${QUESTIONS.map((q,qi) => `
+            <div style="background:#0d1117;border-radius:10px;padding:16px;">
+              <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:12px;">
+                ${qi+1}. ${q.text}
+              </div>
+              <div style="display:grid;gap:8px;">
+                ${q.options.map(opt => `
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;border-radius:6px;border:1px solid ${answers[q.id]===opt.score?'#4fc3f7':'#2a2a3e'};background:${answers[q.id]===opt.score?'#4fc3f720':'transparent'};transition:all 0.2s;">
+                    <input type="radio" name="${q.id}" value="${opt.score}" ${answers[q.id]===opt.score?'checked':''}
+                      style="accent-color:#4fc3f7;">
+                    <span style="font-size:13px;color:${answers[q.id]===opt.score?'#4fc3f7':'#aaa'};">${opt.label}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div id="pb-score-display" style="margin-top:20px;display:none;background:#0d1117;border-radius:10px;padding:16px;text-align:center;">
+          <div style="font-size:12px;color:#888;margin-bottom:6px;">Risk Score</div>
+          <div id="pb-score-val" style="font-size:28px;font-weight:700;color:#4fc3f7;"></div>
+          <div id="pb-profile-val" style="font-size:14px;font-weight:600;margin-top:6px;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:20px;">
+          <button id="pb-back-2" style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 20px;cursor:pointer;font-size:13px;">← Back</button>
+          <button id="pb-next-2" style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 24px;cursor:pointer;font-size:13px;font-weight:600;">
+            Next: Allocation →
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Step 3: Allocation with Indicator Dashboard ──
+  function renderStep3() {
+    const profile = riskProfile;
+    return `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;">
+        <h2 style="margin:0 0 6px;font-size:17px;color:#fff;">Allocation</h2>
+        <p style="margin:0 0 20px;color:#666;font-size:13px;">Base allocation from risk profile. Adjust using market indicators.</p>
+
+        <!-- Risk profile summary -->
+        <div style="background:#0d1117;border-radius:10px;padding:16px;margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:11px;color:#888;margin-bottom:4px;">Risk Profile</div>
+              <div style="font-size:18px;font-weight:700;color:${profile.color};">${profile.label}</div>
+              <div style="font-size:12px;color:#666;margin-top:2px;">Score: ${Object.values(answers).reduce((s,v)=>s+v,0)} / 35</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;text-align:center;">
+              <div><div style="font-size:10px;color:#888;">Equity</div><div style="font-size:16px;font-weight:700;color:#4fc3f7;">${profile.equity}%</div></div>
+              <div><div style="font-size:10px;color:#888;">Debt</div><div style="font-size:16px;font-weight:700;color:#81c784;">${profile.debt}%</div></div>
+              <div><div style="font-size:10px;color:#888;">Gold</div><div style="font-size:16px;font-weight:700;color:#ffd54f;">${profile.gold}%</div></div>
+              <div><div style="font-size:10px;color:#888;">Silver</div><div style="font-size:16px;font-weight:700;color:#cfd8dc;">${profile.silver}%</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Final allocation inputs -->
+        <div style="background:#0d1117;border-radius:10px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:12px;color:#888;margin-bottom:12px;">Final Allocation (adjust if needed)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">
+            <div>
+              <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Equity %</label>
+              <input id="alloc-eq" type="number" value="${finalAllocation?.equity||profile.equity}"
+                style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:8px;color:#4fc3f7;font-size:15px;font-weight:700;box-sizing:border-box;text-align:center;">
+            </div>
+            <div>
+              <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Debt %</label>
+              <input id="alloc-dt" type="number" value="${finalAllocation?.debt||profile.debt}"
+                style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:8px;color:#81c784;font-size:15px;font-weight:700;box-sizing:border-box;text-align:center;">
+            </div>
+            <div>
+              <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Gold %</label>
+              <input id="alloc-gd" type="number" value="${finalAllocation?.gold||profile.gold}"
+                style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:8px;color:#ffd54f;font-size:15px;font-weight:700;box-sizing:border-box;text-align:center;">
+            </div>
+            <div>
+              <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Silver %</label>
+              <input id="alloc-sv" type="number" value="${finalAllocation?.silver||profile.silver}"
+                style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfd8dc;font-size:15px;font-weight:700;box-sizing:border-box;text-align:center;">
+            </div>
+          </div>
+          <div id="alloc-total" style="text-align:center;margin-top:10px;font-size:12px;color:#888;"></div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-bottom:20px;">
+          <button id="btn-show-indicators"
+            style="flex:1;background:#1a1a2e;border:1px solid #4fc3f7;color:#4fc3f7;border-radius:8px;padding:10px;cursor:pointer;font-size:13px;">
+            📊 View Market Indicators
+          </button>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;">
+          <button id="pb-back-3" style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 20px;cursor:pointer;font-size:13px;">← Back</button>
+          <button id="pb-next-3" style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 24px;cursor:pointer;font-size:13px;font-weight:600;">
+            Next: Fund Selection →
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Step 4: Fund Selection ──
+  function renderStep4() {
+    const eq  = finalAllocation.equity;
+    const dt  = finalAllocation.debt;
+    const gd  = finalAllocation.gold;
+    const sv  = finalAllocation.silver;
+    const sip = clientData.monthlySIP || 0;
+
+    const equityFunds  = selectedFunds.filter(f=>f.assetClass==='equity');
+    const debtFunds    = selectedFunds.filter(f=>f.assetClass==='debt');
+    const goldFunds    = selectedFunds.filter(f=>f.framework==='Gold');
+    const silverFunds  = selectedFunds.filter(f=>f.framework==='Silver');
+
+    function fundRow(f) {
+      const sipAmt = sip > 0 ? Math.round(sip * (f.allocationPct||0) / 100) : 0;
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#0d1117;border-radius:8px;margin-bottom:6px;">
+          <div style="flex:1;">
+            <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+            <div style="font-size:10px;color:#666;margin-top:1px;">${f.framework} | ${f.allocationPct||0}% allocation</div>
+          </div>
+          ${sip>0?`<div style="text-align:right;margin-left:12px;"><div style="font-size:11px;color:#888;">Monthly SIP</div><div style="font-size:13px;font-weight:600;color:#4fc3f7;">₹${sipAmt.toLocaleString('en-IN')}</div></div>`:''}
+          <button onclick="MFPortfolioBuilder._pbRemoveFund('${f.schemeCode}')"
+            style="background:none;border:none;color:#ef9a9a;cursor:pointer;font-size:16px;margin-left:10px;">✕</button>
+        </div>
+      `;
+    }
+
+    return `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;">
+        <h2 style="margin:0 0 6px;font-size:17px;color:#fff;">Fund Selection</h2>
+        <p style="margin:0 0 20px;color:#666;font-size:13px;">Select funds from the model portfolio for each asset class.</p>
+
+        <!-- Equity -->
+        <div style="margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-size:13px;font-weight:600;color:#4fc3f7;">📈 Equity — ${eq}%</div>
+            <button id="btn-add-equity" style="background:#4fc3f720;color:#4fc3f7;border:1px solid #4fc3f740;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">+ Add Fund</button>
+          </div>
+          <div id="equity-funds">${equityFunds.length?equityFunds.map(fundRow).join(''):'<div style="color:#555;font-size:12px;padding:10px;">No equity funds selected yet</div>'}</div>
+        </div>
+
+        <!-- Debt -->
+        <div style="margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-size:13px;font-weight:600;color:#81c784;">🏦 Debt — ${dt}%</div>
+            <button id="btn-add-debt" style="background:#81c78420;color:#81c784;border:1px solid #81c78440;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">+ Add Fund</button>
+          </div>
+          <div id="debt-funds">${debtFunds.length?debtFunds.map(fundRow).join(''):'<div style="color:#555;font-size:12px;padding:10px;">No debt funds selected yet</div>'}</div>
+        </div>
+
+        <!-- Gold -->
+        <div style="margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-size:13px;font-weight:600;color:#ffd54f;">🥇 Gold — ${gd}%</div>
+            <button id="btn-add-gold" style="background:#ffd54f20;color:#ffd54f;border:1px solid #ffd54f40;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">+ Add Fund</button>
+          </div>
+          <div id="gold-funds">${goldFunds.length?goldFunds.map(fundRow).join(''):'<div style="color:#555;font-size:12px;padding:10px;">No gold funds selected yet</div>'}</div>
+        </div>
+
+        <!-- Silver -->
+        <div style="margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-size:13px;font-weight:600;color:#cfd8dc;">🥈 Silver — ${sv}%</div>
+            <button id="btn-add-silver" style="background:#cfd8dc20;color:#cfd8dc;border:1px solid #cfd8dc40;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">+ Add Fund</button>
+          </div>
+          <div id="silver-funds">${silverFunds.length?silverFunds.map(fundRow).join(''):'<div style="color:#555;font-size:12px;padding:10px;">No silver funds selected yet</div>'}</div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;">
+          <button id="pb-back-4" style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 20px;cursor:pointer;font-size:13px;">← Back</button>
+          <button id="pb-next-4" style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 24px;cursor:pointer;font-size:13px;font-weight:600;">
+            Next: Summary →
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Step 5: Summary ──
+  function renderStep5() {
+    const sip = clientData.monthlySIP || 0;
+    const totalFunds = selectedFunds.length;
+    const totalAlloc = selectedFunds.reduce((s,f)=>s+(f.allocationPct||0),0);
+
+    return `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;">
+        <h2 style="margin:0 0 6px;font-size:17px;color:#fff;">Portfolio Summary</h2>
+        <p style="margin:0 0 20px;color:#666;font-size:13px;">Review and save the portfolio for ${clientData.name||'client'}.</p>
+
+        <!-- Client summary -->
+        <div style="background:#0d1117;border-radius:10px;padding:16px;margin-bottom:16px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+            <div><div style="font-size:10px;color:#888;">Client</div><div style="font-size:14px;font-weight:600;">${clientData.name||'—'}</div></div>
+            <div><div style="font-size:10px;color:#888;">Risk Profile</div><div style="font-size:14px;font-weight:600;color:${riskProfile.color};">${riskProfile.label}</div></div>
+            <div><div style="font-size:10px;color:#888;">Monthly SIP</div><div style="font-size:14px;font-weight:600;color:#4fc3f7;">₹${sip?sip.toLocaleString('en-IN'):'—'}</div></div>
+            <div><div style="font-size:10px;color:#888;">Goal</div><div style="font-size:13px;">${clientData.goal||'—'}</div></div>
+            <div><div style="font-size:10px;color:#888;">Target Amount</div><div style="font-size:13px;">₹${clientData.targetAmount?Number(clientData.targetAmount).toLocaleString('en-IN'):'—'}</div></div>
+            <div><div style="font-size:10px;color:#888;">Total Funds</div><div style="font-size:13px;">${totalFunds} funds | ${totalAlloc}% allocated</div></div>
+          </div>
+        </div>
+
+        <!-- Allocation summary -->
+        <div style="background:#0d1117;border-radius:10px;padding:16px;margin-bottom:16px;">
+          <div style="font-size:11px;color:#888;margin-bottom:12px;">Final Allocation</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;text-align:center;">
+            <div style="background:#4fc3f710;border-radius:8px;padding:10px;">
+              <div style="font-size:10px;color:#888;">Equity</div>
+              <div style="font-size:20px;font-weight:700;color:#4fc3f7;">${finalAllocation.equity}%</div>
+              ${sip?`<div style="font-size:11px;color:#666;">₹${Math.round(sip*finalAllocation.equity/100).toLocaleString('en-IN')}/mo</div>`:''}
+            </div>
+            <div style="background:#81c78410;border-radius:8px;padding:10px;">
+              <div style="font-size:10px;color:#888;">Debt</div>
+              <div style="font-size:20px;font-weight:700;color:#81c784;">${finalAllocation.debt}%</div>
+              ${sip?`<div style="font-size:11px;color:#666;">₹${Math.round(sip*finalAllocation.debt/100).toLocaleString('en-IN')}/mo</div>`:''}
+            </div>
+            <div style="background:#ffd54f10;border-radius:8px;padding:10px;">
+              <div style="font-size:10px;color:#888;">Gold</div>
+              <div style="font-size:20px;font-weight:700;color:#ffd54f;">${finalAllocation.gold}%</div>
+              ${sip?`<div style="font-size:11px;color:#666;">₹${Math.round(sip*finalAllocation.gold/100).toLocaleString('en-IN')}/mo</div>`:''}
+            </div>
+            <div style="background:#cfd8dc10;border-radius:8px;padding:10px;">
+              <div style="font-size:10px;color:#888;">Silver</div>
+              <div style="font-size:20px;font-weight:700;color:#cfd8dc;">${finalAllocation.silver}%</div>
+              ${sip?`<div style="font-size:11px;color:#666;">₹${Math.round(sip*finalAllocation.silver/100).toLocaleString('en-IN')}/mo</div>`:''}
+            </div>
+          </div>
+        </div>
+
+        <!-- Fund list -->
+        <div style="background:#0d1117;border-radius:10px;padding:16px;margin-bottom:20px;max-height:280px;overflow-y:auto;">
+          <div style="font-size:11px;color:#888;margin-bottom:10px;">Selected Funds</div>
+          ${selectedFunds.map(f => {
+            const sipAmt = sip > 0 ? Math.round(sip * (f.allocationPct||0) / 100) : 0;
+            return `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a2e;">
+                <div>
+                  <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+                  <div style="font-size:10px;color:#666;">${f.framework} | ${f.allocationPct||0}%</div>
+                </div>
+                ${sip>0?`<div style="font-size:12px;color:#4fc3f7;font-weight:600;">₹${sipAmt.toLocaleString('en-IN')}/mo</div>`:''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <div style="display:flex;justify-content:space-between;">
+          <button id="pb-back-5" style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 20px;cursor:pointer;font-size:13px;">← Back</button>
+          <button id="pb-save" style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 28px;cursor:pointer;font-size:14px;font-weight:700;">
+            💾 Save Portfolio
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Event handlers ──
+  function attachStepHandlers() {
+    // Step 1
+    if(currentStep===1) {
+      document.getElementById('pb-next-1').onclick = () => {
+        const name = document.getElementById('pb-name').value.trim();
+        if(!name) { alert('Please enter client name'); return; }
+        clientData = {
+          ...clientData,
+          name,
+          age:           parseInt(document.getElementById('pb-age').value)||null,
+          monthlyIncome: parseInt(document.getElementById('pb-income').value)||null,
+          monthlySIP:    parseInt(document.getElementById('pb-sip').value)||null,
+          goal:          document.getElementById('pb-goal').value,
+          targetAmount:  parseInt(document.getElementById('pb-target').value)||null,
+          notes:         document.getElementById('pb-notes').value.trim(),
+        };
+        currentStep=2; renderStep();
+      };
+    }
+
+    // Step 2
+    if(currentStep===2) {
+      document.getElementById('pb-back-2').onclick = () => { currentStep=1; renderStep(); };
+
+      // Radio change handlers
+      QUESTIONS.forEach(q => {
+        document.querySelectorAll(`input[name="${q.id}"]`).forEach(radio => {
+          radio.addEventListener('change', () => {
+            answers[q.id] = parseInt(radio.value);
+            // Update visual
+            document.querySelectorAll(`input[name="${q.id}"]`).forEach(r => {
+              const label = r.parentElement;
+              label.style.borderColor = r.checked ? '#4fc3f7' : '#2a2a3e';
+              label.style.background  = r.checked ? '#4fc3f720' : 'transparent';
+              label.querySelector('span').style.color = r.checked ? '#4fc3f7' : '#aaa';
+            });
+            // Show score
+            const score = Object.values(answers).reduce((s,v)=>s+v,0);
+            const profile = getRiskProfile(score);
+            const display = document.getElementById('pb-score-display');
+            if(display) {
+              display.style.display = 'block';
+              document.getElementById('pb-score-val').textContent = score+' / 35';
+              document.getElementById('pb-profile-val').textContent = profile.label;
+              document.getElementById('pb-profile-val').style.color = profile.color;
+            }
+          });
+        });
+      });
+
+      document.getElementById('pb-next-2').onclick = () => {
+        if(Object.keys(answers).length < QUESTIONS.length) {
+          alert('Please answer all 7 questions'); return;
+        }
+        const score = Object.values(answers).reduce((s,v)=>s+v,0);
+        riskProfile = getRiskProfile(score);
+        baseAllocation = { equity:riskProfile.equity, debt:riskProfile.debt, gold:riskProfile.gold, silver:riskProfile.silver };
+        finalAllocation = { ...baseAllocation };
+        currentStep=3; renderStep();
+      };
+    }
+
+    // Step 3
+    if(currentStep===3) {
+      document.getElementById('pb-back-3').onclick = () => { currentStep=2; renderStep(); };
+
+      // Live total update
+      ['alloc-eq','alloc-dt','alloc-gd','alloc-sv'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', () => {
+          const eq = parseFloat(document.getElementById('alloc-eq').value)||0;
+          const dt = parseFloat(document.getElementById('alloc-dt').value)||0;
+          const gd = parseFloat(document.getElementById('alloc-gd').value)||0;
+          const sv = parseFloat(document.getElementById('alloc-sv').value)||0;
+          const total = eq+dt+gd+sv;
+          const el = document.getElementById('alloc-total');
+          if(el) { el.textContent = `Total: ${total}%`; el.style.color = total===100?'#81c784':'#ef9a9a'; }
+        });
+      });
+
+      document.getElementById('btn-show-indicators').onclick = () => {
+        const base = {
+          equity: parseFloat(document.getElementById('alloc-eq').value)||baseAllocation.equity,
+          debt:   parseFloat(document.getElementById('alloc-dt').value)||baseAllocation.debt,
+          gold:   parseFloat(document.getElementById('alloc-gd').value)||baseAllocation.gold,
+          silver: parseFloat(document.getElementById('alloc-sv').value)||baseAllocation.silver,
+        };
+        window.MFPortfolioBuilder.showIndicatorDashboard(base, (alloc) => {
+          finalAllocation = alloc;
+          currentStep=3; renderStep();
+        });
+      };
+
+      document.getElementById('pb-next-3').onclick = () => {
+        finalAllocation = {
+          equity: parseFloat(document.getElementById('alloc-eq').value)||baseAllocation.equity,
+          debt:   parseFloat(document.getElementById('alloc-dt').value)||baseAllocation.debt,
+          gold:   parseFloat(document.getElementById('alloc-gd').value)||baseAllocation.gold,
+          silver: parseFloat(document.getElementById('alloc-sv').value)||baseAllocation.silver,
+        };
+        currentStep=4; renderStep();
+      };
+    }
+
+    // Step 4
+    if(currentStep===4) {
+      document.getElementById('pb-back-4').onclick = () => { currentStep=3; renderStep(); };
+      document.getElementById('pb-next-4').onclick = () => { currentStep=5; renderStep(); };
+
+      // Add fund buttons
+      const mpFunds = window.MFPortfolioBuilder._mpFunds || [];
+
+      function showFundPicker(assetClass, framework) {
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.88);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        const funds = mpFunds.filter(f => framework ? f.framework===framework : f.assetClass===assetClass);
+        modal.innerHTML = `
+          <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;width:520px;max-height:75vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h3 style="margin:0;font-size:15px;">Select ${assetClass} fund</h3>
+              <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:#666;font-size:18px;cursor:pointer;">✕</button>
+            </div>
+            <div style="margin-bottom:12px;">
+              <input id="fund-picker-alloc" type="number" placeholder="Allocation %" min="0" max="50" step="0.5"
+                style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:9px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+            </div>
+            <div style="display:grid;gap:8px;">
+              ${funds.length ? funds.map(f => `
+                <div class="fund-pick-item" data-code="${f.schemeCode}"
+                  style="background:#0d1117;border:1px solid #2a2a3e;border-radius:8px;padding:12px;cursor:pointer;"
+                  onmouseover="this.style.borderColor='#4fc3f7'" onmouseout="this.style.borderColor='#2a2a3e'">
+                  <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+                  <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | ${f.allocationPct||0}% model alloc</div>
+                </div>
+              `).join('') : '<div style="color:#666;font-size:13px;padding:10px;">No model portfolio funds for this asset class. Add funds to model portfolio first.</div>'}
+            </div>
+          </div>
+        `;
+        document.body.appendChild(modal);
+        modal.querySelectorAll('.fund-pick-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const code = item.dataset.code;
+            const alloc = parseFloat(document.getElementById('fund-picker-alloc').value)||0;
+            const fund = mpFunds.find(f=>f.schemeCode===code);
+            if(fund && !selectedFunds.find(f=>f.schemeCode===code)) {
+              selectedFunds.push({...fund, allocationPct:alloc});
+            }
+            modal.remove();
+            currentStep=4; renderStep();
+          });
+        });
+      }
+
+      document.getElementById('btn-add-equity').onclick  = () => showFundPicker('equity');
+      document.getElementById('btn-add-debt').onclick    = () => showFundPicker('debt');
+      document.getElementById('btn-add-gold').onclick    = () => showFundPicker('equity','Gold');
+      document.getElementById('btn-add-silver').onclick  = () => showFundPicker('equity','Silver');
+
+      window.MFPortfolioBuilder._pbRemoveFund = (code) => {
+        selectedFunds = selectedFunds.filter(f=>f.schemeCode!==code);
+        currentStep=4; renderStep();
+      };
+    }
+
+    // Step 5
+    if(currentStep===5) {
+      document.getElementById('pb-back-5').onclick = () => { currentStep=4; renderStep(); };
+      document.getElementById('pb-save').onclick = async () => {
+        const btn = document.getElementById('pb-save');
+        btn.textContent = '⏳ Saving...'; btn.disabled = true;
+        try {
+          // Save client
+          const cid = clientId || `client_${Date.now()}`;
+          await setDoc(doc(db,'clients',cid), {
+            ...clientData,
+            clientId: cid,
+            riskProfile: riskProfile.label,
+            riskScore: Object.values(answers).reduce((s,v)=>s+v,0),
+            updatedAt: new Date(),
+            createdAt: clientData.createdAt || new Date(),
+          }, {merge:true});
+
+          // Save portfolio
+          await setDoc(doc(db,'client_portfolios',cid), {
+            clientId: cid,
+            clientName: clientData.name,
+            riskProfile: riskProfile.label,
+            finalAllocation,
+            funds: selectedFunds.map(f=>({
+              schemeCode: f.schemeCode,
+              schemeName: f.schemeName,
+              framework:  f.framework,
+              assetClass: f.assetClass,
+              allocationPct: f.allocationPct||0,
+              monthlySIP: clientData.monthlySIP
+                ? Math.round(clientData.monthlySIP*(f.allocationPct||0)/100)
+                : 0,
+            })),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }, {merge:true});
+
+          alert('✅ Portfolio saved successfully!');
+          page.remove();
+        } catch(e) {
+          alert('❌ Save failed: '+e.message);
+          btn.textContent='💾 Save Portfolio'; btn.disabled=false;
+        }
+      };
+    }
+  }
+
+  // Load model portfolio funds for fund picker
+  window.MFPortfolioBuilder._mpFunds = [];
+  try {
+    const mpSnap = await getDocs(query(collection(db,'model_portfolio'),where('isActive','==',true)));
+    window.MFPortfolioBuilder._mpFunds = mpSnap.docs.map(d=>d.data());
+  } catch(e) {}
+
+  renderStep();
+  document.body.appendChild(page);
+};
+
+console.log('✅ Portfolio Builder loaded. Run: MFPortfolioBuilder.showPortfolioBuilder()');
+</script>
 </body>
 </html>
