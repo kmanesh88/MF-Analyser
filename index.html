@@ -10790,8 +10790,7 @@ window.MFPortfolioBuilder.ModelPortfolio = {
 
   async searchFrameworkFunds(db,fw,limit=5) {
     const s=await getDocs(query(collection(db,'framework_scores'),where('framework','==',fw),where('gatewayPassed','==',true)));
-    .filter(f=>{const n=(f.schemeName||'').toLowerCase();return !n.includes('direct')&&!n.includes('idcw')&&!n.includes('dividend')&&!n.includes('bonus')&&!n.includes('payout');})
-      .sort((a,b)=>(b.perfScore||0)-(a.perfScore||0)).slice(0,limit);
+   return s.docs.map(d=>d.data()).filter(f=>{const n=(f.schemeName||'').toLowerCase();return !n.includes('direct')&&!n.includes('idcw')&&!n.includes('dividend')&&!n.includes('bonus')&&!n.includes('payout');}).sort((a,b)=>(b.perfScore||0)-(a.perfScore||0)).slice(0,limit);
   },
 
   async searchFunds(term) {
