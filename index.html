@@ -10828,7 +10828,7 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
       <button class="mpf active" data-f="all" style="background:#4fc3f7;color:#000;border:none;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600;">All</button>
       ${Object.entries(MP.frameworks).map(([k,fw])=>`<button class="mpf" data-f="${k}" style="background:#1a1a2e;color:#888;border:1px solid #333;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:12px;">${fw.icon} ${fw.label}</button>`).join('')}
     </div>
-    <div id="mp-grid" style="display:grid;gap:10px;"><div style="text-align:center;padding:40px;color:#666;">⏳ Loading...</div></div>
+    <div id="mp-grid" style="display:grid;gap:10px;grid-template-columns:1fr;"><div style="text-align:center;padding:40px;color:#666;">⏳ Loading...</div></div>
   </div>`;
   document.body.appendChild(page);
 
