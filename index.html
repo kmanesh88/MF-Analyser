@@ -11434,15 +11434,20 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
       const silverFunds  = selectedFunds.filter(f=>f.framework==='Silver');
 
     function fundRow(f) {
+     const sip = clientData.monthlySIP || 0;
+      const lumpsum = clientData.lumpsumAmount || 0;
       const sipAmt = sip > 0 ? Math.round(sip * (f.allocationPct||0) / 100) : 0;
+      const lsAmt  = lumpsum > 0 ? Math.round(lumpsum * (f.allocationPct||0) / 100) : 0;
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#0d1117;border-radius:8px;margin-bottom:6px;">
           <div style="flex:1;">
             <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
             <div style="font-size:10px;color:#666;margin-top:1px;">${f.framework} | ${f.allocationPct||0}% allocation</div>
           </div>
-          ${sip>0?`<div style="text-align:right;margin-left:12px;"><div style="font-size:11px;color:#888;">Monthly SIP</div><div style="font-size:13px;font-weight:600;color:#4fc3f7;">₹${sipAmt.toLocaleString('en-IN')}</div></div>`:''}
-          <button onclick="MFPortfolioBuilder._pbRemoveFund('${f.schemeCode}')"
+        <div style="text-align:right;margin-left:12px;">
+            ${sip>0?`<div style="font-size:10px;color:#888;">SIP: <span style="color:#4fc3f7;font-weight:600;">₹${sipAmt.toLocaleString('en-IN')}/mo</span></div>`:''}
+            ${lumpsum>0?`<div style="font-size:10px;color:#888;">Lumpsum: <span style="color:#ffb74d;font-weight:600;">₹${lsAmt.toLocaleString('en-IN')}</span></div>`:''}
+          </div>
             style="background:none;border:none;color:#ef9a9a;cursor:pointer;font-size:16px;margin-left:10px;">✕</button>
         </div>
       `;
@@ -11553,7 +11558,8 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
         <div style="background:#0d1117;border-radius:10px;padding:16px;margin-bottom:20px;max-height:280px;overflow-y:auto;">
           <div style="font-size:11px;color:#888;margin-bottom:10px;">Selected Funds</div>
           ${selectedFunds.map(f => {
-            const sipAmt = sip > 0 ? Math.round(sip * (f.allocationPct||0) / 100) : 0;
+           const sipAmt = sip > 0 ? Math.round(sip * (f.allocationPct||0) / 100) : 0;
+            const lsAmt2 = clientData.lumpsumAmount > 0 ? Math.round(clientData.lumpsumAmount * (f.allocationPct||0) / 100) : 0;
             return `
               <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a2e;">
                 <div>
