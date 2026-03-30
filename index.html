@@ -10846,7 +10846,7 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
       const rs=ret>0?'+':'';
       const sc=f.scoreAtInclusion?.perfScore||0;
       const since=f.inclusion?.includedSince?new Date(f.inclusion.includedSince.seconds*1000).toLocaleDateString('en-IN'):'—';
-      return `<div class="mpcard" data-fw="${f.framework}" style="background:#1a1a2e;border:1px solid #2a2a3e;border-radius:12px;padding:16px;transition:border-color 0.2s;width:100%;box-sizing:border-box;" onmouseover="this.style.borderColor='${fw.color}40'" onmouseout="this.style.borderColor='#2a2a3e'">
+      return `<div class="mpcard" data-fw="${f.framework}" style="display:block;background:#1a1a2e;border:1px solid #2a2a3e;border-radius:12px;padding:16px;transition:border-color 0.2s;width:100%;box-sizing:border-box;" onmouseover="this.style.borderColor='${fw.color}40'" onmouseout="this.style.borderColor='#2a2a3e'">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div style="flex:1;">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
