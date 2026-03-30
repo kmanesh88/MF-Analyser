@@ -10807,7 +10807,7 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
   const page=document.createElement('div');
   page.id='mp-page';
   page.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:#0a0e1a;z-index:8888;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;';
-  page.innerHTML=`<div style="max-width:1100px;margin:0 auto;padding:24px;">
+ page.innerHTML=`<div style="max-width:900px;margin:0 auto;padding:24px;display:block;width:100%;box-sizing:border-box;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
       <div style="display:flex;align-items:center;gap:12px;">
         <button onclick="document.getElementById('mp-page').remove()" style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">← Back</button>
@@ -10829,7 +10829,7 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
       <button class="mpf active" data-f="all" style="background:#4fc3f7;color:#000;border:none;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600;">All</button>
       ${Object.entries(MP.frameworks).map(([k,fw])=>`<button class="mpf" data-f="${k}" style="background:#1a1a2e;color:#888;border:1px solid #333;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:12px;">${fw.icon} ${fw.label}</button>`).join('')}
     </div>
-    <div id="mp-grid" style="display:flex;flex-direction:column;gap:10px;"><div style="text-align:center;padding:40px;color:#666;">⏳ Loading...</div></div>
+    <div id="mp-grid" style="display:flex;flex-direction:column;gap:10px;width:100%;box-sizing:border-box;"><div style="text-align:center;padding:40px;color:#666;">⏳ Loading...</div></div>
   </div>`;
   document.body.appendChild(page);
 
