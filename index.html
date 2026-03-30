@@ -11778,8 +11778,8 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
     window.MFPortfolioBuilder._mpFunds = mpSnap.docs.map(d=>d.data());
   } catch(e) {}
 
+ document.body.appendChild(page);
   renderStep();
-  document.body.appendChild(page);
 };
 
 console.log('✅ Portfolio Builder loaded. Run: MFPortfolioBuilder.showPortfolioBuilder()');
