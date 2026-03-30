@@ -8098,7 +8098,8 @@ window.MFPortfolioBuilder.scoreQualityFunds = async function(cb) {
    !f.schemeName.toLowerCase().includes('idcw') &&
     !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') &&
     !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct') && !f.schemeName.toLowerCase().includes('direct') &&
-    f.category !== 'ELSS' &&
+   f.category !== 'ELSS' &&
+    f.category !== 'Multi Asset Allocation Fund' &&
     !f.schemeName.toLowerCase().includes('direct')                                                
   );
   log('Found ' + funds.length + ' Quality Regular Growth funds', 10);
@@ -10828,7 +10829,7 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
       <button class="mpf active" data-f="all" style="background:#4fc3f7;color:#000;border:none;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600;">All</button>
       ${Object.entries(MP.frameworks).map(([k,fw])=>`<button class="mpf" data-f="${k}" style="background:#1a1a2e;color:#888;border:1px solid #333;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:12px;">${fw.icon} ${fw.label}</button>`).join('')}
     </div>
-    <div id="mp-grid" style="display:grid;gap:10px;grid-template-columns:1fr;"><div style="text-align:center;padding:40px;color:#666;">⏳ Loading...</div></div>
+    <div id="mp-grid" style="display:flex;flex-direction:column;gap:10px;"><div style="text-align:center;padding:40px;color:#666;">⏳ Loading...</div></div>
   </div>`;
   document.body.appendChild(page);
 
