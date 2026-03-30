@@ -10862,8 +10862,8 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
             <div style="font-size:10px;color:#555;">since inception</div>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #2a2a3e;">
-          <div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #2a2a3e;">
+      
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #2a2a3e;">
           <div><div style="font-size:10px;color:#555;">Allocation</div><div style="font-size:13px;font-weight:600;color:#ffb74d;">${f.allocationPct||0}%</div></div>
           <div><div style="font-size:10px;color:#555;">Score</div><div style="font-size:13px;font-weight:600;color:#4fc3f7;">${sc||'—'}</div></div>
           <div><div style="font-size:10px;color:#555;">NAV at Entry</div><div style="font-size:13px;font-weight:600;">₹${(f.performance?.navAtInclusion||0).toFixed(2)}</div></div>
