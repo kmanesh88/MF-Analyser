@@ -11258,9 +11258,24 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
             <input id="pb-income" type="number" value="${clientData.monthlyIncome||''}" placeholder="e.g. 150000"
               style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
           </div>
-          <div>
+         <div>
             <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Monthly SIP Capacity (₹)</label>
             <input id="pb-sip" type="number" value="${clientData.monthlySIP||''}" placeholder="e.g. 50000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Lumpsum Amount (₹)</label>
+            <input id="pb-lumpsum" type="number" value="${clientData.lumpsumAmount||''}" placeholder="e.g. 500000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Existing Investments (₹)</label>
+            <input id="pb-existing" type="number" value="${clientData.existingInvestments||''}" placeholder="Current portfolio value"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Existing Investment Notes</label>
+            <input id="pb-existing-notes" type="text" value="${clientData.existingInvestmentNotes||''}" placeholder="e.g. PPF, EPF, existing MF SIPs..."
               style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
           </div>
           <div>
@@ -11411,10 +11426,12 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
     const sv  = finalAllocation.silver;
     const sip = clientData.monthlySIP || 0;
 
-    const equityFunds  = selectedFunds.filter(f=>f.assetClass==='equity');
-    const debtFunds    = selectedFunds.filter(f=>f.assetClass==='debt');
-    const goldFunds    = selectedFunds.filter(f=>f.framework==='Gold');
-    const silverFunds  = selectedFunds.filter(f=>f.framework==='Silver');
+    const equityFrameworks = ['Quality','Value','GARP','MidCap','SmallCap','Momentum'];
+      const debtFrameworks   = ['CapitalPreservation','IncomeGeneration','RateStrategy'];
+      const equityFunds  = selectedFunds.filter(f=>equityFrameworks.includes(f.framework));
+      const debtFunds    = selectedFunds.filter(f=>debtFrameworks.includes(f.framework));
+      const goldFunds    = selectedFunds.filter(f=>f.framework==='Gold');
+      const silverFunds  = selectedFunds.filter(f=>f.framework==='Silver');
 
     function fundRow(f) {
       const sipAmt = sip > 0 ? Math.round(sip * (f.allocationPct||0) / 100) : 0;
@@ -11575,6 +11592,9 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
           goal:          document.getElementById('pb-goal').value,
           targetAmount:  parseInt(document.getElementById('pb-target').value)||null,
           notes:         document.getElementById('pb-notes').value.trim(),
+          lumpsumAmount:        parseInt(document.getElementById('pb-lumpsum').value)||null,
+          existingInvestments:  parseInt(document.getElementById('pb-existing').value)||null,
+          existingInvestmentNotes: document.getElementById('pb-existing-notes').value.trim(),
         };
         currentStep=2; renderStep();
       };
