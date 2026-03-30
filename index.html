@@ -11732,9 +11732,25 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
                 ${tabs.map(fw=>`<button class="fw-tab" data-fw="${fw}" style="background:${fw===activeFw?'#4fc3f7':'#0d1117'};color:${fw===activeFw?'#000':'#888'};border:1px solid ${fw===activeFw?'#4fc3f7':'#333'};border-radius:20px;padding:4px 10px;cursor:pointer;font-size:11px;">${fwLabels[fw]||fw}</button>`).join('')}
+             <div style="margin-bottom:12px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+                  <div>
+                    <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Portfolio Allocation %</label>
+                    <input id="fund-picker-alloc" type="number" placeholder="e.g. 10" min="0" max="50" step="0.5"
+                      style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+                  </div>
+                  <div>
+                    <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Lumpsum % <span style="color:#555;">(rest goes to SIP)</span></label>
+                    <input id="fund-picker-ls-pct" type="number" placeholder="e.g. 70" min="0" max="100" step="5" value="40"
+                      style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#ffb74d;font-size:13px;box-sizing:border-box;">
+                  </div>
+                </div>
+                <div id="alloc-preview" style="background:#0d1117;border-radius:6px;padding:8px;font-size:11px;color:#888;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+                  <div>Remaining SIP: <span id="rem-sip" style="color:#4fc3f7;font-weight:600;">—</span></div>
+                  <div>Remaining Lumpsum: <span id="rem-ls" style="color:#ffb74d;font-weight:600;">—</span></div>
+                  <div>Remaining Allocation: <span id="rem-alloc" style="color:#81c784;font-weight:600;">—</span></div>
+                </div>
               </div>
-             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
-                <div>
                   <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Portfolio Allocation %</label>
                   <input id="fund-picker-alloc" type="number" placeholder="e.g. 10" min="0" max="50" step="0.5"
                     style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
@@ -11763,6 +11779,36 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
             </div>
           `;
           document.getElementById('close-picker').onclick = () => modal.remove();
+          // Live preview
+          const totalSIP = clientData.monthlySIP || 0;
+          const totalLS  = clientData.lumpsumAmount || 0;
+          const usedAlloc = selectedFunds.reduce((s,f)=>s+(f.allocationPct||0),0);
+          const usedSIP   = selectedFunds.reduce((s,f)=>s+Math.round(totalSIP*(f.allocationPct||0)/100*(f.lsPct!==undefined?100-f.lsPct:40)/100),0);
+          const usedLS    = selectedFunds.reduce((s,f)=>s+Math.round(totalLS*(f.allocationPct||0)/100*(f.lsPct||40)/100),0);
+
+          function updatePreview() {
+            const alloc = parseFloat(document.getElementById('fund-picker-alloc')?.value)||0;
+            const lsPct = parseFloat(document.getElementById('fund-picker-ls-pct')?.value)||40;
+            const sipPct = 100 - lsPct;
+            const thisSIP = totalSIP>0 ? Math.round(totalSIP*alloc/100*sipPct/100) : 0;
+            const thisLS  = totalLS>0  ? Math.round(totalLS*alloc/100*lsPct/100)   : 0;
+            const remAlloc = 100 - usedAlloc - alloc;
+            const remSIP   = totalSIP>0 ? totalSIP - usedSIP - thisSIP : 0;
+            const remLS    = totalLS>0  ? totalLS  - usedLS  - thisLS  : 0;
+            const ra = document.getElementById('rem-alloc');
+            const rs = document.getElementById('rem-sip');
+            const rl = document.getElementById('rem-ls');
+            if(ra) { ra.textContent=remAlloc+'%'; ra.style.color=remAlloc<0?'#ef9a9a':'#81c784'; }
+            if(rs && totalSIP>0) { rs.textContent='₹'+remSIP.toLocaleString('en-IN')+'/mo'; rs.style.color=remSIP<0?'#ef9a9a':'#4fc3f7'; }
+            if(rl && totalLS>0)  { rl.textContent='₹'+remLS.toLocaleString('en-IN'); rl.style.color=remLS<0?'#ef9a9a':'#ffb74d'; }
+            // Auto SIP label
+            const sipEl = document.getElementById('sip-auto-label');
+            if(sipEl) sipEl.textContent = `SIP gets ${sipPct}% → ₹${thisSIP.toLocaleString('en-IN')}/mo`;
+          }
+
+          document.getElementById('fund-picker-alloc')?.addEventListener('input', updatePreview);
+          document.getElementById('fund-picker-ls-pct')?.addEventListener('input', updatePreview);
+          updatePreview();
           modal.querySelectorAll('.fw-tab').forEach(btn => {
             btn.addEventListener('click', () => { activeFw=btn.dataset.fw; renderModal(); });
           });
@@ -11781,8 +11827,8 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
             item.addEventListener('click', () => {
               const code = item.dataset.code;
             const alloc  = parseFloat(document.getElementById('fund-picker-alloc').value)||0;
-              const sipPct = parseFloat(document.getElementById('fund-picker-sip-pct').value)||60;
-              const lsPct  = parseFloat(document.getElementById('fund-picker-ls-pct').value)||40;
+             const lsPct  = parseFloat(document.getElementById('fund-picker-ls-pct').value)||40;
+              const sipPct = 100 - lsPct;
               const fund = mpFunds.find(f=>f.schemeCode===code);
               if(fund) selectedFunds.push({...fund, allocationPct:alloc, sipPct, lsPct});
               modal.remove();
