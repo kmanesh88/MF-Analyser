@@ -11671,52 +11671,75 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
       // Add fund buttons
       const mpFunds = window.MFPortfolioBuilder._mpFunds || [];
 
-      function showFundPicker(assetClass, framework) {
+     function showFundPicker(assetClass, allowedFrameworks) {
         const modal = document.createElement('div');
         modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.88);z-index:9999;display:flex;align-items:center;justify-content:center;';
-        const funds = mpFunds.filter(f => framework ? f.framework===framework : f.assetClass===assetClass);
-        modal.innerHTML = `
-          <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;width:520px;max-height:75vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-              <h3 style="margin:0;font-size:15px;">Select ${assetClass} fund</h3>
-              <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:#666;font-size:18px;cursor:pointer;">✕</button>
+        const fwTabs = {
+          equity: ['Quality','Value','GARP','MidCap','SmallCap','Momentum'],
+          debt:   ['CapitalPreservation','IncomeGeneration','RateStrategy'],
+          gold:   ['Gold'],
+          silver: ['Silver'],
+        };
+        const tabs = allowedFrameworks || fwTabs[assetClass] || [];
+        let activeFw = tabs[0];
+        const fwLabels = {
+          Quality:'⭐ Quality', Value:'💎 Value', GARP:'⚖️ GARP',
+          MidCap:'📊 Mid Cap', SmallCap:'🚀 Small Cap', Momentum:'⚡ Momentum',
+          CapitalPreservation:'🛡️ Cap Pres', IncomeGeneration:'💰 Income Gen',
+          RateStrategy:'📈 Rate Strategy', Gold:'🥇 Gold', Silver:'🥈 Silver',
+        };
+        function getFunds(fw) {
+          return mpFunds.filter(f => f.framework===fw && !selectedFunds.find(s=>s.schemeCode===f.schemeCode));
+        }
+        function renderModal() {
+          const funds = getFunds(activeFw);
+          modal.innerHTML = `
+            <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;width:540px;max-height:80vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="margin:0;font-size:15px;color:#fff;">Add ${assetClass.charAt(0).toUpperCase()+assetClass.slice(1)} Fund</h3>
+                <button id="close-picker" style="background:none;border:none;color:#666;font-size:18px;cursor:pointer;">✕</button>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+                ${tabs.map(fw=>`<button class="fw-tab" data-fw="${fw}" style="background:${fw===activeFw?'#4fc3f7':'#0d1117'};color:${fw===activeFw?'#000':'#888'};border:1px solid ${fw===activeFw?'#4fc3f7':'#333'};border-radius:20px;padding:4px 10px;cursor:pointer;font-size:11px;">${fwLabels[fw]||fw}</button>`).join('')}
+              </div>
+              <div style="margin-bottom:12px;">
+                <input id="fund-picker-alloc" type="number" placeholder="Allocation % for this fund" min="0" max="50" step="0.5"
+                  style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:9px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+              </div>
+              <div style="display:grid;gap:7px;">
+                ${funds.length ? funds.map(f=>`
+                  <div class="fund-pick-item" data-code="${f.schemeCode}"
+                    style="background:#0d1117;border:1px solid #2a2a3e;border-radius:8px;padding:11px;cursor:pointer;"
+                    onmouseover="this.style.borderColor='#4fc3f7'" onmouseout="this.style.borderColor='#2a2a3e'">
+                    <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+                    <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | Model alloc: ${f.allocationPct||0}%</div>
+                  </div>
+                `).join('') : `<div style="color:#666;font-size:12px;padding:12px;text-align:center;">No ${activeFw} funds in model portfolio.</div>`}
+              </div>
             </div>
-            <div style="margin-bottom:12px;">
-              <input id="fund-picker-alloc" type="number" placeholder="Allocation %" min="0" max="50" step="0.5"
-                style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:9px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
-            </div>
-            <div style="display:grid;gap:8px;">
-              ${funds.length ? funds.map(f => `
-                <div class="fund-pick-item" data-code="${f.schemeCode}"
-                  style="background:#0d1117;border:1px solid #2a2a3e;border-radius:8px;padding:12px;cursor:pointer;"
-                  onmouseover="this.style.borderColor='#4fc3f7'" onmouseout="this.style.borderColor='#2a2a3e'">
-                  <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
-                  <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | ${f.allocationPct||0}% model alloc</div>
-                </div>
-              `).join('') : '<div style="color:#666;font-size:13px;padding:10px;">No model portfolio funds for this asset class. Add funds to model portfolio first.</div>'}
-            </div>
-          </div>
-        `;
-        document.body.appendChild(modal);
-        modal.querySelectorAll('.fund-pick-item').forEach(item => {
-          item.addEventListener('click', () => {
-            const code = item.dataset.code;
-            const alloc = parseFloat(document.getElementById('fund-picker-alloc').value)||0;
-            const fund = mpFunds.find(f=>f.schemeCode===code);
-            if(fund && !selectedFunds.find(f=>f.schemeCode===code)) {
-              selectedFunds.push({...fund, allocationPct:alloc});
-            }
-            modal.remove();
-            currentStep=4; renderStep();
+          `;
+          document.getElementById('close-picker').onclick = () => modal.remove();
+          modal.querySelectorAll('.fw-tab').forEach(btn => {
+            btn.addEventListener('click', () => { activeFw=btn.dataset.fw; renderModal(); });
           });
-        });
+          modal.querySelectorAll('.fund-pick-item').forEach(item => {
+            item.addEventListener('click', () => {
+              const code = item.dataset.code;
+              const alloc = parseFloat(document.getElementById('fund-picker-alloc').value)||0;
+              const fund = mpFunds.find(f=>f.schemeCode===code);
+              if(fund) selectedFunds.push({...fund, allocationPct:alloc});
+              modal.remove();
+              currentStep=4; renderStep();
+            });
+          });
+        }
+        renderModal();
+        document.body.appendChild(modal);
       }
-
       document.getElementById('btn-add-equity').onclick  = () => showFundPicker('equity');
       document.getElementById('btn-add-debt').onclick    = () => showFundPicker('debt');
-      document.getElementById('btn-add-gold').onclick    = () => showFundPicker('equity','Gold');
-      document.getElementById('btn-add-silver').onclick  = () => showFundPicker('equity','Silver');
-
+      document.getElementById('btn-add-gold').onclick    = () => showFundPicker('gold');
+      document.getElementById('btn-add-silver').onclick  = () => showFundPicker('silver');
       window.MFPortfolioBuilder._pbRemoveFund = (code) => {
         selectedFunds = selectedFunds.filter(f=>f.schemeCode!==code);
         currentStep=4; renderStep();
