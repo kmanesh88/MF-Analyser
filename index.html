@@ -10755,6 +10755,7 @@ window.MFPortfolioBuilder.ModelPortfolio = {
       inclusion:{includedSince:new Date(),advisorNote:note||'',overrideFlag:!!override,overrideReason:override||'',lastReviewedAt:new Date()},
       scoreAtInclusion:{compositeScore:score?.compositeScore||0,perfScore:score?.perfScore||0},
       performance:{navAtInclusion:nav?.nav||0,currentNav:nav?.nav||0,returnSinceInclusion:0,lastUpdated:new Date()},
+      allocationPct:fund.allocationPct||0,
       createdAt:new Date(),updatedAt:new Date(),
     },{merge:true});
   },
@@ -10861,6 +10862,8 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
           </div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #2a2a3e;">
+          <div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #2a2a3e;">
+          <div><div style="font-size:10px;color:#555;">Allocation</div><div style="font-size:13px;font-weight:600;color:#ffb74d;">${f.allocationPct||0}%</div></div>
           <div><div style="font-size:10px;color:#555;">Score</div><div style="font-size:13px;font-weight:600;color:#4fc3f7;">${sc||'—'}</div></div>
           <div><div style="font-size:10px;color:#555;">NAV at Entry</div><div style="font-size:13px;font-weight:600;">₹${(f.performance?.navAtInclusion||0).toFixed(2)}</div></div>
           <div><div style="font-size:10px;color:#555;">Current NAV</div><div style="font-size:13px;font-weight:600;">₹${(f.performance?.currentNav||0).toFixed(2)}</div></div>
@@ -10869,6 +10872,7 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
         ${f.inclusion?.advisorNote?`<div style="margin-top:8px;padding:7px 10px;background:#0d1117;border-radius:6px;font-size:11px;color:#888;font-style:italic;">"${f.inclusion.advisorNote}"</div>`:''}
         ${f.inclusion?.overrideReason?`<div style="margin-top:5px;padding:5px 10px;background:#ff980010;border-radius:6px;font-size:11px;color:#ff9800;">Override: ${f.inclusion.overrideReason}</div>`:''}
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+         <button onclick="MFPortfolioBuilder._editAlloc('${f.schemeCode}','${f.allocationPct||0}')" style="background:#1a1a2e;border:1px solid #ffb74d30;color:#ffb74d;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">% Alloc</button>
           <button onclick="MFPortfolioBuilder._editNote('${f.schemeCode}')" style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">✏️ Note</button>
           <button onclick="MFPortfolioBuilder._removeFund('${f.schemeCode}')" style="background:#1a1a2e;border:1px solid #ef9a9a30;color:#ef9a9a;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">Remove</button>
         </div>
@@ -10884,6 +10888,8 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
     const best=[...funds].sort((a,b)=>(b.performance?.returnSinceInclusion||0)-(a.performance?.returnSinceInclusion||0))[0];
     document.getElementById('mp-best').textContent=best?(best.performance?.returnSinceInclusion>0?'+':'')+best.performance?.returnSinceInclusion+'% — '+best.schemeName?.split(' ').slice(0,3).join(' '):'—';
     document.getElementById('mp-fw').textContent=new Set(funds.map(f=>f.framework)).size;
+    const totalAlloc=funds.reduce((s,f)=>s+(f.allocationPct||0),0);
+document.getElementById('mp-total').textContent=funds.length+' | '+totalAlloc+'% allocated';
   }
 
   async function reload() {
@@ -10916,6 +10922,13 @@ window.MFPortfolioBuilder.showModelPortfolio = async function() {
     await MP.removeFund(db,code);await reload();
   };
 
+  window.MFPortfolioBuilder._editAlloc=async(code,current)=>{
+    const alloc=prompt('Allocation % (0-30):',current);
+    if(alloc===null)return;
+    const pct=parseFloat(alloc)||0;
+    await setDoc(doc(db,'model_portfolio',code),{allocationPct:pct,updatedAt:new Date()},{merge:true});
+    await reload();
+  };
   window.MFPortfolioBuilder._editNote=async(code)=>{
     const f=allFunds.find(x=>x.schemeCode===code);
     const note=prompt('Advisor note:',f?.inclusion?.advisorNote||'');
@@ -10963,6 +10976,11 @@ window.MFPortfolioBuilder.showAddFundModal = function(db,onSuccess) {
     </div>
     <div style="margin-bottom:14px;">
       <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Advisor Note</label>
+      <div style="margin-bottom:14px;">
+  <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Allocation %</label>
+  <input id="alloc-pct" type="number" min="0" max="30" step="0.5" placeholder="e.g. 8"
+    style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:9px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+</div>
       <textarea id="anote" rows="2" placeholder="Reason for selection..."
         style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:9px;color:#e0e0e0;font-size:13px;resize:none;box-sizing:border-box;"></textarea>
     </div>
@@ -11067,6 +11085,7 @@ window.MFPortfolioBuilder.showAddFundModal = function(db,onSuccess) {
     const btn=document.getElementById('btn-confirm');btn.textContent='⏳ Adding...';btn.disabled=true;
     const fw=document.getElementById('add-fw').value;
     const note=document.getElementById('anote').value.trim();
+    const alloc=parseFloat(document.getElementById('alloc-pct').value)||0;
     const override=document.getElementById('oreason')?.value?.trim()||'';
     try {
       let fd=selFund;
@@ -11075,7 +11094,7 @@ window.MFPortfolioBuilder.showAddFundModal = function(db,onSuccess) {
         const d=await r.json();
         fd={...selFund,schemeName:d.meta?.scheme_name||selFund.schemeName,amcName:d.meta?.fund_house||'',category:d.meta?.scheme_category||'',framework:fw};
       }
-      await MP.addFund(db,{...fd,framework:fw},note,override);
+     await MP.addFund(db,{...fd,framework:fw,allocationPct:alloc},note,override);
       modal.remove();onSuccess?.();
     } catch(e){alert('❌ '+e.message);btn.textContent='Add to Model Portfolio';btn.disabled=false;btn.style.opacity='1';}
   });
