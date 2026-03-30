@@ -11434,12 +11434,8 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
       const silverFunds  = selectedFunds.filter(f=>f.framework==='Silver');
 
     function fundRow(f) {
-     const sip = clientData.monthlySIP || 0;
-      const lumpsum = clientData.lumpsumAmount || 0;
-     const sipPct = f.sipPct !== undefined ? f.sipPct : 60;
-      const lsPct  = f.lsPct  !== undefined ? f.lsPct  : 40;
-      const sipAmt = sip > 0     ? Math.round(sip     * (f.allocationPct||0) / 100 * sipPct / 100) : 0;
-      const lsAmt  = lumpsum > 0 ? Math.round(lumpsum * (f.allocationPct||0) / 100 * lsPct  / 100) : 0;
+    const sipAmt = f.sipAmount || 0;
+      const lsAmt  = f.lsAmount  || 0;
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#0d1117;border-radius:8px;margin-bottom:6px;">
           <div style="flex:1;">
@@ -11702,141 +11698,181 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
       // Add fund buttons
       const mpFunds = window.MFPortfolioBuilder._mpFunds || [];
 
-     function showFundPicker(assetClass, allowedFrameworks) {
+    function showFundPicker(assetClass, allowedFrameworks) {
         const modal = document.createElement('div');
         modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.88);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        document.body.appendChild(modal);
+
         const fwTabs = {
           equity: ['Quality','Value','GARP','MidCap','SmallCap','Momentum'],
           debt:   ['CapitalPreservation','IncomeGeneration','RateStrategy'],
-          gold:   ['Gold'],
-          silver: ['Silver'],
+          gold:   ['Gold'], silver: ['Silver'],
         };
-        const tabs = allowedFrameworks || fwTabs[assetClass] || [];
-        let activeFw = tabs[0];
         const fwLabels = {
           Quality:'⭐ Quality', Value:'💎 Value', GARP:'⚖️ GARP',
           MidCap:'📊 Mid Cap', SmallCap:'🚀 Small Cap', Momentum:'⚡ Momentum',
           CapitalPreservation:'🛡️ Cap Pres', IncomeGeneration:'💰 Income Gen',
           RateStrategy:'📈 Rate Strategy', Gold:'🥇 Gold', Silver:'🥈 Silver',
         };
+
+        const tabs = allowedFrameworks || fwTabs[assetClass] || [];
+        let activeFw = tabs[0];
+        let activeTab = 'sip'; // 'sip' or 'lumpsum'
+
+        const totalSIP    = clientData.monthlySIP    || 0;
+        const totalLS     = clientData.lumpsumAmount || 0;
+        const usedSIP     = selectedFunds.reduce((s,f)=>s+(f.sipAmount||0), 0);
+        const usedLS      = selectedFunds.reduce((s,f)=>s+(f.lsAmount||0),  0);
+        const remSIP      = totalSIP - usedSIP;
+        const remLS       = totalLS  - usedLS;
+
         function getFunds(fw) {
-          return mpFunds.filter(f => f.framework===fw && !selectedFunds.find(s=>s.schemeCode===f.schemeCode));
+          return (window.MFPortfolioBuilder._mpFunds||[]).filter(f =>
+            f.framework===fw && !selectedFunds.find(s=>s.schemeCode===f.schemeCode)
+          );
         }
+
         function renderModal() {
           const funds = getFunds(activeFw);
           modal.innerHTML = `
-            <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;width:540px;max-height:80vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
+            <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;width:560px;max-height:85vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
+
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
                 <h3 style="margin:0;font-size:15px;color:#fff;">Add ${assetClass.charAt(0).toUpperCase()+assetClass.slice(1)} Fund</h3>
-                <button id="close-picker" style="background:none;border:none;color:#666;font-size:18px;cursor:pointer;">✕</button>
+                <button id="close-picker" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;">✕</button>
               </div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
-                ${tabs.map(fw=>`<button class="fw-tab" data-fw="${fw}" style="background:${fw===activeFw?'#4fc3f7':'#0d1117'};color:${fw===activeFw?'#000':'#888'};border:1px solid ${fw===activeFw?'#4fc3f7':'#333'};border-radius:20px;padding:4px 10px;cursor:pointer;font-size:11px;">${fwLabels[fw]||fw}</button>`).join('')}
-             <div style="margin-bottom:12px;">
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-                  <div>
-                    <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Portfolio Allocation %</label>
-                    <input id="fund-picker-alloc" type="number" placeholder="e.g. 10" min="0" max="50" step="0.5"
-                      style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+
+              <!-- Framework tabs -->
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
+                ${tabs.map(fw=>`
+                  <button class="fw-tab" data-fw="${fw}"
+                    style="background:${fw===activeFw?'#4fc3f7':'#0d1117'};color:${fw===activeFw?'#000':'#888'};
+                           border:1px solid ${fw===activeFw?'#4fc3f7':'#333'};border-radius:20px;
+                           padding:5px 12px;cursor:pointer;font-size:11px;font-weight:${fw===activeFw?'600':'400'};">
+                    ${fwLabels[fw]||fw}
+                  </button>
+                `).join('')}
+              </div>
+
+              <!-- SIP / Lumpsum toggle -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:16px;background:#0d1117;border-radius:10px;overflow:hidden;border:1px solid #333;">
+                <button id="tab-sip"
+                  style="padding:10px;border:none;cursor:pointer;font-size:13px;font-weight:600;
+                         background:${activeTab==='sip'?'#4fc3f7':'transparent'};
+                         color:${activeTab==='sip'?'#000':'#888'};">
+                  📅 SIP ${totalSIP>0?'— ₹'+remSIP.toLocaleString('en-IN')+'/mo remaining':'(not set)'}
+                </button>
+                <button id="tab-ls"
+                  style="padding:10px;border:none;cursor:pointer;font-size:13px;font-weight:600;
+                         background:${activeTab==='lumpsum'?'#ffb74d':'transparent'};
+                         color:${activeTab==='lumpsum'?'#000':'#888'};">
+                  💰 Lumpsum ${totalLS>0?'— ₹'+remLS.toLocaleString('en-IN')+' remaining':'(not set)'}
+                </button>
+              </div>
+
+              <!-- Amount input -->
+              <div style="background:#0d1117;border-radius:10px;padding:14px;margin-bottom:16px;">
+                ${activeTab==='sip' ? `
+                  <div style="font-size:11px;color:#888;margin-bottom:6px;">Monthly SIP amount for this fund</div>
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="color:#666;font-size:16px;">₹</span>
+                    <input id="amt-input" type="number" placeholder="e.g. 5000" min="0" step="500"
+                      style="flex:1;background:#1a1a2e;border:1px solid #4fc3f7;border-radius:8px;padding:10px;
+                             color:#4fc3f7;font-size:18px;font-weight:700;box-sizing:border-box;">
+                    <span style="color:#666;font-size:13px;">/mo</span>
                   </div>
-                  <div>
-                    <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Lumpsum % <span style="color:#555;">(rest goes to SIP)</span></label>
-                    <input id="fund-picker-ls-pct" type="number" placeholder="e.g. 70" min="0" max="100" step="5" value="40"
-                      style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#ffb74d;font-size:13px;box-sizing:border-box;">
+                  ${totalSIP>0?`<div style="font-size:11px;color:#666;margin-top:8px;">Remaining after this: <span id="rem-display" style="color:#4fc3f7;">₹${remSIP.toLocaleString('en-IN')}/mo</span></div>`:''}
+                ` : `
+                  <div style="font-size:11px;color:#888;margin-bottom:6px;">Lumpsum amount for this fund</div>
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="color:#666;font-size:16px;">₹</span>
+                    <input id="amt-input" type="number" placeholder="e.g. 100000" min="0" step="10000"
+                      style="flex:1;background:#1a1a2e;border:1px solid #ffb74d;border-radius:8px;padding:10px;
+                             color:#ffb74d;font-size:18px;font-weight:700;box-sizing:border-box;">
                   </div>
-                </div>
-                <div id="alloc-preview" style="background:#0d1117;border-radius:6px;padding:8px;font-size:11px;color:#888;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
-                  <div>Remaining SIP: <span id="rem-sip" style="color:#4fc3f7;font-weight:600;">—</span></div>
-                  <div>Remaining Lumpsum: <span id="rem-ls" style="color:#ffb74d;font-weight:600;">—</span></div>
-                  <div>Remaining Allocation: <span id="rem-alloc" style="color:#81c784;font-weight:600;">—</span></div>
-                </div>
+                  ${totalLS>0?`<div style="font-size:11px;color:#666;margin-top:8px;">Remaining after this: <span id="rem-display" style="color:#ffb74d;">₹${remLS.toLocaleString('en-IN')}</span></div>`:''}
+                `}
               </div>
-                  <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Portfolio Allocation %</label>
-                  <input id="fund-picker-alloc" type="number" placeholder="e.g. 10" min="0" max="50" step="0.5"
-                    style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
-                </div>
-                <div>
-                  <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">SIP % of allocation</label>
-                  <input id="fund-picker-sip-pct" type="number" placeholder="e.g. 60" min="0" max="100" step="5" value="60"
-                    style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#4fc3f7;font-size:13px;box-sizing:border-box;">
-                </div>
-                <div>
-                  <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">Lumpsum % of allocation</label>
-                  <input id="fund-picker-ls-pct" type="number" placeholder="e.g. 40" min="0" max="100" step="5" value="40"
-                    style="width:100%;background:#0d1117;border:1px solid #333;border-radius:6px;padding:8px;color:#ffb74d;font-size:13px;box-sizing:border-box;">
-                </div>
-              </div>
-              <div style="display:grid;gap:7px;">
+
+              <!-- Fund list -->
+              <div style="display:grid;gap:7px;max-height:260px;overflow-y:auto;">
                 ${funds.length ? funds.map(f=>`
                   <div class="fund-pick-item" data-code="${f.schemeCode}"
-                    style="background:#0d1117;border:1px solid #2a2a3e;border-radius:8px;padding:11px;cursor:pointer;"
+                    style="background:#0d1117;border:1px solid #2a2a3e;border-radius:8px;padding:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;"
                     onmouseover="this.style.borderColor='#4fc3f7'" onmouseout="this.style.borderColor='#2a2a3e'">
-                    <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
-                    <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | Model alloc: ${f.allocationPct||0}%</div>
+                    <div>
+                      <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+                      <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | Model: ${f.allocationPct||0}%</div>
+                    </div>
+                    <div style="font-size:11px;color:#555;">Select →</div>
                   </div>
-                `).join('') : `<div style="color:#666;font-size:12px;padding:12px;text-align:center;">No ${activeFw} funds in model portfolio.</div>`}
+                `).join('') : `
+                  <div style="color:#666;font-size:12px;padding:16px;text-align:center;">
+                    No ${activeFw} funds in model portfolio.<br>Add via Model Portfolio first.
+                  </div>
+                `}
               </div>
+
             </div>
           `;
+
+          // Handlers
           document.getElementById('close-picker').onclick = () => modal.remove();
-          // Live preview
-          const totalSIP = clientData.monthlySIP || 0;
-          const totalLS  = clientData.lumpsumAmount || 0;
-          const usedAlloc = selectedFunds.reduce((s,f)=>s+(f.allocationPct||0),0);
-          const usedSIP   = selectedFunds.reduce((s,f)=>s+Math.round(totalSIP*(f.allocationPct||0)/100*(f.lsPct!==undefined?100-f.lsPct:40)/100),0);
-          const usedLS    = selectedFunds.reduce((s,f)=>s+Math.round(totalLS*(f.allocationPct||0)/100*(f.lsPct||40)/100),0);
 
-          function updatePreview() {
-            const alloc = parseFloat(document.getElementById('fund-picker-alloc')?.value)||0;
-            const lsPct = parseFloat(document.getElementById('fund-picker-ls-pct')?.value)||40;
-            const sipPct = 100 - lsPct;
-            const thisSIP = totalSIP>0 ? Math.round(totalSIP*alloc/100*sipPct/100) : 0;
-            const thisLS  = totalLS>0  ? Math.round(totalLS*alloc/100*lsPct/100)   : 0;
-            const remAlloc = 100 - usedAlloc - alloc;
-            const remSIP   = totalSIP>0 ? totalSIP - usedSIP - thisSIP : 0;
-            const remLS    = totalLS>0  ? totalLS  - usedLS  - thisLS  : 0;
-            const ra = document.getElementById('rem-alloc');
-            const rs = document.getElementById('rem-sip');
-            const rl = document.getElementById('rem-ls');
-            if(ra) { ra.textContent=remAlloc+'%'; ra.style.color=remAlloc<0?'#ef9a9a':'#81c784'; }
-            if(rs && totalSIP>0) { rs.textContent='₹'+remSIP.toLocaleString('en-IN')+'/mo'; rs.style.color=remSIP<0?'#ef9a9a':'#4fc3f7'; }
-            if(rl && totalLS>0)  { rl.textContent='₹'+remLS.toLocaleString('en-IN'); rl.style.color=remLS<0?'#ef9a9a':'#ffb74d'; }
-            // Auto SIP label
-            const sipEl = document.getElementById('sip-auto-label');
-            if(sipEl) sipEl.textContent = `SIP gets ${sipPct}% → ₹${thisSIP.toLocaleString('en-IN')}/mo`;
-          }
+          document.getElementById('tab-sip').onclick = () => { activeTab='sip'; renderModal(); };
+          document.getElementById('tab-ls').onclick  = () => { activeTab='lumpsum'; renderModal(); };
 
-          document.getElementById('fund-picker-alloc')?.addEventListener('input', updatePreview);
-          document.getElementById('fund-picker-ls-pct')?.addEventListener('input', updatePreview);
-          updatePreview();
           modal.querySelectorAll('.fw-tab').forEach(btn => {
             btn.addEventListener('click', () => { activeFw=btn.dataset.fw; renderModal(); });
           });
-          // Set suggested SIP/Lumpsum split based on framework
-          const sipDefaults = {
-            Quality:60, Value:60, GARP:60, MidCap:70, SmallCap:80, Momentum:70,
-            CapitalPreservation:20, IncomeGeneration:30, RateStrategy:20,
-            Gold:20, Silver:20,
-          };
-          const sipPct = sipDefaults[activeFw] || 60;
-          const sipEl = document.getElementById('fund-picker-sip-pct');
-          const lsEl  = document.getElementById('fund-picker-ls-pct');
-          if(sipEl) { sipEl.value = sipPct; }
-          if(lsEl)  { lsEl.value  = 100 - sipPct; }
+
+          // Live remaining update
+          const amtInput = document.getElementById('amt-input');
+          const remDisplay = document.getElementById('rem-display');
+          amtInput?.addEventListener('input', () => {
+            const amt = parseFloat(amtInput.value)||0;
+            if(remDisplay) {
+              if(activeTab==='sip') {
+                const rem = remSIP - amt;
+                remDisplay.textContent = '₹'+(rem).toLocaleString('en-IN')+'/mo';
+                remDisplay.style.color = rem<0?'#ef9a9a':'#4fc3f7';
+              } else {
+                const rem = remLS - amt;
+                remDisplay.textContent = '₹'+(rem).toLocaleString('en-IN');
+                remDisplay.style.color = rem<0?'#ef9a9a':'#ffb74d';
+              }
+            }
+          });
+
+          // Select fund
           modal.querySelectorAll('.fund-pick-item').forEach(item => {
             item.addEventListener('click', () => {
+              const amt  = parseFloat(document.getElementById('amt-input')?.value)||0;
               const code = item.dataset.code;
-            const alloc  = parseFloat(document.getElementById('fund-picker-alloc').value)||0;
-             const lsPct  = parseFloat(document.getElementById('fund-picker-ls-pct').value)||40;
-              const sipPct = 100 - lsPct;
-              const fund = mpFunds.find(f=>f.schemeCode===code);
-              if(fund) selectedFunds.push({...fund, allocationPct:alloc, sipPct, lsPct});
+              const fund = (window.MFPortfolioBuilder._mpFunds||[]).find(f=>f.schemeCode===code);
+              if(!fund) return;
+
+              // Find if fund already selected (for other tab)
+              const existing = selectedFunds.find(f=>f.schemeCode===code);
+              if(existing) {
+                // Update existing entry
+                if(activeTab==='sip')     existing.sipAmount = amt;
+                else                      existing.lsAmount  = amt;
+              } else {
+                const newFund = {
+                  ...fund,
+                  sipAmount: activeTab==='sip'     ? amt : 0,
+                  lsAmount:  activeTab==='lumpsum' ? amt : 0,
+                  allocationPct: fund.allocationPct || 0,
+                };
+                selectedFunds.push(newFund);
+              }
               modal.remove();
               currentStep=4; renderStep();
             });
           });
-     }
-        document.body.appendChild(modal);
+        }
+
         renderModal();
       }
       document.getElementById('btn-add-equity').onclick  = () => showFundPicker('equity');
