@@ -7155,12 +7155,12 @@ async function fetchAnnouncements() {
 let importParsedFunds = []; // [{ name, value, pct, matched }]
 let importTab = 'cas';
 
-async function showImportModal() {
+function showImportModal() {
   const modal = document.getElementById('import-modal');
   modal.style.display = 'flex';
 
-  // Populate client dropdown
-  try {
+ // Populate client dropdown
+  (async () => { try {
     const {getFirestore, collection, getDocs} = await import('https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js');
     const db = getFirestore();
     const snap = await getDocs(collection(db,'clients'));
@@ -7179,7 +7179,8 @@ async function showImportModal() {
       document.getElementById('imp-client-new').style.display = 
         select.value === '__new__' ? 'block' : 'none';
     };
-  } catch(e) { console.warn('Could not load clients:', e); }
+} catch(e) { console.warn('Could not load clients:', e); }
+  })();
 }
   document.getElementById('imp-name').value = '';
   document.getElementById('imp-client').value = '';
