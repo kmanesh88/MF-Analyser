@@ -7597,7 +7597,7 @@ function confirmImport() {
   const name   = document.getElementById('imp-name').value.trim();
   const clientSelect = document.getElementById('imp-client');
   let clientId = clientSelect.value;
-  let clientName = clientSelect.options[clientSelect.selectedIndex]?.text || '';
+ let clientName = (clientSelect.options[clientSelect.selectedIndex] && clientSelect.options[clientSelect.selectedIndex].text) || '';
 
   // Handle new client
   if(clientId === '__new__') {
