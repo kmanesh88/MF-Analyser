@@ -11446,8 +11446,10 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
             ${sip>0?`<div style="font-size:10px;color:#888;">SIP: <span style="color:#4fc3f7;font-weight:600;">₹${sipAmt.toLocaleString('en-IN')}/mo</span></div>`:''}
             ${lsAmt>0?`<div style="font-size:10px;color:#888;">Lumpsum: <span style="color:#ffb74d;font-weight:600;">₹${lsAmt.toLocaleString('en-IN')}</span></div>`:''}
           </div>
+         <button onclick="MFPortfolioBuilder._pbEditFund('${f.schemeCode}')"
+            style="background:#1a1a2e;border:1px solid #ffb74d40;color:#ffb74d;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:8px;">✏️ Edit</button>
           <button onclick="MFPortfolioBuilder._pbRemoveFund('${f.schemeCode}')"
-            style="background:none;border:none;color:#ef9a9a;cursor:pointer;font-size:16px;margin-left:10px;">✕</button>
+            style="background:none;border:none;color:#ef9a9a;cursor:pointer;font-size:16px;margin-left:6px;">✕</button>
         </div>
       `;
     }
@@ -11556,18 +11558,17 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
         <!-- Fund list -->
         <div style="background:#0d1117;border-radius:10px;padding:16px;margin-bottom:20px;max-height:280px;overflow-y:auto;">
           <div style="font-size:11px;color:#888;margin-bottom:10px;">Selected Funds</div>
-          ${selectedFunds.map(f => {
-           const sipAmt = sip > 0 ? Math.round(sip * (f.allocationPct||0) / 100) : 0;
-            const lsAmt2 = clientData.lumpsumAmount > 0 ? Math.round(clientData.lumpsumAmount * (f.allocationPct||0) / 100) : 0;
+         ${selectedFunds.map(f => {
             return `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a2e;">
-                <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#0a0e1a;border-radius:8px;margin-bottom:6px;">
+                <div style="flex:1;">
                   <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
-                  <div style="font-size:10px;color:#666;">${f.framework} | ${f.allocationPct||0}%</div>
+                  <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework}</div>
                 </div>
-               <div>
-                ${sip>0?`<div style="font-size:11px;color:#4fc3f7;font-weight:600;">SIP: ₹${sipAmt.toLocaleString('en-IN')}/mo</div>`:''}
-                ${lsAmt2>0?`<div style="font-size:11px;color:#ffb74d;font-weight:600;">LS: ₹${lsAmt2.toLocaleString('en-IN')}</div>`:''}
+                <div style="text-align:right;margin-left:12px;">
+                  ${f.sipAmount>0?`<div style="font-size:11px;color:#4fc3f7;font-weight:600;">SIP: ₹${f.sipAmount.toLocaleString('en-IN')}/mo</div>`:''}
+                  ${f.lsAmount>0?`<div style="font-size:11px;color:#ffb74d;font-weight:600;">LS: ₹${f.lsAmount.toLocaleString('en-IN')}</div>`:''}
+                </div>
               </div>
             `;
           }).join('')}
@@ -11908,6 +11909,42 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
       document.getElementById('btn-add-debt').onclick    = () => showFundPicker('debt');
       document.getElementById('btn-add-gold').onclick    = () => showFundPicker('gold');
       document.getElementById('btn-add-silver').onclick  = () => showFundPicker('silver');
+     window.MFPortfolioBuilder._pbEditFund = (code) => {
+        const f = selectedFunds.find(x=>x.schemeCode===code);
+        if(!f) return;
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.88);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        document.body.appendChild(modal);
+        modal.innerHTML = `
+          <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;width:380px;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
+            <h3 style="margin:0 0 6px;font-size:15px;color:#fff;">Edit Allocation</h3>
+            <div style="font-size:12px;color:#666;margin-bottom:16px;">${f.schemeName}</div>
+            <div style="display:grid;gap:12px;">
+              <div>
+                <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Monthly SIP (₹)</label>
+                <input id="edit-sip" type="number" value="${f.sipAmount||0}" step="500"
+                  style="width:100%;background:#0d1117;border:1px solid #4fc3f7;border-radius:8px;padding:10px;color:#4fc3f7;font-size:16px;font-weight:700;box-sizing:border-box;">
+              </div>
+              <div>
+                <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Lumpsum (₹)</label>
+                <input id="edit-ls" type="number" value="${f.lsAmount||0}" step="10000"
+                  style="width:100%;background:#0d1117;border:1px solid #ffb74d;border-radius:8px;padding:10px;color:#ffb74d;font-size:16px;font-weight:700;box-sizing:border-box;">
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:20px;">
+              <button id="edit-save" style="flex:1;background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px;font-weight:600;cursor:pointer;">Save</button>
+              <button id="edit-cancel" style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 18px;cursor:pointer;">Cancel</button>
+            </div>
+          </div>
+        `;
+        document.getElementById('edit-cancel').onclick = () => modal.remove();
+        document.getElementById('edit-save').onclick = () => {
+          f.sipAmount = parseFloat(document.getElementById('edit-sip').value)||0;
+          f.lsAmount  = parseFloat(document.getElementById('edit-ls').value)||0;
+          modal.remove();
+          currentStep=4; renderStep();
+        };
+      };
       window.MFPortfolioBuilder._pbRemoveFund = (code) => {
         selectedFunds = selectedFunds.filter(f=>f.schemeCode!==code);
         currentStep=4; renderStep();
