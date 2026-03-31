@@ -9459,6 +9459,40 @@ window.showImportModal = async function() {
     };
   } catch(e) { console.warn('Client dropdown failed:', e); }
 };
+  // ── Holdings Save Hook ──────────────────────────────────────────────────
+const _origConfirmImport = window.confirmImport;
+window.confirmImport = async function() {
+  if(_origConfirmImport) _origConfirmImport();
+  // After local save, also save to Firestore client_holdings
+  setTimeout(async () => {
+    try {
+      const clientSelect = document.getElementById('imp-client');
+      if(!clientSelect || !clientSelect.value || clientSelect.value === '__new__') return;
+      const clientId = clientSelect.value;
+      const clientName = clientSelect.options[clientSelect.selectedIndex]?.text || '';
+      const name = document.getElementById('imp-name')?.value?.trim() || '';
+      const funds = (window.importParsedFunds || []);
+      if(!funds.length) return;
+      const db = getFirestore();
+      await setDoc(doc(db,'client_holdings',clientId), {
+        clientId,
+        clientName,
+        portfolioName: name,
+        funds: funds.map(f=>({
+          schemeName:   f.name || f.schemeName || '',
+          units:        f.units || 0,
+          costValue:    f.value || f.costValue || 0,
+          currentValue: f.currentValue || f.value || 0,
+          gainLoss:     (f.currentValue||f.value||0) - (f.value||f.costValue||0),
+          nav:          f.nav || 0,
+        })),
+        uploadedAt: new Date(),
+        updatedAt:  new Date(),
+      },{merge:true});
+      console.log('✅ Holdings saved to Firestore for', clientName);
+    } catch(e) { console.warn('Holdings Firestore save failed:', e); }
+  }, 1000);
+};
   console.log('✅ Category Fixer loaded. Run: MFPortfolioBuilder.fixCategories()');
 </script>
 <script type="module">
