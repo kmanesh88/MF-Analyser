@@ -9489,6 +9489,13 @@ window.confirmImport = async function() {
         uploadedAt: new Date(),
         updatedAt:  new Date(),
       },{merge:true});
+      // Also ensure client exists in clients collection
+      await setDoc(doc(db,'clients',clientId), {
+        clientId,
+        name: clientName.split(' —')[0].trim(),
+        updatedAt: new Date(),
+        createdAt: new Date(),
+      },{merge:true});
       console.log('✅ Holdings saved to Firestore for', clientName);
     } catch(e) { console.warn('Holdings Firestore save failed:', e); }
   }, 1000);
