@@ -11754,7 +11754,8 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
             modal.querySelector('#fund-list-container') && (modal.querySelector('#fund-list-container').innerHTML = '<div style="text-align:center;padding:20px;color:#666;">⏳ Loading funds...</div>');
           }
 
-          const funds = await getFunds(activeFw);
+         const funds = await getFunds(activeFw);
+          window.MFPortfolioBuilder._currentPickerFunds = funds;
           modal.innerHTML = `
             <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;width:560px;max-height:85vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
 
@@ -11877,7 +11878,7 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
             item.addEventListener('click', () => {
               const amt  = parseFloat(document.getElementById('amt-input')?.value)||0;
               const code = item.dataset.code;
-              const fund = (window.MFPortfolioBuilder._mpFunds||[]).find(f=>f.schemeCode===code);
+            const fund = (window.MFPortfolioBuilder._currentPickerFunds||[]).find(f=>f.schemeCode===code) || (window.MFPortfolioBuilder._mpFunds||[]).find(f=>f.schemeCode===code);
               if(!fund) return;
 
               // Find if fund already selected (for other tab)
