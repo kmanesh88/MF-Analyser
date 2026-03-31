@@ -1195,8 +1195,13 @@ body {
         </div>
         <div>
           <label style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.35rem">Client Name</label>
-          <input id="imp-client" type="text" placeholder="Optional"
+         <select id="imp-client" 
             style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.5rem .75rem;font-size:.78rem;color:var(--text);outline:none">
+            <option value="">-- Select Client --</option>
+            <option value="__new__">+ New Client</option>
+          </select>
+          <input id="imp-client-new" type="text" placeholder="Enter new client name" 
+            style="display:none;width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.5rem .75rem;font-size:.78rem;color:var(--text);outline:none;margin-top:6px;box-sizing:border-box;">
         </div>
       </div>
 
@@ -7150,9 +7155,32 @@ async function fetchAnnouncements() {
 let importParsedFunds = []; // [{ name, value, pct, matched }]
 let importTab = 'cas';
 
-function showImportModal() {
+async function showImportModal() {
   const modal = document.getElementById('import-modal');
   modal.style.display = 'flex';
+
+  // Populate client dropdown
+  try {
+    const {getFirestore, collection, getDocs} = await import('https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js');
+    const db = getFirestore();
+    const snap = await getDocs(collection(db,'clients'));
+    const select = document.getElementById('imp-client');
+    // Clear existing options except first two
+    while(select.options.length > 2) select.remove(2);
+    snap.docs.forEach(d => {
+      const c = d.data();
+      const opt = document.createElement('option');
+      opt.value = c.clientId;
+      opt.textContent = c.name + (c.riskProfile ? ' — '+c.riskProfile : '');
+      select.appendChild(opt);
+    });
+    // Show new client input when selected
+    select.onchange = () => {
+      document.getElementById('imp-client-new').style.display = 
+        select.value === '__new__' ? 'block' : 'none';
+    };
+  } catch(e) { console.warn('Could not load clients:', e); }
+}
   document.getElementById('imp-name').value = '';
   document.getElementById('imp-client').value = '';
   document.getElementById('cas-file-name').textContent = '';
@@ -7587,11 +7615,54 @@ function showImportPreview() {
 }
 
 // ── Confirm & create portfolio ─────────────────────────────────────
-function confirmImport() {
+async function confirmImport() {
   const name   = document.getElementById('imp-name').value.trim();
-  const client = document.getElementById('imp-client').value.trim();
+  const clientSelect = document.getElementById('imp-client');
+  let clientId = clientSelect.value;
+  let clientName = clientSelect.options[clientSelect.selectedIndex]?.text || '';
+
+  // Handle new client
+  if(clientId === '__new__') {
+    clientName = document.getElementById('imp-client-new').value.trim();
+    if(!clientName) { showToast('Please enter new client name'); return; }
+    clientId = 'client_' + Date.now();
+  }
   if (!name) { showToast('Please enter a portfolio name'); return; }
   if (!importParsedFunds.length) { showToast('No fund data to import'); return; }
+  // Save holdings to Firestore if client selected
+  if(clientId && clientId !== '__new__' || clientName) {
+    try {
+      const {getFirestore, doc, setDoc} = await import('https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js');
+      const db = getFirestore();
+      const finalClientId = clientId || 'client_'+Date.now();
+      // Save client if new
+      if(clientId === '__new__' || !clientId) {
+        await setDoc(doc(db,'clients',finalClientId), {
+          clientId: finalClientId,
+          name: clientName,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }, {merge:true});
+      }
+      // Save holdings
+      await setDoc(doc(db,'client_holdings',finalClientId), {
+        clientId: finalClientId,
+        clientName,
+        portfolioName: name,
+        funds: importParsedFunds.map(f=>({
+          schemeName: f.name || f.schemeName || '',
+          units:      f.units || 0,
+          costValue:  f.value || f.costValue || 0,
+          currentValue: f.currentValue || f.value || 0,
+          gainLoss:   f.gainLoss || 0,
+          gainLossPct: f.gainLossPct || 0,
+        })),
+        uploadedAt: new Date(),
+        updatedAt: new Date(),
+      }, {merge:true});
+      showToast('✅ Holdings saved for '+clientName);
+    } catch(e) { console.warn('Firestore save failed:', e); }
+  }
 
   const id = 'p' + (++portCtr);
   const allocations   = {};
