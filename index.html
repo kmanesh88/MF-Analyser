@@ -12326,5 +12326,627 @@ window.MFPortfolioBuilder.showClientList = async function() {
 
 console.log('✅ Client List loaded. Run: MFPortfolioBuilder.showClientList()');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, getDoc, getDocs, query, where }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+// ─── Tax Rules ────────────────────────────────────────────────────────────
+const TAX = {
+  equity: {
+    stcg: { rate: 0.20, holdingMonths: 12, label: 'STCG 20%' },
+    ltcg: { rate: 0.125, exemption: 125000, label: 'LTCG 12.5% (above ₹1.25L)' },
+  },
+  debt: {
+    stcg: { rate: null, holdingMonths: 24, label: 'STCG — slab rate' },
+    ltcg: { rate: 0.125, label: 'LTCG 12.5%' },
+  },
+  gold: {
+    stcg: { rate: null, holdingMonths: 24, label: 'STCG — slab rate' },
+    ltcg: { rate: 0.125, label: 'LTCG 12.5%' },
+  },
+  sgb: { label: 'Tax free on maturity', rate: 0 },
+};
+
+const EXIT_LOADS = {
+  'Equity':       { rate: 0.01, holdingDays: 365, label: '1% if redeemed within 1 year' },
+  'ELSS':         { rate: 0,    holdingDays: 1095, label: '3 year lock-in, no exit load' },
+  'Liquid':       { rate: 0.007, holdingDays: 7, label: '0.007% if redeemed within 7 days' },
+  'Overnight':    { rate: 0,    holdingDays: 0, label: 'No exit load' },
+  'Debt':         { rate: 0,    holdingDays: 0, label: 'No exit load (most debt funds)' },
+  'Gold ETF':     { rate: 0,    holdingDays: 0, label: 'No exit load' },
+  'Silver ETF':   { rate: 0,    holdingDays: 0, label: 'No exit load' },
+};
+
+// ─── Cost Efficiency Calculator ───────────────────────────────────────────
+window.MFPortfolioBuilder.showCostCalculator = async function(clientId) {
+  const db = getFirestore();
+  let client = null, portfolio = null;
+
+  if(clientId) {
+    try {
+      const cSnap = await getDoc(doc(db,'clients',clientId));
+      const pSnap = await getDoc(doc(db,'client_portfolios',clientId));
+      client    = cSnap.exists()  ? cSnap.data()  : null;
+      portfolio = pSnap.exists()  ? pSnap.data()  : null;
+    } catch(e) {}
+  }
+
+  const page = document.createElement('div');
+  page.id = 'cc-page';
+  page.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#0a0e1a;z-index:8888;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;display:block;';
+
+  let activeTab = 'exit';
+  let advisorUnlocked = false;
+  const ADVISOR_PIN = '1234'; // Change this
+
+  function render() {
+    page.innerHTML = `
+      <div style="max-width:900px;margin:0 auto;padding:24px;display:block;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+          <button onclick="document.getElementById('cc-page').remove();window.MFPortfolioBuilder._ccBackPage&&window.MFPortfolioBuilder._ccBackPage();"
+            style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">← Back</button>
+          <h1 style="margin:0;font-size:20px;color:#fff;">Cost Efficiency Calculator</h1>
+          ${client?`<span style="color:#666;font-size:14px;">— ${client.name}</span>`:''}
+        </div>
+
+        <!-- Tabs -->
+        <div style="display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;">
+          ${[
+            {id:'exit',   label:'🚪 Exit Load'},
+            {id:'tax',    label:'🧾 Tax Calculator'},
+            {id:'swp',    label:'💸 SWP Optimiser'},
+            {id:'direct', label:'🔒 Direct vs Regular'},
+          ].map(t=>`
+            <button class="cc-tab" data-tab="${t.id}"
+              style="background:${activeTab===t.id?'#4fc3f7':'#1a1a2e'};
+                     color:${activeTab===t.id?'#000':'#888'};
+                     border:1px solid ${activeTab===t.id?'#4fc3f7':'#333'};
+                     border-radius:8px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:${activeTab===t.id?'600':'400'};">
+              ${t.label}
+            </button>
+          `).join('')}
+        </div>
+
+        <!-- Tab content -->
+        <div id="cc-content">
+          ${activeTab==='exit'   ? renderExitLoad()   : ''}
+          ${activeTab==='tax'    ? renderTax()        : ''}
+          ${activeTab==='swp'    ? renderSWP()        : ''}
+          ${activeTab==='direct' ? renderDirect()     : ''}
+        </div>
+
+      </div>
+    `;
+
+    // Tab handlers
+    page.querySelectorAll('.cc-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        if(tab==='direct' && !advisorUnlocked) {
+          const pin = prompt('Enter advisor PIN to access this module:');
+          if(pin !== ADVISOR_PIN) { alert('Incorrect PIN'); return; }
+          advisorUnlocked = true;
+        }
+        activeTab = tab;
+        render();
+        attachHandlers();
+      });
+    });
+
+    attachHandlers();
+  }
+
+  // ── Exit Load ──────────────────────────────────────────────────────────
+  function renderExitLoad() {
+    const funds = portfolio?.funds || [];
+    return `
+      <div style="display:grid;gap:16px;">
+
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;">
+          <h2 style="margin:0 0 20px;font-size:16px;color:#fff;">Exit Load Calculator</h2>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+            <div>
+              <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Fund Type</label>
+              <select id="el-type" style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+                ${Object.keys(EXIT_LOADS).map(k=>`<option value="${k}">${k}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Investment Amount (₹)</label>
+              <input id="el-amount" type="number" placeholder="e.g. 500000" step="10000"
+                style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+            </div>
+            <div>
+              <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Purchase Date</label>
+              <input id="el-date" type="date" value="${new Date(Date.now()-180*24*60*60*1000).toISOString().split('T')[0]}"
+                style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+            </div>
+            <div>
+              <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Current Value (₹)</label>
+              <input id="el-value" type="number" placeholder="e.g. 550000" step="10000"
+                style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+            </div>
+          </div>
+
+          <button id="btn-calc-el"
+            style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 24px;cursor:pointer;font-size:13px;font-weight:600;">
+            Calculate Exit Load
+          </button>
+
+          <div id="el-result" style="margin-top:20px;display:none;"></div>
+        </div>
+
+        ${funds.length ? `
+          <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;">
+            <h3 style="margin:0 0 16px;font-size:14px;color:#fff;">Portfolio Exit Load Summary</h3>
+            <div style="display:grid;gap:8px;">
+              ${funds.map(f=>{
+                const type = f.framework==='CapitalPreservation'||f.framework==='IncomeGeneration'||f.framework==='RateStrategy' ? 'Debt' :
+                             f.framework==='Gold' ? 'Gold ETF' :
+                             f.framework==='Silver' ? 'Silver ETF' : 'Equity';
+                const el = EXIT_LOADS[type] || EXIT_LOADS['Equity'];
+                return `
+                  <div style="display:flex;justify-content:space-between;align-items:center;background:#0d1117;border-radius:8px;padding:10px 12px;">
+                    <div>
+                      <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+                      <div style="font-size:10px;color:#666;margin-top:1px;">${el.label}</div>
+                    </div>
+                    <div style="font-size:11px;color:${el.rate>0?'#ef9a9a':'#81c784'};">
+                      ${el.rate>0?`${(el.rate*100).toFixed(3)}%`:'No exit load'}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  // ── Tax Calculator ─────────────────────────────────────────────────────
+  function renderTax() {
+    return `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;">
+        <h2 style="margin:0 0 20px;font-size:16px;color:#fff;">Tax Calculator</h2>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Asset Class</label>
+            <select id="tx-type" style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+              <option value="equity">Equity Fund</option>
+              <option value="debt">Debt Fund</option>
+              <option value="gold">Gold ETF / Fund</option>
+              <option value="sgb">Sovereign Gold Bond</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Tax Bracket (for STCG)</label>
+            <select id="tx-bracket" style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+              <option value="0">0% (below exemption)</option>
+              <option value="0.05">5%</option>
+              <option value="0.10">10%</option>
+              <option value="0.20">20%</option>
+              <option value="0.30" selected>30%</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Purchase Date</label>
+            <input id="tx-date" type="date" value="${new Date(Date.now()-400*24*60*60*1000).toISOString().split('T')[0]}"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Redemption Date</label>
+            <input id="tx-rdate" type="date" value="${new Date().toISOString().split('T')[0]}"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Purchase Value (₹)</label>
+            <input id="tx-cost" type="number" placeholder="e.g. 500000" step="10000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Redemption Value (₹)</label>
+            <input id="tx-value" type="number" placeholder="e.g. 650000" step="10000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Previous LTCG this year (₹)</label>
+            <input id="tx-prev-ltcg" type="number" placeholder="0" value="0" step="10000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+        </div>
+
+        <button id="btn-calc-tax"
+          style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 24px;cursor:pointer;font-size:13px;font-weight:600;">
+          Calculate Tax
+        </button>
+
+        <div id="tx-result" style="margin-top:20px;display:none;"></div>
+      </div>
+    `;
+  }
+
+  // ── SWP Optimiser ──────────────────────────────────────────────────────
+  function renderSWP() {
+    return `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;">
+        <h2 style="margin:0 0 6px;font-size:16px;color:#fff;">SWP Optimiser</h2>
+        <p style="margin:0 0 20px;color:#666;font-size:13px;">Calculate sustainable monthly withdrawal from your corpus.</p>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Current Corpus (₹)</label>
+            <input id="swp-corpus" type="number" placeholder="e.g. 10000000" step="100000"
+              value="${portfolio ? (portfolio.funds||[]).reduce((s,f)=>s+(f.lsAmount||0),0) || '' : ''}"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Expected Annual Return (%)</label>
+            <input id="swp-return" type="number" placeholder="e.g. 10" value="10" step="0.5"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Inflation Rate (%)</label>
+            <input id="swp-inflation" type="number" placeholder="e.g. 6" value="6" step="0.5"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Desired Monthly Withdrawal (₹)</label>
+            <input id="swp-withdrawal" type="number" placeholder="e.g. 50000" step="5000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Asset Class</label>
+            <select id="swp-type" style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+              <option value="equity">Equity Fund</option>
+              <option value="debt">Debt Fund</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Tax Bracket</label>
+            <select id="swp-bracket" style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+              <option value="0.20">20%</option>
+              <option value="0.30" selected>30%</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="btn-calc-swp"
+          style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 24px;cursor:pointer;font-size:13px;font-weight:600;">
+          Calculate SWP
+        </button>
+
+        <div id="swp-result" style="margin-top:20px;display:none;"></div>
+      </div>
+    `;
+  }
+
+  // ── Direct vs Regular ──────────────────────────────────────────────────
+  function renderDirect() {
+    if(!advisorUnlocked) return '<div style="text-align:center;padding:40px;color:#666;">🔒 Advisor access required</div>';
+    return `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+          <h2 style="margin:0;font-size:16px;color:#fff;">Direct vs Regular Plan Comparison</h2>
+          <span style="background:#ff980020;color:#ff9800;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:600;">ADVISOR ONLY</span>
+        </div>
+        <p style="margin:0 0 20px;color:#666;font-size:13px;">Shows the long-term cost of regular plans vs direct plans.</p>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Monthly SIP (₹)</label>
+            <input id="dr-sip" type="number" placeholder="e.g. 50000" step="5000"
+              value="${client?.monthlySIP||''}"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Lumpsum (₹)</label>
+            <input id="dr-lumpsum" type="number" placeholder="e.g. 500000" step="50000"
+              value="${client?.lumpsumAmount||''}"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Investment Horizon (years)</label>
+            <input id="dr-years" type="number" placeholder="e.g. 15" value="15" step="1"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Gross Annual Return (%)</label>
+            <input id="dr-return" type="number" placeholder="e.g. 12" value="12" step="0.5"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Regular Plan Expense Ratio (%)</label>
+            <input id="dr-regular-er" type="number" placeholder="e.g. 1.5" value="1.5" step="0.1"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:5px;">Direct Plan Expense Ratio (%)</label>
+            <input id="dr-direct-er" type="number" placeholder="e.g. 0.5" value="0.5" step="0.1"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+        </div>
+
+        <button id="btn-calc-dr"
+          style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px 24px;cursor:pointer;font-size:13px;font-weight:600;">
+          Calculate Difference
+        </button>
+
+        <div id="dr-result" style="margin-top:20px;display:none;"></div>
+      </div>
+    `;
+  }
+
+  // ── Calculation handlers ───────────────────────────────────────────────
+  function attachHandlers() {
+
+    // Exit Load
+    document.getElementById('btn-calc-el')?.addEventListener('click', () => {
+      const type     = document.getElementById('el-type').value;
+      const amount   = parseFloat(document.getElementById('el-amount').value)||0;
+      const date     = new Date(document.getElementById('el-date').value);
+      const value    = parseFloat(document.getElementById('el-value').value)||amount;
+      const el       = EXIT_LOADS[type];
+      const holdDays = Math.floor((new Date()-date)/(1000*60*60*24));
+      const exitLoad = holdDays < el.holdingDays ? Math.round(value * el.rate) : 0;
+      const netValue = value - exitLoad;
+      const gain     = value - amount;
+
+      const res = document.getElementById('el-result');
+      res.style.display = 'block';
+      res.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            <div style="font-size:10px;color:#888;">Holding Period</div>
+            <div style="font-size:18px;font-weight:700;color:#fff;">${holdDays} days</div>
+            <div style="font-size:11px;color:#666;">${(holdDays/30).toFixed(1)} months</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            <div style="font-size:10px;color:#888;">Exit Load</div>
+            <div style="font-size:18px;font-weight:700;color:${exitLoad>0?'#ef9a9a':'#81c784'};">₹${exitLoad.toLocaleString('en-IN')}</div>
+            <div style="font-size:11px;color:#666;">${el.label}</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            <div style="font-size:10px;color:#888;">Net Redemption</div>
+            <div style="font-size:18px;font-weight:700;color:#4fc3f7;">₹${netValue.toLocaleString('en-IN')}</div>
+            <div style="font-size:11px;color:#666;">Gain: ₹${gain.toLocaleString('en-IN')}</div>
+          </div>
+        </div>
+        ${exitLoad>0?`<div style="margin-top:12px;padding:10px 14px;background:#ef9a9a15;border-radius:8px;font-size:12px;color:#ef9a9a;">
+          ⚠️ Exit load applies. Consider waiting until ${new Date(date.getTime()+el.holdingDays*24*60*60*1000).toLocaleDateString('en-IN')} to avoid ₹${exitLoad.toLocaleString('en-IN')} exit load.
+        </div>`:'<div style="margin-top:12px;padding:10px 14px;background:#81c78415;border-radius:8px;font-size:12px;color:#81c784;">✅ No exit load applicable.</div>'}
+      `;
+    });
+
+    // Tax Calculator
+    document.getElementById('btn-calc-tax')?.addEventListener('click', () => {
+      const type      = document.getElementById('tx-type').value;
+      const bracket   = parseFloat(document.getElementById('tx-bracket').value);
+      const buyDate   = new Date(document.getElementById('tx-date').value);
+      const sellDate  = new Date(document.getElementById('tx-rdate').value);
+      const cost      = parseFloat(document.getElementById('tx-cost').value)||0;
+      const value     = parseFloat(document.getElementById('tx-value').value)||0;
+      const prevLTCG  = parseFloat(document.getElementById('tx-prev-ltcg').value)||0;
+      const gain      = value - cost;
+      const holdDays  = Math.floor((sellDate-buyDate)/(1000*60*60*24));
+      const holdMonths = holdDays/30;
+
+      if(type==='sgb') {
+        const res = document.getElementById('tx-result');
+        res.style.display='block';
+        res.innerHTML=`<div style="background:#81c78415;border-radius:8px;padding:16px;color:#81c784;font-size:14px;font-weight:600;">✅ SGB held to maturity — Capital gains are completely tax free!</div>`;
+        return;
+      }
+
+      const rules = TAX[type];
+      const ltcgMonths = type==='equity' ? 12 : 24;
+      const isLTCG = holdMonths >= ltcgMonths;
+
+      let taxAmount = 0;
+      let taxLabel  = '';
+      let taxNote   = '';
+
+      if(isLTCG) {
+        if(type==='equity') {
+          const exemption = Math.max(0, 125000 - prevLTCG);
+          const taxableGain = Math.max(0, gain - exemption);
+          taxAmount = Math.round(taxableGain * 0.125);
+          taxLabel  = `LTCG @ 12.5% on ₹${taxableGain.toLocaleString('en-IN')} (after ₹${Math.min(gain,exemption).toLocaleString('en-IN')} exemption)`;
+          taxNote   = exemption < 125000 ? `₹${(125000-exemption).toLocaleString('en-IN')} of your ₹1.25L exemption already used this year.` : '';
+        } else {
+          taxAmount = Math.round(gain * 0.125);
+          taxLabel  = 'LTCG @ 12.5%';
+        }
+      } else {
+        if(bracket) {
+          taxAmount = Math.round(gain * bracket);
+          taxLabel  = `STCG @ ${(bracket*100).toFixed(0)}% (slab rate)`;
+        } else {
+          taxAmount = 0;
+          taxLabel  = 'STCG — below taxable income';
+        }
+      }
+
+      const netGain   = gain - taxAmount;
+      const effectiveRate = gain > 0 ? Math.round(taxAmount/gain*100*10)/10 : 0;
+
+      const res = document.getElementById('tx-result');
+      res.style.display='block';
+      res.innerHTML=`
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px;">
+          <div style="background:#0d1117;border-radius:8px;padding:14px;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Holding Period</div>
+            <div style="font-size:16px;font-weight:700;">${holdDays} days (${(holdMonths).toFixed(1)} months)</div>
+            <div style="font-size:11px;color:${isLTCG?'#81c784':'#ffb74d'};margin-top:3px;">${isLTCG?'✅ Long Term':'⚠️ Short Term'}</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Total Gain</div>
+            <div style="font-size:16px;font-weight:700;color:#81c784;">₹${gain.toLocaleString('en-IN')}</div>
+            <div style="font-size:11px;color:#666;margin-top:3px;">${((gain/cost)*100).toFixed(1)}% absolute return</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Tax Liability</div>
+            <div style="font-size:16px;font-weight:700;color:#ef9a9a;">₹${taxAmount.toLocaleString('en-IN')}</div>
+            <div style="font-size:11px;color:#666;margin-top:3px;">${taxLabel}</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Net Post-Tax Gain</div>
+            <div style="font-size:16px;font-weight:700;color:#4fc3f7;">₹${netGain.toLocaleString('en-IN')}</div>
+            <div style="font-size:11px;color:#666;margin-top:3px;">Effective tax rate: ${effectiveRate}%</div>
+          </div>
+        </div>
+        ${taxNote?`<div style="padding:10px 14px;background:#ffb74d15;border-radius:8px;font-size:12px;color:#ffb74d;">${taxNote}</div>`:''}
+        ${!isLTCG && type==='equity'?`<div style="margin-top:10px;padding:10px 14px;background:#4fc3f715;border-radius:8px;font-size:12px;color:#4fc3f7;">
+          💡 Wait until ${new Date(buyDate.getTime()+365*24*60*60*1000).toLocaleDateString('en-IN')} to qualify for LTCG — saves ₹${Math.round(gain*(bracket-0.125)).toLocaleString('en-IN')} in tax.
+        </div>`:''}
+      `;
+    });
+
+    // SWP Calculator
+    document.getElementById('btn-calc-swp')?.addEventListener('click', () => {
+      const corpus     = parseFloat(document.getElementById('swp-corpus').value)||0;
+      const returnRate = parseFloat(document.getElementById('swp-return').value)||10;
+      const inflation  = parseFloat(document.getElementById('swp-inflation').value)||6;
+      const withdrawal = parseFloat(document.getElementById('swp-withdrawal').value)||0;
+      const assetType  = document.getElementById('swp-type').value;
+      const bracket    = parseFloat(document.getElementById('swp-bracket').value)||0.30;
+
+      const monthlyReturn = returnRate/100/12;
+      const realReturn    = (returnRate - inflation)/100;
+
+      // Max sustainable withdrawal (corpus stays intact)
+      const maxSustainable = Math.round(corpus * realReturn / 12);
+
+      // How long corpus lasts at given withdrawal
+      let remaining = corpus;
+      let months = 0;
+      while(remaining > 0 && months < 600) {
+        remaining = remaining * (1 + monthlyReturn) - withdrawal;
+        months++;
+      }
+
+      // Tax on withdrawal (simplified — assume LTCG after 1yr)
+      const gainPct      = (returnRate - 0) / returnRate; // simplified
+      const taxPerWithdrawal = assetType==='equity'
+        ? Math.round(withdrawal * 0.3 * 0.125) // ~30% of withdrawal is gain, taxed at 12.5%
+        : Math.round(withdrawal * 0.3 * bracket);
+      const netWithdrawal = withdrawal - taxPerWithdrawal;
+
+      const res = document.getElementById('swp-result');
+      res.style.display='block';
+      res.innerHTML=`
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;">
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Max Sustainable SWP</div>
+            <div style="font-size:18px;font-weight:700;color:#81c784;">₹${maxSustainable.toLocaleString('en-IN')}/mo</div>
+            <div style="font-size:10px;color:#666;margin-top:3px;">Corpus stays intact</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Corpus Lasts</div>
+            <div style="font-size:18px;font-weight:700;color:${months>=600?'#81c784':months>120?'#ffb74d':'#ef9a9a'};">
+              ${months>=600?'∞':months>=12?Math.floor(months/12)+' yrs '+months%12+' mo':months+' months'}
+            </div>
+            <div style="font-size:10px;color:#666;margin-top:3px;">At ₹${withdrawal.toLocaleString('en-IN')}/mo</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Post-Tax Monthly</div>
+            <div style="font-size:18px;font-weight:700;color:#4fc3f7;">₹${netWithdrawal.toLocaleString('en-IN')}</div>
+            <div style="font-size:10px;color:#666;margin-top:3px;">Tax: ~₹${taxPerWithdrawal.toLocaleString('en-IN')}/mo</div>
+          </div>
+        </div>
+        ${withdrawal > maxSustainable ? `
+          <div style="padding:12px 14px;background:#ef9a9a15;border-radius:8px;font-size:12px;color:#ef9a9a;">
+            ⚠️ Your desired withdrawal of ₹${withdrawal.toLocaleString('en-IN')}/mo exceeds the sustainable limit of ₹${maxSustainable.toLocaleString('en-IN')}/mo. 
+            The corpus will be depleted in ${months>=12?Math.floor(months/12)+' years':months+' months'}.
+          </div>
+        ` : `
+          <div style="padding:12px 14px;background:#81c78415;border-radius:8px;font-size:12px;color:#81c784;">
+            ✅ Your withdrawal of ₹${withdrawal.toLocaleString('en-IN')}/mo is sustainable — corpus will grow over time.
+          </div>
+        `}
+        <div style="margin-top:10px;padding:12px 14px;background:#4fc3f715;border-radius:8px;font-size:12px;color:#4fc3f7;">
+          💡 Real return (after ${inflation}% inflation): ${realReturn.toFixed(1)}% p.a. | 
+          Corpus doubles every ${Math.round(72/realReturn)} years at this rate.
+        </div>
+      `;
+    });
+
+    // Direct vs Regular
+    document.getElementById('btn-calc-dr')?.addEventListener('click', () => {
+      const sip       = parseFloat(document.getElementById('dr-sip').value)||0;
+      const lumpsum   = parseFloat(document.getElementById('dr-lumpsum').value)||0;
+      const years     = parseFloat(document.getElementById('dr-years').value)||15;
+      const grossRet  = parseFloat(document.getElementById('dr-return').value)||12;
+      const regularER = parseFloat(document.getElementById('dr-regular-er').value)||1.5;
+      const directER  = parseFloat(document.getElementById('dr-direct-er').value)||0.5;
+
+      const regularRet = grossRet - regularER;
+      const directRet  = grossRet - directER;
+      const months     = years * 12;
+
+      // SIP future value calculation
+      function sipFV(monthlyAmt, annualRate, n) {
+        if(!monthlyAmt) return 0;
+        const r = annualRate/100/12;
+        return monthlyAmt * ((Math.pow(1+r,n)-1)/r) * (1+r);
+      }
+
+      // Lumpsum future value
+      function lsFV(amt, annualRate, n) {
+        if(!amt) return 0;
+        return amt * Math.pow(1+annualRate/100, n);
+      }
+
+      const regularTotal = Math.round(sipFV(sip, regularRet, months) + lsFV(lumpsum, regularRet, years));
+      const directTotal  = Math.round(sipFV(sip, directRet,  months) + lsFV(lumpsum, directRet,  years));
+      const difference   = directTotal - regularTotal;
+      const invested     = sip*months + lumpsum;
+      const totalFees    = Math.round(regularTotal * regularER/100 * years * 0.6); // approximate total fees paid
+
+      const res = document.getElementById('dr-result');
+      res.style.display='block';
+      res.innerHTML=`
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;border:1px solid #ef9a9a30;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Regular Plan Value</div>
+            <div style="font-size:16px;font-weight:700;color:#ef9a9a;">₹${(regularTotal/100000).toFixed(1)}L</div>
+            <div style="font-size:10px;color:#666;margin-top:3px;">@ ${regularRet.toFixed(1)}% net return</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;border:1px solid #81c78430;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Direct Plan Value</div>
+            <div style="font-size:16px;font-weight:700;color:#81c784;">₹${(directTotal/100000).toFixed(1)}L</div>
+            <div style="font-size:10px;color:#666;margin-top:3px;">@ ${directRet.toFixed(1)}% net return</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;border:1px solid #4fc3f730;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">Wealth Gap</div>
+            <div style="font-size:16px;font-weight:700;color:#4fc3f7;">₹${(difference/100000).toFixed(1)}L</div>
+            <div style="font-size:10px;color:#666;margin-top:3px;">Extra in Direct plan</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div style="padding:12px 14px;background:#ef9a9a15;border-radius:8px;font-size:12px;color:#ef9a9a;">
+            💸 Total commission paid in Regular plan: ~₹${totalFees.toLocaleString('en-IN')} over ${years} years
+          </div>
+          <div style="padding:12px 14px;background:#4fc3f715;border-radius:8px;font-size:12px;color:#4fc3f7;">
+            📈 Total invested: ₹${invested.toLocaleString('en-IN')} | 
+            Direct plan grows ${((difference/regularTotal)*100).toFixed(1)}% more
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  render();
+  document.body.appendChild(page);
+};
+
+console.log('✅ Cost Calculator loaded. Run: MFPortfolioBuilder.showCostCalculator()');
+</script>
 </body>
 </html>
