@@ -97,7 +97,8 @@ window._fbSaveCloud = async () => {
 };
 
 // ── Load from Firestore ──
-window._fbLoadCloud = async () => {
+let amcs = [], amcCtr = 0;
+  window._fbLoadCloud = async () => {
   const user = window._fb.currentUser;
   if (!user) return;
   try {
@@ -2300,7 +2301,6 @@ function getRatingBadge(name) {
 }
 
 // STATE
-let amcs = [], amcCtr = 0;
 
 // PORTFOLIO STATE
 const PORT_LS   = 'mf_analyser_portfolios';
