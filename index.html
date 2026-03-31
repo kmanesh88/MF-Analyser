@@ -7629,9 +7629,9 @@ function confirmImport() {
   }
   if (!name) { showToast('Please enter a portfolio name'); return; }
   if (!importParsedFunds.length) { showToast('No fund data to import'); return; }
-  // Save holdings to Firestore if client selected
-  if(clientId && clientId !== '__new__' || clientName) {
-    try {
+ // Save holdings to Firestore if client selected
+  if(clientId || clientName) {
+    (async () => { try {
       const {getFirestore, doc, setDoc} = await import('https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js');
       const db = getFirestore();
       const finalClientId = clientId || 'client_'+Date.now();
@@ -7660,8 +7660,9 @@ function confirmImport() {
         uploadedAt: new Date(),
         updatedAt: new Date(),
       }, {merge:true});
-      showToast('✅ Holdings saved for '+clientName);
+    showToast('✅ Holdings saved for '+clientName);
     } catch(e) { console.warn('Firestore save failed:', e); }
+    })();
   }
 
   const id = 'p' + (++portCtr);
