@@ -7202,6 +7202,7 @@ async function parseImport() {
       if (!file) throw new Error('Please select a CAS PDF file');
       const password = document.getElementById('cas-password').value.trim() || null;
       importParsedFunds = await parseCASPdf(file, password);
+      window.importParsedFunds = importParsedFunds;
     } else if (importTab === 'excel') {
       const file = document.getElementById('excel-file-input').files[0];
       if (!file) throw new Error('Please select an Excel or CSV file');
@@ -7211,6 +7212,7 @@ async function parseImport() {
       const text = document.getElementById('manual-input').value.trim();
       if (!text) throw new Error('Please enter fund data');
       importParsedFunds = parseManualInput(text);
+      window.importParsedFunds = importParsedFunds;
     }
 
     if (!importParsedFunds.length) throw new Error('No fund data found. Check the file format.');
