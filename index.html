@@ -7152,7 +7152,7 @@ async function fetchAnnouncements() {
 }
 
 // IMPORT ENGINE — CAS PDF / Excel / Manual
-let importParsedFunds = []; // [{ name, value, pct, matched }]
+let importParsedFunds = []; window.importParsedFunds = importParsedFunds;
 let importTab = 'cas';
 
 function showImportModal() {
@@ -7206,6 +7206,7 @@ async function parseImport() {
       const file = document.getElementById('excel-file-input').files[0];
       if (!file) throw new Error('Please select an Excel or CSV file');
       importParsedFunds = await parseExcelFile(file);
+      window.importParsedFunds = importParsedFunds;
     } else {
       const text = document.getElementById('manual-input').value.trim();
       if (!text) throw new Error('Please enter fund data');
