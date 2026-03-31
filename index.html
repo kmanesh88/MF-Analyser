@@ -11726,14 +11726,35 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
         const remSIP      = totalSIP - usedSIP;
         const remLS       = totalLS  - usedLS;
 
-        function getFunds(fw) {
-          return (window.MFPortfolioBuilder._mpFunds||[]).filter(f =>
-            f.framework===fw && !selectedFunds.find(s=>s.schemeCode===f.schemeCode)
-          );
+       async function getFunds(fw) {
+          // Fetch top scored funds from framework_scores
+          const {getFirestore,collection,getDocs,query,where} = await import('https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js');
+          const db = getFirestore();
+          const snap = await getDocs(query(
+            collection(db,'framework_scores'),
+            where('framework','==',fw),
+            where('gatewayPassed','==',true)
+          ));
+          const mpCodes = new Set((window.MFPortfolioBuilder._mpFunds||[]).map(f=>f.schemeCode));
+          return snap.docs
+            .map(d=>d.data())
+            .filter(f=>{
+              const n=(f.schemeName||'').toLowerCase();
+              return !n.includes('direct')&&!n.includes('idcw')&&!n.includes('dividend')&&!n.includes('bonus')&&!n.includes('payout');
+            })
+            .sort((a,b)=>(b.perfScore||0)-(a.perfScore||0))
+            .slice(0,15)
+            .map(f=>({...f, inModelPortfolio: mpCodes.has(f.schemeCode)}));
         }
 
-        function renderModal() {
-          const funds = getFunds(activeFw);
+       async function renderModal() {
+          // Show loading state first
+          const content = modal.querySelector('div') || modal;
+          if(modal.children.length > 0) {
+            modal.querySelector('#fund-list-container') && (modal.querySelector('#fund-list-container').innerHTML = '<div style="text-align:center;padding:20px;color:#666;">⏳ Loading funds...</div>');
+          }
+
+          const funds = await getFunds(activeFw);
           modal.innerHTML = `
             <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;width:560px;max-height:85vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
 
@@ -11796,17 +11817,24 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
 
               <!-- Fund list -->
               <div style="display:grid;gap:7px;max-height:260px;overflow-y:auto;">
-                ${funds.length ? funds.map(f=>`
+               ${funds.length ? funds.map(f=>{
+                  const alreadyAdded = selectedFunds.find(s=>s.schemeCode===f.schemeCode);
+                  const borderColor = f.inModelPortfolio ? '#4fc3f740' : '#2a2a3e';
+                  return `
                   <div class="fund-pick-item" data-code="${f.schemeCode}"
-                    style="background:#0d1117;border:1px solid #2a2a3e;border-radius:8px;padding:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;"
-                    onmouseover="this.style.borderColor='#4fc3f7'" onmouseout="this.style.borderColor='#2a2a3e'">
-                    <div>
+                    style="background:#0d1117;border:1px solid ${borderColor};border-radius:8px;padding:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;"
+                    onmouseover="this.style.borderColor='#4fc3f7'" onmouseout="this.style.borderColor='${borderColor}'">
+                    <div style="flex:1;">
+                      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                        ${f.inModelPortfolio?'<span style="background:#4fc3f720;color:#4fc3f7;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:600;">★ Model</span>':''}
+                        ${alreadyAdded?'<span style="background:#81c78420;color:#81c784;border-radius:4px;padding:1px 5px;font-size:9px;">✓ Added</span>':''}
+                      </div>
                       <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
-                      <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | Model: ${f.allocationPct||0}%</div>
+                      <div style="font-size:10px;color:#666;margin-top:2px;">Score: ${f.perfScore||0} | ${f.category||''}</div>
                     </div>
-                    <div style="font-size:11px;color:#555;">Select →</div>
-                  </div>
-                `).join('') : `
+                    <div style="font-size:11px;color:#555;margin-left:10px;">${alreadyAdded?'Update →':'Select →'}</div>
+                  </div>`;
+                }).join('')
                   <div style="color:#666;font-size:12px;padding:16px;text-align:center;">
                     No ${activeFw} funds in model portfolio.<br>Add via Model Portfolio first.
                   </div>
@@ -11819,7 +11847,7 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
           // Handlers
           document.getElementById('close-picker').onclick = () => modal.remove();
 
-          document.getElementById('tab-sip').onclick = () => { activeTab='sip'; renderModal(); };
+         document.getElementById('tab-sip').onclick = () => { activeTab='sip'; renderModal(); };
           document.getElementById('tab-ls').onclick  = () => { activeTab='lumpsum'; renderModal(); };
 
           modal.querySelectorAll('.fw-tab').forEach(btn => {
