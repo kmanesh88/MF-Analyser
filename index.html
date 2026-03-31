@@ -12012,5 +12012,317 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
 
 console.log('✅ Portfolio Builder loaded. Run: MFPortfolioBuilder.showPortfolioBuilder()');
 </script>
+<script type="module">
+import { getFirestore, collection, doc, getDocs, getDoc, query, orderBy }
+  from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+window.MFPortfolioBuilder.showClientList = async function() {
+  const db = getFirestore();
+
+  const page = document.createElement('div');
+  page.id = 'cl-page';
+  page.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#0a0e1a;z-index:8888;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;display:block;';
+
+  page.innerHTML = `
+    <div style="max-width:1000px;margin:0 auto;padding:24px;display:block;">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button onclick="document.getElementById('cl-page').remove()"
+            style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">← Back</button>
+          <h1 style="margin:0;font-size:20px;color:#fff;">Clients</h1>
+          <span id="cl-count" style="background:#1a1a2e;border:1px solid #333;border-radius:20px;padding:3px 10px;font-size:11px;color:#888;">Loading...</span>
+        </div>
+        <button id="btn-new-client"
+          style="background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;">
+          + New Client
+        </button>
+      </div>
+
+      <!-- Search -->
+      <div style="margin-bottom:20px;">
+        <input id="cl-search" type="text" placeholder="Search clients by name or goal..."
+          style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:11px 14px;
+                 color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+      </div>
+
+      <!-- Summary cards -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:10px;color:#666;margin-bottom:4px;">TOTAL CLIENTS</div>
+          <div id="cl-total" style="font-size:22px;font-weight:700;color:#fff;">—</div>
+        </div>
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:10px;color:#666;margin-bottom:4px;">TOTAL SIP</div>
+          <div id="cl-total-sip" style="font-size:22px;font-weight:700;color:#4fc3f7;">—</div>
+        </div>
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:10px;color:#666;margin-bottom:4px;">TOTAL LUMPSUM</div>
+          <div id="cl-total-ls" style="font-size:22px;font-weight:700;color:#ffb74d;">—</div>
+        </div>
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:10px;color:#666;margin-bottom:4px;">WITH PORTFOLIO</div>
+          <div id="cl-with-port" style="font-size:22px;font-weight:700;color:#81c784;">—</div>
+        </div>
+      </div>
+
+      <!-- Client list -->
+      <div id="cl-list" style="display:grid;gap:10px;">
+        <div style="text-align:center;padding:40px;color:#666;">⏳ Loading clients...</div>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(page);
+
+  const riskColors = {
+    'Conservative':           '#81c784',
+    'Moderately Conservative':'#a5d6a7',
+    'Moderate':               '#4fc3f7',
+    'Moderately Aggressive':  '#ffb74d',
+    'Aggressive':             '#ef9a9a',
+  };
+
+  const goalIcons = {
+    wealth:'💰', retirement:'🏖️', education:'🎓',
+    house:'🏠', income:'📈', other:'🎯',
+  };
+
+  let allClients = [];
+
+  async function loadClients() {
+    const snap = await getDocs(collection(db,'clients'));
+    allClients = snap.docs.map(d=>d.data()).sort((a,b)=>{
+      const at = a.createdAt?.seconds||0;
+      const bt = b.createdAt?.seconds||0;
+      return bt-at;
+    });
+
+    // Load portfolio data for each client
+    for(const c of allClients) {
+      try {
+        const pSnap = await getDoc(doc(db,'client_portfolios',c.clientId));
+        c._portfolio = pSnap.exists() ? pSnap.data() : null;
+      } catch(e) { c._portfolio = null; }
+    }
+
+    updateSummary(allClients);
+    renderClients(allClients);
+  }
+
+  function updateSummary(clients) {
+    document.getElementById('cl-total').textContent = clients.length;
+    const totalSIP = clients.reduce((s,c)=>s+(c.monthlySIP||0),0);
+    const totalLS  = clients.reduce((s,c)=>s+(c.lumpsumAmount||0),0);
+    const withPort = clients.filter(c=>c._portfolio).length;
+    document.getElementById('cl-total-sip').textContent = totalSIP ? '₹'+totalSIP.toLocaleString('en-IN') : '—';
+    document.getElementById('cl-total-ls').textContent  = totalLS  ? '₹'+totalLS.toLocaleString('en-IN')  : '—';
+    document.getElementById('cl-with-port').textContent = withPort+' / '+clients.length;
+    document.getElementById('cl-count').textContent = clients.length+' clients';
+  }
+
+  function renderClients(clients) {
+    const list = document.getElementById('cl-list');
+    if(!clients.length) {
+      list.innerHTML = `
+        <div style="text-align:center;padding:60px;color:#666;border:2px dashed #333;border-radius:12px;">
+          <div style="font-size:32px;margin-bottom:12px;">👥</div>
+          <div style="font-size:15px;margin-bottom:8px;">No clients yet</div>
+          <div style="font-size:13px;color:#555;">Click "+ New Client" to add your first client</div>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = clients.map(c => {
+      const riskColor = riskColors[c.riskProfile] || '#888';
+      const goalIcon  = goalIcons[c.goal] || '🎯';
+      const port      = c._portfolio;
+      const fundCount = port?.funds?.length || 0;
+      const since     = c.createdAt ? new Date(c.createdAt.seconds*1000).toLocaleDateString('en-IN') : '—';
+      const totalSIP  = port?.funds?.reduce((s,f)=>s+(f.sipAmount||0),0) || c.monthlySIP || 0;
+      const totalLS   = port?.funds?.reduce((s,f)=>s+(f.lsAmount||0),0)  || c.lumpsumAmount || 0;
+
+      return `
+        <div style="background:#1a1a2e;border:1px solid #2a2a3e;border-radius:12px;padding:18px;
+                    display:block;transition:border-color 0.2s;"
+          onmouseover="this.style.borderColor='#4fc3f740'"
+          onmouseout="this.style.borderColor='#2a2a3e'">
+
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div style="flex:1;">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                <div style="font-size:16px;font-weight:700;color:#fff;">${c.name||'Unknown'}</div>
+                ${c.age?`<span style="color:#555;font-size:13px;">Age ${c.age}</span>`:''}
+                ${c.riskProfile?`<span style="background:${riskColor}20;color:${riskColor};border-radius:20px;padding:2px 10px;font-size:11px;font-weight:600;">${c.riskProfile}</span>`:''}
+              </div>
+              <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                ${c.goal?`<span style="font-size:12px;color:#888;">${goalIcon} ${c.goal.charAt(0).toUpperCase()+c.goal.slice(1)}</span>`:''}
+                ${c.targetAmount?`<span style="font-size:12px;color:#888;">Target: ₹${Number(c.targetAmount).toLocaleString('en-IN')}</span>`:''}
+                <span style="font-size:12px;color:#555;">Added: ${since}</span>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:16px;align-items:center;margin-left:16px;">
+              <div style="text-align:center;">
+                <div style="font-size:10px;color:#666;">Monthly SIP</div>
+                <div style="font-size:14px;font-weight:600;color:#4fc3f7;">${totalSIP?'₹'+totalSIP.toLocaleString('en-IN'):'—'}</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:10px;color:#666;">Lumpsum</div>
+                <div style="font-size:14px;font-weight:600;color:#ffb74d;">${totalLS?'₹'+totalLS.toLocaleString('en-IN'):'—'}</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:10px;color:#666;">Funds</div>
+                <div style="font-size:14px;font-weight:600;color:${fundCount>0?'#81c784':'#555'};">${fundCount>0?fundCount:'—'}</div>
+              </div>
+            </div>
+          </div>
+
+          ${port ? `
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid #2a2a3e;
+                        display:flex;gap:8px;flex-wrap:wrap;">
+              ${(port.funds||[]).slice(0,4).map(f=>`
+                <span style="background:#0d1117;border-radius:6px;padding:3px 8px;font-size:10px;color:#888;">
+                  ${f.framework}
+                </span>
+              `).join('')}
+              ${(port.funds||[]).length>4?`<span style="font-size:10px;color:#555;">+${port.funds.length-4} more</span>`:''}
+            </div>
+          ` : `
+            <div style="margin-top:10px;padding:8px 12px;background:#0d1117;border-radius:6px;
+                        font-size:12px;color:#555;display:flex;justify-content:space-between;align-items:center;">
+              <span>No portfolio built yet</span>
+              <button onclick="MFPortfolioBuilder._buildPortfolio('${c.clientId}')"
+                style="background:#4fc3f720;color:#4fc3f7;border:1px solid #4fc3f740;border-radius:6px;
+                       padding:3px 10px;cursor:pointer;font-size:11px;">Build Portfolio →</button>
+            </div>
+          `}
+
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+            ${port?`
+              <button onclick="MFPortfolioBuilder._viewPortfolio('${c.clientId}')"
+                style="background:#1a1a2e;border:1px solid #4fc3f740;color:#4fc3f7;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">
+                👁️ View Portfolio
+              </button>
+            `:''}
+            <button onclick="MFPortfolioBuilder._buildPortfolio('${c.clientId}')"
+              style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">
+              🔧 ${port?'Rebuild':'Build'} Portfolio
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Search
+  document.getElementById('cl-search').addEventListener('input', e => {
+    const term = e.target.value.toLowerCase();
+    const filtered = allClients.filter(c =>
+      (c.name||'').toLowerCase().includes(term) ||
+      (c.goal||'').toLowerCase().includes(term) ||
+      (c.riskProfile||'').toLowerCase().includes(term)
+    );
+    renderClients(filtered);
+  });
+
+  // New client
+  document.getElementById('btn-new-client').onclick = () => {
+    page.remove();
+    window.MFPortfolioBuilder.showPortfolioBuilder();
+  };
+
+  // View portfolio
+  window.MFPortfolioBuilder._viewPortfolio = async (clientId) => {
+    const pSnap = await getDoc(doc(db,'client_portfolios',clientId));
+    const cSnap = await getDoc(doc(db,'clients',clientId));
+    if(!pSnap.exists()) { alert('No portfolio found'); return; }
+    const port   = pSnap.data();
+    const client = cSnap.exists() ? cSnap.data() : {};
+    const riskColor = riskColors[port.riskProfile] || '#888';
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;
+                  width:640px;max-height:85vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <div>
+            <h2 style="margin:0;font-size:18px;color:#fff;">${client.name||'Client'} — Portfolio</h2>
+            <div style="font-size:12px;color:#666;margin-top:3px;">
+              <span style="color:${riskColor};">${port.riskProfile}</span>
+              ${client.goal?' | '+client.goal:''}
+            </div>
+          </div>
+          <button onclick="this.closest('div[style*=fixed]').remove()"
+            style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;">✕</button>
+        </div>
+
+        <!-- Allocation summary -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">
+          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;color:#666;">Equity</div>
+            <div style="font-size:18px;font-weight:700;color:#4fc3f7;">${port.finalAllocation?.equity||0}%</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;color:#666;">Debt</div>
+            <div style="font-size:18px;font-weight:700;color:#81c784;">${port.finalAllocation?.debt||0}%</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;color:#666;">Gold</div>
+            <div style="font-size:18px;font-weight:700;color:#ffd54f;">${port.finalAllocation?.gold||0}%</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;color:#666;">Silver</div>
+            <div style="font-size:18px;font-weight:700;color:#cfd8dc;">${port.finalAllocation?.silver||0}%</div>
+          </div>
+        </div>
+
+        <!-- Fund list -->
+        <div style="display:grid;gap:8px;margin-bottom:20px;">
+          ${(port.funds||[]).map(f=>`
+            <div style="background:#0d1117;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+                <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | ${f.allocationPct||0}%</div>
+              </div>
+              <div style="text-align:right;">
+                ${f.sipAmount>0?`<div style="font-size:11px;color:#4fc3f7;font-weight:600;">SIP: ₹${f.sipAmount.toLocaleString('en-IN')}/mo</div>`:''}
+                ${f.lsAmount>0?`<div style="font-size:11px;color:#ffb74d;font-weight:600;">LS: ₹${f.lsAmount.toLocaleString('en-IN')}</div>`:''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div style="display:flex;gap:10px;">
+          <button onclick="MFPortfolioBuilder._buildPortfolio('${clientId}');this.closest('div[style*=fixed]').remove();"
+            style="flex:1;background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px;font-weight:600;cursor:pointer;font-size:13px;">
+            🔧 Rebuild Portfolio
+          </button>
+          <button onclick="this.closest('div[style*=fixed]').remove()"
+            style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 18px;cursor:pointer;font-size:13px;">
+            Close
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  };
+
+  // Build portfolio for existing client
+  window.MFPortfolioBuilder._buildPortfolio = (clientId) => {
+    document.getElementById('cl-page')?.remove();
+    window.MFPortfolioBuilder.showPortfolioBuilder(clientId);
+  };
+
+  await loadClients();
+};
+
+console.log('✅ Client List loaded. Run: MFPortfolioBuilder.showClientList()');
+</script>
 </body>
 </html>
