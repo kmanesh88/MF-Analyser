@@ -12300,12 +12300,20 @@ window.MFPortfolioBuilder.showClientList = async function() {
         </div>
 
         <div style="display:flex;gap:10px;">
+         <button onclick="MFPortfolioBuilder._planRedemption('${clientId}',this.closest('div[style*=fixed]'))"
+            style="background:#ef9a9a20;color:#ef9a9a;border:1px solid #ef9a9a40;border-radius:8px;padding:11px 16px;cursor:pointer;font-size:13px;font-weight:600;">
+            📤 Plan Redemption
+          </button>
+          <button onclick="MFPortfolioBuilder._planSWP('${clientId}',this.closest('div[style*=fixed]'))"
+            style="background:#81c78420;color:#81c784;border:1px solid #81c78440;border-radius:8px;padding:11px 16px;cursor:pointer;font-size:13px;font-weight:600;">
+            💸 Plan SWP
+          </button>
           <button onclick="MFPortfolioBuilder._buildPortfolio('${clientId}');this.closest('div[style*=fixed]').remove();"
-            style="flex:1;background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px;font-weight:600;cursor:pointer;font-size:13px;">
-            🔧 Rebuild Portfolio
+            style="background:#1a1a2e;color:#888;border:1px solid #333;border-radius:8px;padding:11px 16px;cursor:pointer;font-size:13px;">
+            🔧 Rebuild
           </button>
           <button onclick="this.closest('div[style*=fixed]').remove()"
-            style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 18px;cursor:pointer;font-size:13px;">
+            style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 16px;cursor:pointer;font-size:13px;">
             Close
           </button>
         </div>
@@ -12315,7 +12323,327 @@ window.MFPortfolioBuilder.showClientList = async function() {
   };
 
   // Build portfolio for existing client
- window.MFPortfolioBuilder._buildPortfolio = (clientId) => {
+ window.MFPortfolioBuilder._planRedemption = async (clientId, parentModal) => {
+    const db = getFirestore();
+    const pSnap = await getDoc(doc(db,'client_portfolios',clientId));
+    if(!pSnap.exists()) { alert('No portfolio found'); return; }
+    const port = pSnap.data();
+    const funds = port.funds || [];
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:10000;display:flex;align-items:center;justify-content:center;';
+
+    // Fetch current NAVs
+    const navMap = {};
+    for(const f of funds) {
+      try {
+        const r = await fetch('https://api.mfapi.in/mf/'+f.schemeCode);
+        const d = await r.json();
+        navMap[f.schemeCode] = parseFloat(d.data?.[0]?.nav||0);
+      } catch(e) {}
+    }
+
+    const EXIT_LOADS_MAP = {
+      Quality:'Equity', Value:'Equity', GARP:'Equity', MidCap:'Equity', SmallCap:'Equity', Momentum:'Equity',
+      CapitalPreservation:'Debt', IncomeGeneration:'Debt', RateStrategy:'Debt',
+      Gold:'Gold ETF', Silver:'Silver ETF',
+    };
+
+    const EXIT_LOADS = {
+      Equity:    { rate:0.01, days:365,  label:'1% if < 1 year' },
+      Debt:      { rate:0,    days:0,    label:'No exit load' },
+      'Gold ETF':{ rate:0,    days:0,    label:'No exit load' },
+      'Silver ETF':{ rate:0,  days:0,    label:'No exit load' },
+    };
+
+    const today = new Date();
+
+    modal.innerHTML = `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;
+                  width:700px;max-height:85vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <div>
+            <h2 style="margin:0;font-size:17px;color:#fff;">📤 Plan Redemption</h2>
+            <p style="margin:4px 0 0;font-size:12px;color:#666;">Exit load and tax analysis for full or partial redemption</p>
+          </div>
+          <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;">✕</button>
+        </div>
+
+        <!-- Tax inputs -->
+        <div style="background:#0d1117;border-radius:10px;padding:14px;margin-bottom:16px;">
+          <div style="font-size:11px;color:#888;margin-bottom:10px;">Tax Parameters</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+            <div>
+              <label style="font-size:10px;color:#666;display:block;margin-bottom:3px;">Tax Bracket</label>
+              <select id="red-bracket" style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;font-size:12px;box-sizing:border-box;">
+                <option value="0.10">10%</option>
+                <option value="0.20">20%</option>
+                <option value="0.30" selected>30%</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:10px;color:#666;display:block;margin-bottom:3px;">Prior LTCG this year (₹)</label>
+              <input id="red-prev-ltcg" type="number" value="0" step="10000"
+                style="width:100%;background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:7px;color:#e0e0e0;font-size:12px;box-sizing:border-box;">
+            </div>
+            <div style="display:flex;align-items:flex-end;">
+              <button id="btn-recalc-red"
+                style="width:100%;background:#4fc3f7;color:#000;border:none;border-radius:6px;padding:8px;cursor:pointer;font-size:12px;font-weight:600;">
+                Recalculate
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fund list -->
+        <div id="red-fund-list" style="display:grid;gap:8px;"></div>
+
+        <!-- Total summary -->
+        <div id="red-summary" style="margin-top:16px;background:#0d1117;border-radius:10px;padding:14px;"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    function calcRedemption() {
+      const bracket   = parseFloat(document.getElementById('red-bracket').value)||0.30;
+      const prevLTCG  = parseFloat(document.getElementById('red-prev-ltcg').value)||0;
+      let remainingExemption = Math.max(0, 125000 - prevLTCG);
+      let totalCurrentValue = 0, totalExitLoad = 0, totalTax = 0, totalNetValue = 0;
+
+      const rows = funds.map(f => {
+        const currentNAV   = navMap[f.schemeCode] || 0;
+        const lsAmt        = f.lsAmount || 0;
+        const sipAmt       = f.sipAmount || 0;
+        const totalInvested = lsAmt + sipAmt;
+        const currentValue = currentNAV > 0 ? currentNAV * (totalInvested / currentNAV * 1.1) : totalInvested; // simplified
+        const gain         = Math.max(0, currentValue - totalInvested);
+
+        // Exit load
+        const elType  = EXIT_LOADS_MAP[f.framework] || 'Equity';
+        const elRule  = EXIT_LOADS[elType];
+        const portAge = port.createdAt ? Math.floor((today - new Date(port.createdAt.seconds*1000))/(1000*60*60*24)) : 400;
+        const exitLoad = portAge < elRule.days ? Math.round(currentValue * elRule.rate) : 0;
+
+        // Tax
+        const isLTCG = portAge >= (f.assetClass==='equity'?365:730);
+        let tax = 0;
+        if(gain > 0) {
+          if(f.framework==='Gold'||f.framework==='Silver'||f.assetClass==='debt') {
+            tax = isLTCG ? Math.round(gain*0.125) : Math.round(gain*bracket);
+          } else {
+            // Equity LTCG with exemption
+            if(isLTCG) {
+              const taxableGain = Math.max(0, gain - remainingExemption);
+              tax = Math.round(taxableGain * 0.125);
+              remainingExemption = Math.max(0, remainingExemption - gain);
+            } else {
+              tax = Math.round(gain * 0.20);
+            }
+          }
+        }
+
+        const netValue = currentValue - exitLoad - tax;
+        totalCurrentValue += currentValue;
+        totalExitLoad     += exitLoad;
+        totalTax          += tax;
+        totalNetValue     += netValue;
+
+        return { f, currentValue, gain, exitLoad, tax, netValue, isLTCG, portAge, elRule };
+      });
+
+      // Render fund rows
+      document.getElementById('red-fund-list').innerHTML = rows.map(({f,currentValue,gain,exitLoad,tax,netValue,isLTCG,portAge,elRule}) => `
+        <div style="background:#0d1117;border-radius:8px;padding:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+              <div style="font-size:10px;color:#666;margin-top:2px;">
+                ${f.framework} | ${portAge} days held |
+                <span style="color:${isLTCG?'#81c784':'#ffb74d'}">${isLTCG?'LTCG':'STCG'}</span>
+              </div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:14px;font-weight:700;color:#fff;">₹${Math.round(currentValue).toLocaleString('en-IN')}</div>
+              <div style="font-size:10px;color:${gain>0?'#81c784':'#ef9a9a'};">Gain: ₹${Math.round(gain).toLocaleString('en-IN')}</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            <div style="background:#1a1a2e;border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:#666;">Exit Load</div>
+              <div style="font-size:13px;font-weight:600;color:${exitLoad>0?'#ef9a9a':'#81c784'};">₹${exitLoad.toLocaleString('en-IN')}</div>
+              <div style="font-size:9px;color:#555;">${elRule.label}</div>
+            </div>
+            <div style="background:#1a1a2e;border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:#666;">Tax</div>
+              <div style="font-size:13px;font-weight:600;color:#ef9a9a;">₹${tax.toLocaleString('en-IN')}</div>
+            </div>
+            <div style="background:#1a1a2e;border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-size:9px;color:#666;">Net Proceeds</div>
+              <div style="font-size:13px;font-weight:600;color:#4fc3f7;">₹${Math.round(netValue).toLocaleString('en-IN')}</div>
+            </div>
+          </div>
+          ${exitLoad>0?`<div style="margin-top:8px;font-size:10px;color:#ffb74d;">
+            ⚠️ Wait until ${new Date(new Date(port.createdAt?.seconds*1000||Date.now()).getTime()+elRule.days*24*60*60*1000).toLocaleDateString('en-IN')} to avoid exit load
+          </div>`:''}
+        </div>
+      `).join('');
+
+      // Summary
+      document.getElementById('red-summary').innerHTML = `
+        <div style="font-size:12px;color:#888;margin-bottom:10px;">Total Redemption Summary</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center;">
+          <div><div style="font-size:9px;color:#666;">Portfolio Value</div><div style="font-size:15px;font-weight:700;">₹${Math.round(totalCurrentValue).toLocaleString('en-IN')}</div></div>
+          <div><div style="font-size:9px;color:#666;">Exit Loads</div><div style="font-size:15px;font-weight:700;color:#ef9a9a;">-₹${Math.round(totalExitLoad).toLocaleString('en-IN')}</div></div>
+          <div><div style="font-size:9px;color:#666;">Tax</div><div style="font-size:15px;font-weight:700;color:#ef9a9a;">-₹${Math.round(totalTax).toLocaleString('en-IN')}</div></div>
+          <div><div style="font-size:9px;color:#666;">Net in Hand</div><div style="font-size:15px;font-weight:700;color:#81c784;">₹${Math.round(totalNetValue).toLocaleString('en-IN')}</div></div>
+        </div>
+      `;
+    }
+
+    calcRedemption();
+    document.getElementById('btn-recalc-red').addEventListener('click', calcRedemption);
+  };
+
+  window.MFPortfolioBuilder._planSWP = async (clientId, parentModal) => {
+    const db = getFirestore();
+    const pSnap = await getDoc(doc(db,'client_portfolios',clientId));
+    if(!pSnap.exists()) { alert('No portfolio found'); return; }
+    const port = pSnap.data();
+    const funds = port.funds || [];
+    const totalCorpus = funds.reduce((s,f)=>s+(f.lsAmount||0)+(f.sipAmount||0),0);
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;
+                  width:660px;max-height:85vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <div>
+            <h2 style="margin:0;font-size:17px;color:#fff;">💸 Plan SWP</h2>
+            <p style="margin:4px 0 0;font-size:12px;color:#666;">Systematic Withdrawal Plan optimiser</p>
+          </div>
+          <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;">✕</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Current Corpus (₹)</label>
+            <input id="swp2-corpus" type="number" value="${totalCorpus||''}" step="100000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Desired Monthly Withdrawal (₹)</label>
+            <input id="swp2-withdrawal" type="number" placeholder="e.g. 50000" step="5000"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Expected Annual Return (%)</label>
+            <input id="swp2-return" type="number" value="10" step="0.5"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Inflation Rate (%)</label>
+            <input id="swp2-inflation" type="number" value="6" step="0.5"
+              style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Tax Bracket</label>
+            <select id="swp2-bracket" style="width:100%;background:#0d1117;border:1px solid #333;border-radius:8px;padding:10px;color:#e0e0e0;font-size:13px;box-sizing:border-box;">
+              <option value="0.20">20%</option>
+              <option value="0.30" selected>30%</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:flex-end;">
+            <button id="btn-calc-swp2"
+              style="width:100%;background:#4fc3f7;color:#000;border:none;border-radius:8px;padding:11px;cursor:pointer;font-size:13px;font-weight:600;">
+              Calculate SWP
+            </button>
+          </div>
+        </div>
+
+        <div id="swp2-result" style="display:none;"></div>
+
+        <!-- Fund recommendation -->
+        <div style="background:#0d1117;border-radius:10px;padding:14px;margin-top:16px;">
+          <div style="font-size:11px;color:#888;margin-bottom:10px;">Recommended SWP Fund Order (tax efficient)</div>
+          <div style="font-size:12px;color:#666;line-height:1.8;">
+            <div>1. 🏦 <span style="color:#81c784;">Debt funds first</span> — lower tax on LTCG, preserve equity for growth</div>
+            <div>2. 🥇 <span style="color:#ffd54f;">Gold/Silver funds</span> — if needed</div>
+            <div>3. 📈 <span style="color:#4fc3f7;">Equity funds last</span> — let equity compound longer</div>
+          </div>
+          <div style="margin-top:10px;display:grid;gap:6px;">
+            ${[...funds].sort((a,b)=>{
+              const order = {CapitalPreservation:1,IncomeGeneration:2,RateStrategy:3,Gold:4,Silver:5};
+              return (order[a.framework]||6)-(order[b.framework]||6);
+            }).map(f=>`
+              <div style="display:flex;justify-content:space-between;align-items:center;background:#1a1a2e;border-radius:6px;padding:8px 10px;">
+                <div style="font-size:11px;color:#fff;">${f.schemeName}</div>
+                <div style="font-size:10px;color:#888;">${f.framework}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('btn-calc-swp2').addEventListener('click', () => {
+      const corpus     = parseFloat(document.getElementById('swp2-corpus').value)||0;
+      const withdrawal = parseFloat(document.getElementById('swp2-withdrawal').value)||0;
+      const retRate    = parseFloat(document.getElementById('swp2-return').value)||10;
+      const inflation  = parseFloat(document.getElementById('swp2-inflation').value)||6;
+      const bracket    = parseFloat(document.getElementById('swp2-bracket').value)||0.30;
+
+      const monthlyReturn  = retRate/100/12;
+      const realReturn     = (retRate-inflation)/100;
+      const maxSustainable = Math.round(corpus * realReturn / 12);
+
+      let remaining = corpus, months = 0;
+      while(remaining > 0 && months < 600) {
+        remaining = remaining*(1+monthlyReturn) - withdrawal;
+        months++;
+      }
+
+      const taxPerWithdrawal = Math.round(withdrawal * 0.25 * 0.125);
+      const netWithdrawal    = withdrawal - taxPerWithdrawal;
+
+      const res = document.getElementById('swp2-result');
+      res.style.display = 'block';
+      res.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
+          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:9px;color:#666;">Max Sustainable SWP</div>
+            <div style="font-size:16px;font-weight:700;color:#81c784;">₹${maxSustainable.toLocaleString('en-IN')}/mo</div>
+            <div style="font-size:9px;color:#555;">Corpus stays intact</div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:9px;color:#666;">Corpus Lasts</div>
+            <div style="font-size:16px;font-weight:700;color:${months>=600?'#81c784':months>120?'#ffb74d':'#ef9a9a'};">
+              ${months>=600?'Forever':months>=12?Math.floor(months/12)+' yrs':months+' mo'}
+            </div>
+          </div>
+          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:9px;color:#666;">Post-Tax Monthly</div>
+            <div style="font-size:16px;font-weight:700;color:#4fc3f7;">₹${netWithdrawal.toLocaleString('en-IN')}</div>
+            <div style="font-size:9px;color:#555;">~₹${taxPerWithdrawal.toLocaleString('en-IN')} tax/mo</div>
+          </div>
+        </div>
+        ${withdrawal>maxSustainable?`
+          <div style="padding:10px 14px;background:#ef9a9a15;border-radius:8px;font-size:12px;color:#ef9a9a;margin-bottom:8px;">
+            ⚠️ Withdrawal exceeds sustainable limit by ₹${(withdrawal-maxSustainable).toLocaleString('en-IN')}/mo. Corpus depletes in ${months>=12?Math.floor(months/12)+' years':months+' months'}.
+          </div>
+        `:`
+          <div style="padding:10px 14px;background:#81c78415;border-radius:8px;font-size:12px;color:#81c784;margin-bottom:8px;">
+            ✅ Withdrawal is sustainable — corpus will grow over time.
+          </div>
+        `}
+        <div style="padding:10px 14px;background:#4fc3f715;border-radius:8px;font-size:12px;color:#4fc3f7;">
+          💡 Real return after ${inflation}% inflation: ${realReturn.toFixed(1)}% p.a. | Corpus doubles every ${Math.round(72/realReturn)} years.
+        </div>
+      `;
+    });
+  };
+  window.MFPortfolioBuilder._buildPortfolio = (clientId) => {
     document.getElementById('cl-page')?.remove();
     window.MFPortfolioBuilder._pbBackPage = () => window.MFPortfolioBuilder.showClientList();
     window.MFPortfolioBuilder.showPortfolioBuilder(clientId);
