@@ -11205,7 +11205,7 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
 
         <!-- Header -->
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px;">
-          <button onclick="document.getElementById('pb-page').remove()"
+          <button onclick="document.getElementById('pb-page').remove();window.MFPortfolioBuilder._pbBackPage&&window.MFPortfolioBuilder._pbBackPage();"
             style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">← Back</button>
           <h1 style="margin:0;font-size:20px;color:#fff;">Portfolio Builder</h1>
           ${clientData.name ? `<span style="color:#666;font-size:14px;">— ${clientData.name}</span>` : ''}
@@ -12231,8 +12231,9 @@ window.MFPortfolioBuilder.showClientList = async function() {
   });
 
   // New client
-  document.getElementById('btn-new-client').onclick = () => {
+ document.getElementById('btn-new-client').onclick = () => {
     page.remove();
+    window.MFPortfolioBuilder._pbBackPage = () => window.MFPortfolioBuilder.showClientList();
     window.MFPortfolioBuilder.showPortfolioBuilder();
   };
 
@@ -12314,8 +12315,9 @@ window.MFPortfolioBuilder.showClientList = async function() {
   };
 
   // Build portfolio for existing client
-  window.MFPortfolioBuilder._buildPortfolio = (clientId) => {
+ window.MFPortfolioBuilder._buildPortfolio = (clientId) => {
     document.getElementById('cl-page')?.remove();
+    window.MFPortfolioBuilder._pbBackPage = () => window.MFPortfolioBuilder.showClientList();
     window.MFPortfolioBuilder.showPortfolioBuilder(clientId);
   };
 
