@@ -7607,43 +7607,8 @@ function confirmImport() {
   }
   if (!name) { showToast('Please enter a portfolio name'); return; }
   if (!importParsedFunds.length) { showToast('No fund data to import'); return; }
- // Save holdings to Firestore if client selected
-  if(clientId || clientName) {
-    (async () => { try {
-      const {getFirestore, doc, setDoc} = await import('https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js');
-      const db = getFirestore();
-      const finalClientId = clientId || 'client_'+Date.now();
-      // Save client if new
-      if(clientId === '__new__' || !clientId) {
-        await setDoc(doc(db,'clients',finalClientId), {
-          clientId: finalClientId,
-          name: clientName,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }, {merge:true});
-      }
-      // Save holdings
-      await setDoc(doc(db,'client_holdings',finalClientId), {
-        clientId: finalClientId,
-        clientName,
-        portfolioName: name,
-        funds: importParsedFunds.map(f=>({
-          schemeName: f.name || f.schemeName || '',
-          units:      f.units || 0,
-          costValue:  f.value || f.costValue || 0,
-          currentValue: f.currentValue || f.value || 0,
-          gainLoss:   f.gainLoss || 0,
-          gainLossPct: f.gainLossPct || 0,
-        })),
-        uploadedAt: new Date(),
-        updatedAt: new Date(),
-      }, {merge:true});
-    showToast('✅ Holdings saved for '+clientName);
-    } catch(e) { console.warn('Firestore save failed:', e); }
-    })();
-  }
 
-  const id = 'p' + (++portCtr);
+ const id = 'p' + (++portCtr);
   const allocations   = {};
   const holdingsDetail = {};
 
