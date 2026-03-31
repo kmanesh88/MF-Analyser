@@ -11975,18 +11975,15 @@ window.MFPortfolioBuilder.showPortfolioBuilder = async function(clientId) {
             clientName: clientData.name,
             riskProfile: riskProfile.label,
             finalAllocation,
-            funds: selectedFunds.map(f=>({
-              schemeCode: f.schemeCode,
-              schemeName: f.schemeName,
-              framework:  f.framework,
-              assetClass: f.assetClass,
-              allocationPct: f.allocationPct||0,
-              monthlySIP: clientData.monthlySIP
-                ? Math.round(clientData.monthlySIP*(f.allocationPct||0)/100)
-                : 0,
-              lumpsumAmount: clientData.lumpsumAmount
-                ? Math.round(clientData.lumpsumAmount*(f.allocationPct||0)/100)
-                : 0,
+         funds: selectedFunds.map(f=>({
+              schemeCode:    f.schemeCode    || '',
+              schemeName:    f.schemeName    || '',
+              framework:     f.framework     || '',
+              assetClass:    f.assetClass    || 'equity',
+              category:      f.category      || '',
+              allocationPct: f.allocationPct || 0,
+              sipAmount:     f.sipAmount     || 0,
+              lsAmount:      f.lsAmount      || 0,
             })),
             createdAt: new Date(),
             updatedAt: new Date(),
