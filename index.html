@@ -9485,9 +9485,9 @@ window.confirmImport = async function() {
       const funds = (window.importParsedFunds || []);
       if(!funds.length) return;
       const db = getFirestore();
-      await setDoc(doc(db,'client_holdings',clientId), {
-        clientId,
-        clientName,
+     await setDoc(doc(db,'client_holdings',finalClientId), {
+        clientId: finalClientId,
+        clientName: finalClientName,
         portfolioName: name,
         funds: funds.map(f=>({
           schemeName:   f.name || f.schemeName || '',
@@ -9501,9 +9501,9 @@ window.confirmImport = async function() {
         updatedAt:  new Date(),
       },{merge:true});
       // Also ensure client exists in clients collection
-      await setDoc(doc(db,'clients',clientId), {
-        clientId,
-        name: clientName.split(' —')[0].trim(),
+     await setDoc(doc(db,'clients',finalClientId), {
+        clientId: finalClientId,
+        name: finalClientName,
         updatedAt: new Date(),
         createdAt: new Date(),
       },{merge:true});
