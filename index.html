@@ -12353,87 +12353,186 @@ window.MFPortfolioBuilder.showClientList = async function() {
   };
 
   // View portfolio
-  window.MFPortfolioBuilder._viewPortfolio = async (clientId) => {
+ window.MFPortfolioBuilder._viewPortfolio = async (clientId) => {
+    const db = getFirestore();
     const pSnap = await getDoc(doc(db,'client_portfolios',clientId));
     const cSnap = await getDoc(doc(db,'clients',clientId));
-    if(!pSnap.exists()) { alert('No portfolio found'); return; }
-    const port   = pSnap.data();
-    const client = cSnap.exists() ? cSnap.data() : {};
-    const riskColor = riskColors[port.riskProfile] || '#888';
+    const hSnap = await getDoc(doc(db,'client_holdings',clientId));
+    if(!pSnap.exists() && !hSnap.exists()) { alert('No portfolio found'); return; }
+    const port   = pSnap.exists()  ? pSnap.data()  : null;
+    const client = cSnap.exists()  ? cSnap.data()  : {};
+    const holdings = hSnap.exists() ? hSnap.data() : null;
+    const riskColor = riskColors[port?.riskProfile] || '#888';
+    let activeTab = port ? 'recommended' : 'holdings';
 
     const modal = document.createElement('div');
     modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;';
-    modal.innerHTML = `
-      <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;
-                  width:640px;max-height:85vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-          <div>
-            <h2 style="margin:0;font-size:18px;color:#fff;">${client.name||'Client'} — Portfolio</h2>
-            <div style="font-size:12px;color:#666;margin-top:3px;">
-              <span style="color:${riskColor};">${port.riskProfile}</span>
-              ${client.goal?' | '+client.goal:''}
-            </div>
-          </div>
-          <button onclick="this.closest('div[style*=fixed]').remove()"
-            style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;">✕</button>
-        </div>
 
-        <!-- Allocation summary -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">
-          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:10px;color:#666;">Equity</div>
-            <div style="font-size:18px;font-weight:700;color:#4fc3f7;">${port.finalAllocation?.equity||0}%</div>
-          </div>
-          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:10px;color:#666;">Debt</div>
-            <div style="font-size:18px;font-weight:700;color:#81c784;">${port.finalAllocation?.debt||0}%</div>
-          </div>
-          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:10px;color:#666;">Gold</div>
-            <div style="font-size:18px;font-weight:700;color:#ffd54f;">${port.finalAllocation?.gold||0}%</div>
-          </div>
-          <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:10px;color:#666;">Silver</div>
-            <div style="font-size:18px;font-weight:700;color:#cfd8dc;">${port.finalAllocation?.silver||0}%</div>
-          </div>
-        </div>
+    function renderModal() {
+      modal.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:28px;
+                    width:680px;max-height:88vh;overflow-y:auto;font-family:Segoe UI,sans-serif;color:#e0e0e0;">
 
-        <!-- Fund list -->
-        <div style="display:grid;gap:8px;margin-bottom:20px;">
-          ${(port.funds||[]).map(f=>`
-            <div style="background:#0d1117;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
-                <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | ${f.allocationPct||0}%</div>
-              </div>
-              <div style="text-align:right;">
-                ${f.sipAmount>0?`<div style="font-size:11px;color:#4fc3f7;font-weight:600;">SIP: ₹${f.sipAmount.toLocaleString('en-IN')}/mo</div>`:''}
-                ${f.lsAmount>0?`<div style="font-size:11px;color:#ffb74d;font-weight:600;">LS: ₹${f.lsAmount.toLocaleString('en-IN')}</div>`:''}
+          <!-- Header -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div>
+              <h2 style="margin:0;font-size:18px;color:#fff;">${client.name||'Client'}</h2>
+              <div style="font-size:12px;color:#666;margin-top:3px;">
+                ${port?`<span style="color:${riskColor};">${port.riskProfile}</span>`:''}
+                ${client.goal?' | '+client.goal:''}
               </div>
             </div>
-          `).join('')}
-        </div>
+            <button id="close-vp" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;">✕</button>
+          </div>
 
-        <div style="display:flex;gap:10px;">
-         <button onclick="MFPortfolioBuilder._planRedemption('${clientId}',this.closest('div[style*=fixed]'))"
-            style="background:#ef9a9a20;color:#ef9a9a;border:1px solid #ef9a9a40;border-radius:8px;padding:11px 16px;cursor:pointer;font-size:13px;font-weight:600;">
-            📤 Plan Redemption
-          </button>
-          <button onclick="MFPortfolioBuilder._planSWP('${clientId}',this.closest('div[style*=fixed]'))"
-            style="background:#81c78420;color:#81c784;border:1px solid #81c78440;border-radius:8px;padding:11px 16px;cursor:pointer;font-size:13px;font-weight:600;">
-            💸 Plan SWP
-          </button>
-          <button onclick="MFPortfolioBuilder._buildPortfolio('${clientId}');this.closest('div[style*=fixed]').remove();"
-            style="background:#1a1a2e;color:#888;border:1px solid #333;border-radius:8px;padding:11px 16px;cursor:pointer;font-size:13px;">
-            🔧 Rebuild
-          </button>
-          <button onclick="this.closest('div[style*=fixed]').remove()"
-            style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:11px 16px;cursor:pointer;font-size:13px;">
-            Close
-          </button>
+          <!-- Tabs -->
+          <div style="display:flex;gap:8px;margin-bottom:20px;">
+            ${port?`<button class="vp-tab" data-tab="recommended"
+              style="background:${activeTab==='recommended'?'#4fc3f7':'#1a1a2e'};
+                     color:${activeTab==='recommended'?'#000':'#888'};
+                     border:1px solid ${activeTab==='recommended'?'#4fc3f7':'#333'};
+                     border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;">
+              📊 Recommended Portfolio
+            </button>`:''}
+            ${holdings?`<button class="vp-tab" data-tab="holdings"
+              style="background:${activeTab==='holdings'?'#4fc3f7':'#1a1a2e'};
+                     color:${activeTab==='holdings'?'#000':'#888'};
+                     border:1px solid ${activeTab==='holdings'?'#4fc3f7':'#333'};
+                     border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;">
+              📂 Existing Holdings
+            </button>`:''}
+          </div>
+
+          <!-- Tab content -->
+          <div id="vp-content">
+            ${activeTab==='recommended' && port ? `
+              <!-- Allocation summary -->
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
+                <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+                  <div style="font-size:10px;color:#666;">Equity</div>
+                  <div style="font-size:18px;font-weight:700;color:#4fc3f7;">${port.finalAllocation?.equity||0}%</div>
+                </div>
+                <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+                  <div style="font-size:10px;color:#666;">Debt</div>
+                  <div style="font-size:18px;font-weight:700;color:#81c784;">${port.finalAllocation?.debt||0}%</div>
+                </div>
+                <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+                  <div style="font-size:10px;color:#666;">Gold</div>
+                  <div style="font-size:18px;font-weight:700;color:#ffd54f;">${port.finalAllocation?.gold||0}%</div>
+                </div>
+                <div style="background:#0d1117;border-radius:8px;padding:12px;text-align:center;">
+                  <div style="font-size:10px;color:#666;">Silver</div>
+                  <div style="font-size:18px;font-weight:700;color:#cfd8dc;">${port.finalAllocation?.silver||0}%</div>
+                </div>
+              </div>
+              <!-- Fund list -->
+              <div style="display:grid;gap:8px;margin-bottom:16px;">
+                ${(port.funds||[]).map(f=>`
+                  <div style="background:#0d1117;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                      <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+                      <div style="font-size:10px;color:#666;margin-top:2px;">${f.framework} | ${f.allocationPct||0}%</div>
+                    </div>
+                    <div style="text-align:right;">
+                      ${f.sipAmount>0?`<div style="font-size:11px;color:#4fc3f7;font-weight:600;">SIP: ₹${f.sipAmount.toLocaleString('en-IN')}/mo</div>`:''}
+                      ${f.lsAmount>0?`<div style="font-size:11px;color:#ffb74d;font-weight:600;">LS: ₹${f.lsAmount.toLocaleString('en-IN')}</div>`:''}
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+
+            ${activeTab==='holdings' && holdings ? `
+              <!-- Rebalance bar -->
+              ${port ? `
+                <div style="background:#0d1117;border-radius:10px;padding:14px;margin-bottom:16px;border:1px solid #ffb74d30;">
+                  <div style="font-size:11px;color:#ffb74d;font-weight:600;margin-bottom:10px;">⚖️ Rebalance Suggestion</div>
+                  <div style="font-size:12px;color:#888;margin-bottom:8px;">
+                    Recommended allocation vs current holdings:
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;">
+                    <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
+                      <div style="font-size:9px;color:#666;">Equity</div>
+                      <div style="font-size:13px;font-weight:600;color:#4fc3f7;">→ ${port.finalAllocation?.equity||0}%</div>
+                    </div>
+                    <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
+                      <div style="font-size:9px;color:#666;">Debt</div>
+                      <div style="font-size:13px;font-weight:600;color:#81c784;">→ ${port.finalAllocation?.debt||0}%</div>
+                    </div>
+                    <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
+                      <div style="font-size:9px;color:#666;">Gold</div>
+                      <div style="font-size:13px;font-weight:600;color:#ffd54f;">→ ${port.finalAllocation?.gold||0}%</div>
+                    </div>
+                    <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
+                      <div style="font-size:9px;color:#666;">Silver</div>
+                      <div style="font-size:13px;font-weight:600;color:#cfd8dc;">→ ${port.finalAllocation?.silver||0}%</div>
+                    </div>
+                  </div>
+                </div>
+              ` : ''}
+
+              <!-- Holdings list -->
+              <div style="font-size:11px;color:#888;margin-bottom:8px;">
+                ${holdings.portfolioName||'Uploaded Portfolio'} — ${(holdings.funds||[]).length} funds
+              </div>
+              <div style="display:grid;gap:7px;margin-bottom:16px;">
+                ${(holdings.funds||[]).map(f=>{
+                  const gain = f.gainLoss || (f.currentValue||f.costValue||0) - (f.costValue||0);
+                  const gainPct = f.costValue > 0 ? Math.round(gain/f.costValue*100*10)/10 : 0;
+                  return `
+                    <div style="background:#0d1117;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;">
+                      <div style="flex:1;">
+                        <div style="font-size:12px;font-weight:600;color:#fff;">${f.schemeName}</div>
+                        <div style="font-size:10px;color:#666;margin-top:2px;">
+                          ${f.units?'Units: '+f.units+' | ':''}Cost: ₹${(f.costValue||0).toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div style="text-align:right;margin-left:12px;">
+                        <div style="font-size:13px;font-weight:600;color:#fff;">₹${(f.currentValue||f.costValue||0).toLocaleString('en-IN')}</div>
+                        <div style="font-size:10px;color:${gain>=0?'#81c784':'#ef9a9a'};">
+                          ${gain>=0?'+':''}₹${Math.round(gain).toLocaleString('en-IN')} (${gainPct}%)
+                        </div>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Action buttons -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button onclick="MFPortfolioBuilder._planRedemption('${clientId}',this.closest('div[style*=fixed]'))"
+              style="background:#ef9a9a20;color:#ef9a9a;border:1px solid #ef9a9a40;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:12px;font-weight:600;">
+              📤 Plan Redemption
+            </button>
+            <button onclick="MFPortfolioBuilder._planSWP('${clientId}',this.closest('div[style*=fixed]'))"
+              style="background:#81c78420;color:#81c784;border:1px solid #81c78440;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:12px;font-weight:600;">
+              💸 Plan SWP
+            </button>
+            <button onclick="MFPortfolioBuilder._buildPortfolio('${clientId}');this.closest('div[style*=fixed]').remove();"
+              style="background:#1a1a2e;color:#888;border:1px solid #333;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:12px;">
+              🔧 ${port?'Rebuild':'Build'} Portfolio
+            </button>
+            <button id="close-vp-btn"
+              style="background:#333;color:#e0e0e0;border:none;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:12px;margin-left:auto;">
+              Close
+            </button>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+
+      document.getElementById('close-vp').onclick = () => modal.remove();
+      document.getElementById('close-vp-btn').onclick = () => modal.remove();
+      modal.querySelectorAll('.vp-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeTab = btn.dataset.tab;
+          renderModal();
+        });
+      });
+    }
+
+    renderModal();
     document.body.appendChild(modal);
   };
 
