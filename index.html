@@ -9464,50 +9464,54 @@ window.showImportModal = async function() {
 };
   // ── Holdings Save Hook ──────────────────────────────────────────────────
 const _origConfirmImport = window.confirmImport;
-window.confirmImport = async function() {
+window.confirmImport = function() {
+  // Capture all values BEFORE modal closes
+  const clientSelectEl = document.getElementById('imp-client');
+  const clientVal      = clientSelectEl?.value || '';
+  const clientText     = (clientSelectEl?.options[clientSelectEl?.selectedIndex]?.text || '').split(' —')[0].trim();
+  const newClientName  = document.getElementById('imp-client-new')?.value?.trim() || '';
+  const portfolioName  = document.getElementById('imp-name')?.value?.trim() || '';
+  const fundsSnapshot  = [...(window.importParsedFunds || [])];
+
+  // Call original function
   if(_origConfirmImport) _origConfirmImport();
-  // After local save, also save to Firestore client_holdings
+
+  // Save to Firestore after short delay
+  if(!clientVal) return;
   setTimeout(async () => {
     try {
-      const clientSelect = document.getElementById('imp-client');
-     if(!clientSelect || !clientSelect.value) return;
-      let finalClientId = clientSelect.value;
-     let finalClientName = (clientSelect.options[clientSelect.selectedIndex]?.text || '').split(' —')[0].trim();
-      // If new client, create with name from text input
+      let finalClientId   = clientVal;
+      let finalClientName = clientText;
       if(finalClientId === '__new__') {
-        const newNameInput = document.getElementById('imp-client-new');
-        finalClientName = newNameInput?.value?.trim() || 'Unknown Client';
-        finalClientId = 'client_' + Date.now();
+        finalClientName = newClientName || 'Unknown Client';
+        finalClientId   = 'client_' + Date.now();
       }
-      const name = document.getElementById('imp-name')?.value?.trim() || '';
-      const funds = (window.importParsedFunds || []);
-      if(!funds.length) return;
+      if(!fundsSnapshot.length) { console.warn('No funds to save'); return; }
       const db = getFirestore();
-     await setDoc(doc(db,'client_holdings',finalClientId), {
-        clientId: finalClientId,
-        clientName: finalClientName,
-        portfolioName: name,
-        funds: funds.map(f=>({
+      await setDoc(doc(db,'client_holdings',finalClientId), {
+        clientId:      finalClientId,
+        clientName:    finalClientName,
+        portfolioName: portfolioName,
+        funds: fundsSnapshot.map(f=>({
           schemeName:   f.name || f.schemeName || '',
           units:        f.units || 0,
           costValue:    f.value || f.costValue || 0,
           currentValue: f.currentValue || f.value || 0,
-          gainLoss:     (f.currentValue||f.value||0) - (f.value||f.costValue||0),
+          gainLoss:     (f.currentValue||f.value||0)-(f.value||f.costValue||0),
           nav:          f.nav || 0,
         })),
         uploadedAt: new Date(),
         updatedAt:  new Date(),
       },{merge:true});
-      // Also ensure client exists in clients collection
-     await setDoc(doc(db,'clients',finalClientId), {
-        clientId: finalClientId,
-        name: finalClientName,
+      await setDoc(doc(db,'clients',finalClientId),{
+        clientId:  finalClientId,
+        name:      finalClientName,
         updatedAt: new Date(),
         createdAt: new Date(),
       },{merge:true});
-      console.log('✅ Holdings saved to Firestore for', clientName);
-    } catch(e) { console.warn('Holdings Firestore save failed:', e); }
-  }, 1000);
+      console.log('✅ Holdings saved for', finalClientName);
+    } catch(e) { console.error('Holdings save failed:', e); }
+  }, 500);
 };
   console.log('✅ Category Fixer loaded. Run: MFPortfolioBuilder.fixCategories()');
 </script>
