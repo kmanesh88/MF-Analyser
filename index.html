@@ -9479,8 +9479,6 @@ window.confirmImport = async function() {
         finalClientName = newNameInput?.value?.trim() || 'Unknown Client';
         finalClientId = 'client_' + Date.now();
       }
-      const clientId = clientSelect.value;
-      const clientName = clientSelect.options[clientSelect.selectedIndex]?.text || '';
       const name = document.getElementById('imp-name')?.value?.trim() || '';
       const funds = (window.importParsedFunds || []);
       if(!funds.length) return;
