@@ -9470,7 +9470,15 @@ window.confirmImport = async function() {
   setTimeout(async () => {
     try {
       const clientSelect = document.getElementById('imp-client');
-      if(!clientSelect || !clientSelect.value || clientSelect.value === '__new__') return;
+     if(!clientSelect || !clientSelect.value) return;
+      let finalClientId = clientSelect.value;
+      let finalClientName = clientName.split(' —')[0].trim();
+      // If new client, create with name from text input
+      if(finalClientId === '__new__') {
+        const newNameInput = document.getElementById('imp-client-new');
+        finalClientName = newNameInput?.value?.trim() || 'Unknown Client';
+        finalClientId = 'client_' + Date.now();
+      }
       const clientId = clientSelect.value;
       const clientName = clientSelect.options[clientSelect.selectedIndex]?.text || '';
       const name = document.getElementById('imp-name')?.value?.trim() || '';
