@@ -12446,27 +12446,26 @@ window.MFPortfolioBuilder.showClientList = async function() {
               <!-- Rebalance bar -->
               ${port ? `
                 <div style="background:#0d1117;border-radius:10px;padding:14px;margin-bottom:16px;border:1px solid #ffb74d30;">
-                  <div style="font-size:11px;color:#ffb74d;font-weight:600;margin-bottom:10px;">⚖️ Rebalance Suggestion</div>
-                  <div style="font-size:12px;color:#888;margin-bottom:8px;">
-                    Recommended allocation vs current holdings:
-                  </div>
+                 <div style="font-size:11px;color:#ffb74d;font-weight:600;margin-bottom:10px;">⚖️ Rebalance Suggestion</div>
                   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;">
-                    <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
-                      <div style="font-size:9px;color:#666;">Equity</div>
-                      <div style="font-size:13px;font-weight:600;color:#4fc3f7;">→ ${port.finalAllocation?.equity||0}%</div>
-                    </div>
-                    <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
-                      <div style="font-size:9px;color:#666;">Debt</div>
-                      <div style="font-size:13px;font-weight:600;color:#81c784;">→ ${port.finalAllocation?.debt||0}%</div>
-                    </div>
-                    <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
-                      <div style="font-size:9px;color:#666;">Gold</div>
-                      <div style="font-size:13px;font-weight:600;color:#ffd54f;">→ ${port.finalAllocation?.gold||0}%</div>
-                    </div>
-                    <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
-                      <div style="font-size:9px;color:#666;">Silver</div>
-                      <div style="font-size:13px;font-weight:600;color:#cfd8dc;">→ ${port.finalAllocation?.silver||0}%</div>
-                    </div>
+                    ${[
+                      {label:'Equity', color:'#4fc3f7', key:'equity'},
+                      {label:'Debt',   color:'#81c784', key:'debt'},
+                      {label:'Gold',   color:'#ffd54f', key:'gold'},
+                      {label:'Silver', color:'#cfd8dc', key:'silver'},
+                    ].map(({label,color,key})=>{
+                      const rec = port.finalAllocation?.[key]||0;
+                      return `
+                        <div style="background:#1a1a2e;border-radius:6px;padding:8px;">
+                          <div style="font-size:9px;color:#666;margin-bottom:4px;">${label}</div>
+                          <div style="font-size:11px;color:#888;">Target</div>
+                          <div style="font-size:14px;font-weight:700;color:${color};">${rec}%</div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                  <div style="margin-top:10px;font-size:11px;color:#888;padding:8px 10px;background:#1a1a2e;border-radius:6px;">
+                    💡 Rebalance your existing holdings to match the recommended allocation above. Use Plan Redemption to exit overweight funds and redirect to underweight categories.
                   </div>
                 </div>
               ` : ''}
