@@ -3156,32 +3156,55 @@ function switchUploadTab(tab) {
 // ── AMC Excel download links ──────────────────────────────────
 // For each AMC in the loaded list, show a direct link to their disclosure page
 // AMCs that only have PDF (no Excel disclosure): Sundaram
-const AMC_EXCEL_ONLY_PDF = new Set(['sundaram']);
+const AMC_EXCEL_ONLY_PDF = new Set([]);  // All major AMCs now have Excel disclosures
+
+// Known direct/page URLs per AMC (keyed by lowercase AMC name)
+const AMC_DIRECT_URLS = {
+  'axis':    'https://www.axismf.com/cms/sites/default/files/Statutory/Monthly%20Portfolio-28%2002%2026.xlsx',
+  'sbi':     'https://www.advisorkhoj.com/form-download-centre/Mutual/SBI-Mutual-Fund/Monthly-Portfolio-Disclosures',
+  'kotak':   'https://www.advisorkhoj.com/form-download-centre/Mutual/Kotak-Asset-Management/Monthly-Portfolio-Disclosures',
+  'nippon':  'https://mf.nipponindiaim.com/investor-service/downloads/factsheet-portfolio-and-other-disclosures',
+  'uti':     'https://www.advisorkhoj.com/form-download-centre/Mutual/UTI-Mutual-Fund/Monthly-Portfolio-Disclosures',
+  'aditya birla sun life': 'https://www.advisorkhoj.com/form-download-centre/Mutual/Aditya-Birla-Sun-Life-Mutual-Fund/Monthly-Portfolio-Disclosures',
+  'icici prudential': 'https://www.icicipruamc.com/downloads/others/monthly-portfolio-disclosures',
+  'sundaram': 'https://www.advisorkhoj.com/form-download-centre/Mutual/Sundaram-Mutual-Fund/Monthly-Portfolio-Disclosures',
+};
 
 function buildAmcExcelLinks() {
   const el = document.getElementById('amc-excel-links');
   if (!el) return;
   const loadedNames = new Set(amcs.map(a => a.name.toLowerCase()));
 
-  // Show all tier-1 + tier-2 AMCs, mark loaded ones
   const toShow = ALL_AMCS.filter(a => a.tier <= 2);
   el.innerHTML = toShow.map(a => {
-    const isPdfOnly = AMC_EXCEL_ONLY_PDF.has(a.name.toLowerCase());
-    const isLoaded  = loadedNames.has(a.name.toLowerCase());
-    const label     = isPdfOnly ? 'PDF only' : '↗ Download Excel';
-    const color     = isLoaded  ? 'var(--green)' : isPdfOnly ? 'var(--muted2)' : 'var(--blue)';
-    const border    = isLoaded  ? 'var(--green)' : isPdfOnly ? 'var(--border2)' : 'var(--blue)';
-    const prefix    = isLoaded  ? '✓ ' : '';
+    const key      = a.name.toLowerCase();
+    const isPdfOnly = AMC_EXCEL_ONLY_PDF.has(key);
+    const isLoaded  = loadedNames.has(key);
+    const directUrl = AMC_DIRECT_URLS[key] || a.portfolio;
+    const isAxisDirect = key === 'axis';  // Axis has a true direct file download
+
+    const color  = isLoaded ? 'var(--green)' : isPdfOnly ? 'var(--muted2)' : 'var(--blue)';
+    const border = isLoaded ? 'var(--green)' : isPdfOnly ? 'var(--border2)' : 'var(--border2)';
+    const prefix = isLoaded ? '✓ ' : '';
+    const suffix = isLoaded ? '' : isAxisDirect ? ' ↓' : ' ↗';
+    const title  = isAxisDirect
+      ? 'Direct Excel download — upload immediately after'
+      : isPdfOnly
+      ? 'PDF factsheet upload'
+      : 'Opens AMC portfolio page — download the Excel then upload here';
+
     if (isPdfOnly) {
       return `<button onclick="switchUploadTab('pdf');pickAmc('${a.name}')"
+        title="${title}"
         style="text-align:left;background:none;border:1px solid ${border};border-radius:var(--r-sm);padding:.3rem .55rem;font-size:.62rem;cursor:pointer;color:${color}">
         ${prefix}${a.name} <span style="opacity:.6;font-size:.55rem">PDF</span>
       </button>`;
     }
-    return `<a href="${a.portfolio}" target="_blank" rel="noopener"
+    return `<a href="${directUrl}" target="_blank" rel="noopener"
+      title="${title}"
       onclick="highlightSelectedAmc('${a.name}')"
       style="display:block;text-align:left;background:none;border:1px solid ${border};border-radius:var(--r-sm);padding:.3rem .55rem;font-size:.62rem;cursor:pointer;color:${color};text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-      ${prefix}${a.name}${isLoaded ? '' : ' ↗'}
+      ${prefix}${a.name}${suffix}
     </a>`;
   }).join('');
 }
@@ -3254,6 +3277,23 @@ function highlightSelectedAmc(name) {
 let _xlsParsedFunds = []; // [{name, isin, pct, sector}]
 let _lastXlsFile    = null;
 let _lastXlsFiles   = [];  // all files for API push
+
+async function previewFilesOnApiServer(files, amcName) {
+  const url    = getMfApiUrl();
+  const secret = localStorage.getItem('mf_api_secret') || '';
+  if (!url || !files?.length) return null;
+  try {
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f, f.name);
+    fd.append('amc',    amcName);
+    fd.append('secret', secret);
+    const res  = await fetch(`${url}/preview`, { method:'POST', body:fd, signal:AbortSignal.timeout(60000) });
+    if (res.ok) return await res.json();
+    return null;
+  } catch(e) {
+    return null;
+  }
+}
 
 async function pushFilesToApiServer(files, amcName) {
   const url    = getMfApiUrl();
@@ -3367,371 +3407,289 @@ async function handlePortfolioExcel(evt) {
 }
 
 async function parseWorkbook(wb, filename, results) {
-  // ── Detect Advisorkhoj consolidated format ────────────────────
-  // Signature: has "Index" sheet mapping acronym → fund name
-  const isAdvisorkhoj = wb.SheetNames.includes('Index') && wb.SheetNames.length > 3;
+  const VALID_ISIN = /^IN[A-Z0-9]{10}$/;
+  const SKIP_ROW = /^(sub.?total|grand.?total|total$|total\s+for|equity\s*&|equity\s+and|debt\s+instru|listed\s*\/|unlisted|money\s*market|government\s*securities$|treps?|reverse\s*repo|margin|cblo|net\s*current|cash\s*and\s*other|a\)|b\)|c\)|d\)|e\)|\(a\)|\(b\)|\(c\)|\(d\)|nil$)/i;
+  const CASH_ROW  = /^(treps?|triparty\s*repo|reverse\s*repo|cblo|cash\s*and\s*other\s*net|net\s*current\s*asset)/i;
 
-  if (isAdvisorkhoj) {
-    // Build index map from Index sheet
-    const indexMap = {};
-    const idxRows = XLSX.utils.sheet_to_json(wb.Sheets['Index'], {header:1, defval:''});
-    idxRows.forEach(row => {
-      if (row[1] && row[2] && String(row[0]) !== 'ACRONYM' && row[0] !== 'S.NO.' && row[0] !== 'S.NO')
-        indexMap[String(row[1]).trim()] = String(row[2]).trim();
-    });
-
-    const VALID_ISIN = /^IN[A-Z0-9]{10}$/;
-    const SKIP = /^(a\)|b\)|c\)|d\)|e\)|f\)|\(a\)|\(b\)|\(c\)|\(d\)|\(e\)|\(f\)|sub.?total|grand.?total|total.?for|treps|reverse\s*repo|margin\s*money|cash\s*and\s*other|net\s*current|at\s*the\s*beginning|direct\s*plan|regular\s*plan|riskometer|option|nav\s*per|scheme\s*name|sl\s*no)/i;
-
-    for (const sname of wb.SheetNames) {
-      if (sname === 'Index' || /annex/i.test(sname)) continue;
-      await _yield(); // release main thread between sheets
-      const ws   = wb.Sheets[sname];
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-      if (rows.length < 5) continue;
-
-      const fundName = indexMap[sname] || String(rows[1]?.[0] || '').trim() || sname;
-
-      // Fixed columns: 0=SL, 1=ISIN, 2=Name, 3=Sector, 4=Qty, 5=MktVal, 6=%NAV
-      const holdings = [];
-      let cashPct = 0; // TREPS + cash + money market
-      for (const row of rows.slice(4)) {
-        const isin   = String(row[1] || '').trim();
-        const name   = String(row[2] || '').trim();
-        const sector = String(row[3] || '').trim();
-        const pctRaw = row[6];
-        if (!name) continue;
-
-        // Capture TREPS/cash rows (no valid ISIN) — skip subtotal lines
-        if (!VALID_ISIN.test(isin)) {
-          if (/^(treps?|triparty\s*repo|reverse\s*repo|cblo|cash\s*and\s*other|net\s*current\s*asset)/i.test(name)) {
-            const p = parseFloat(pctRaw) * 100;
-            if (!isNaN(p) && p > 0 && p < 50) cashPct += p;
-          }
-          // skip "Total for Money Market Instruments" — it's a subtotal of TREPS above
-          continue;
-        }
-        if (SKIP.test(name)) continue;
-        const pct = parseFloat(pctRaw) * 100; // stored as decimal
-        if (isNaN(pct) || pct <= 0 || pct > 100) continue;
-        holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000});
-      }
-
-      if (holdings.length >= 2) {
-        results.push({fundName, isClientFormat:false, holdings, pct:0,
-                      cashPct: Math.round(cashPct*100)/100});
-      }
-    }
-    return; // done
+  // ── Helper: get rows from a SheetJS worksheet ─────────────────────────
+  function sheetRows(ws) {
+    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
   }
 
-  // ── Detect Kotak/SEBI multi-sheet format ─────────────────────
-  // Signature: row1 col[2] starts with "Portfolio of ... as on"
-  const isKotak = !isAdvisorkhoj && wb.SheetNames.slice(0,3).some(sn => {
-    const ws = wb.Sheets[sn];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', range:0});
+  // ── Core: universal sheet parser ──────────────────────────────────────
+  // Detects ISIN col, name col, pct col, decimal vs actual %
+  // Returns { fundName, holdings, cashPct } or null
+  function parseSheetUniversal(rows, hintFundName) {
+    let headerRowIdx = -1, isinCol = -1, nameCol = -1, pctCol = -1;
+    let fundName = hintFundName || '';
+
+    // Pass 1: find fund name + header row
+    for (let r = 0; r < Math.min(rows.length, 15); r++) {
+      const row  = rows[r] || [];
+      const vals = row.map(c => String(c || '').trim());
+      const vl   = vals.map(v => v.toLowerCase());
+
+      // Pick up fund name hints
+      if (!fundName) {
+        for (let i = 0; i < vals.length; i++) {
+          const v = vals[i], vlo = vl[i];
+          if (vlo.startsWith('scheme:') && v.length > 10) { fundName = v.slice(7).trim(); break; }
+          if (vlo.startsWith('portfolio of ')) {
+            const m = v.match(/^portfolio of (.+?)\s+as on/i);
+            if (m) { fundName = m[1].trim(); break; }
+          }
+          if (/scheme\s*name/i.test(vlo) && vals[i+1] && vals[i+1].length > 5
+              && !/scheme/i.test(vals[i+1])) { fundName = vals[i+1]; break; }
+          if (i < 3 && v.length > 8 && /fund/i.test(v)
+              && !/mutual fund/i.test(v) && !/asset management/i.test(v) && !fundName)
+            fundName = v;
+        }
+      }
+
+      // Detect header row by 'isin' keyword
+      if (vl.some(v => v.includes('isin'))) {
+        headerRowIdx = r;
+        vl.forEach((v, ci) => {
+          if (v.includes('isin') && isinCol < 0)                               isinCol = ci;
+          if (nameCol < 0 && ['name of','instrument','issuer','company/issuer','company'].some(k => v.includes(k))) nameCol = ci;
+          if (pctCol  < 0 && /(%\s*(to|of|net)\s*(nav|aum|asset|net)|nav\s*%|aum\s*%)/.test(v)) pctCol = ci;
+        });
+        break;
+      }
+    }
+
+    if (headerRowIdx < 0 || isinCol < 0) return null;
+    if (nameCol < 0) nameCol = Math.max(0, isinCol - 1);
+
+    // Fallback pct col: scan right of isin for % or nav in header
+    if (pctCol < 0) {
+      const hrow = (rows[headerRowIdx] || []).map(c => String(c || '').toLowerCase());
+      for (let ci = hrow.length - 1; ci > isinCol; ci--) {
+        if (hrow[ci].includes('%') || hrow[ci].includes('nav')) { pctCol = ci; break; }
+      }
+      if (pctCol < 0) pctCol = Math.min((rows[headerRowIdx] || []).length - 1, isinCol + 5);
+    }
+
+    // Detect name offset (Kotak-style: header says col X but data has name at col X-1)
+    let actualNameCol = nameCol;
+    for (let r = headerRowIdx + 1; r < Math.min(rows.length, headerRowIdx + 8); r++) {
+      const row  = rows[r] || [];
+      const vals = row.map(c => String(c || '').trim());
+      if (VALID_ISIN.test(vals[isinCol] || '')) {
+        if (!vals[nameCol]) {
+          for (let ci = isinCol - 1; ci >= 0; ci--) {
+            if (vals[ci] && vals[ci].length > 2 && !SKIP_ROW.test(vals[ci])) {
+              actualNameCol = ci; break;
+            }
+          }
+        }
+        break;
+      }
+    }
+
+    // Detect decimal %
+    let pctIsDecimal = false;
+    for (let r = headerRowIdx + 1; r < Math.min(rows.length, headerRowIdx + 8); r++) {
+      const row = rows[r] || [];
+      const vals = row.map(c => String(c || '').trim());
+      if (VALID_ISIN.test(vals[isinCol] || '')) {
+        const pv = parseFloat(String(vals[pctCol] || '').replace(/[%,]/g, ''));
+        if (!isNaN(pv) && pv > 0 && pv < 0.6) pctIsDecimal = true;
+        break;
+      }
+    }
+
+    // Parse holdings
+    const holdings = [];
+    let cashPct = 0;
+
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const row  = rows[r] || [];
+      const vals = row.map(c => String(c || '').trim());
+
+      const isinVal = vals[isinCol] || '';
+      let   nameVal = vals[actualNameCol] || '';
+
+      if (!VALID_ISIN.test(isinVal)) {
+        if (nameVal && CASH_ROW.test(nameVal)) {
+          const p = parseFloat(String(vals[pctCol] || '').replace(/[%,$,]/g, ''));
+          if (!isNaN(p)) {
+            const pAdj = pctIsDecimal ? p * 100 : p;
+            if (pAdj > 0 && pAdj < 50) cashPct += pAdj;
+          }
+        }
+        continue;
+      }
+
+      if (!nameVal || nameVal.length < 2) continue;
+      if (SKIP_ROW.test(nameVal)) continue;
+
+      // Strip UTI-style prefixes: "EQ - ", "DB - " etc.
+      nameVal = nameVal.replace(/^(EQ|DB|NCD|CP|TB|GB|MF|CB)\s*[-\u2013]\s*/i, '').trim();
+
+      const rawPct = String(vals[pctCol] || '').replace(/[%,$]/g, '').replace(/[^\d.\-]/g, '');
+      let pct = parseFloat(rawPct);
+      if (isNaN(pct)) continue;
+      if (pctIsDecimal) pct *= 100;
+      if (pct <= 0 || pct > 100) continue;
+
+      // Sector: col immediately after ISIN
+      let sector = vals[isinCol + 1] || '';
+      if (/^\d/.test(sector) || sector.includes('%')) sector = '';
+
+      holdings.push({ name: nameVal, isin: isinVal, sector, pct: Math.round(pct * 10000) / 10000 });
+    }
+
+    return { fundName: fundName || filename, holdings, cashPct: Math.round(cashPct * 100) / 100 };
+  }
+
+  // ── FORMAT E: UTI — single sheet, SCHEME CODE markers ────────────────
+  const isUTI = wb.SheetNames.length === 1 && (() => {
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = sheetRows(ws);
+    return rows.slice(0, 3).some(r => String(r[0] || '').toUpperCase().includes('SCHEME CODE'));
+  })();
+
+  if (isUTI) {
+    await _yield();
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = sheetRows(ws);
+    let currentFund = null, fundRows = [];
+
+    const flush = () => {
+      if (!currentFund || !fundRows.length) return;
+      const parsed = parseSheetUniversal(fundRows, currentFund);
+      if (parsed && parsed.holdings.length >= 2) {
+        const total = parsed.holdings.reduce((s, h) => s + h.pct, 0);
+        if (total >= 5 && total <= 200)
+          results.push({ fundName: parsed.fundName, isClientFormat: false,
+                         holdings: parsed.holdings, pct: 0, cashPct: parsed.cashPct });
+      }
+    };
+
+    for (const row of rows) {
+      const v0 = String(row[0] || '').trim();
+      const v0u = v0.toUpperCase();
+      if (v0u.includes('SCHEME CODE') && v0u.includes('STARTS')) {
+        flush(); currentFund = null; fundRows = []; continue;
+      }
+      if (v0u.includes('SCHEME CODE') && v0u.includes('ENDS')) {
+        flush(); currentFund = null; fundRows = []; continue;
+      }
+      if (v0u.startsWith('SCHEME:')) { currentFund = v0.slice(7).trim(); fundRows = []; continue; }
+      if (currentFund) fundRows.push(row);
+    }
+    flush();
+    return;
+  }
+
+  // ── FORMAT A/B: Multi-sheet with Index (Sundaram/Nippon/Axis/ABSL/SBI) ─
+  const hasIndex = wb.SheetNames.some(s => s.trim().toLowerCase() === 'index');
+  if (hasIndex && wb.SheetNames.length > 3) {
+    // Build index map: sheet code → full fund name
+    const indexMap = {};
+    const idxSheet = wb.SheetNames.find(s => s.trim().toLowerCase() === 'index');
+    const idxRows  = sheetRows(wb.Sheets[idxSheet]);
+    for (const row of idxRows) {
+      const vals = row.map(c => String(c || '').trim());
+      // Skip header rows
+      if (!vals[0] || /^(sr\s*no|acronym|index|fund\s*code)/i.test(vals[0])) continue;
+      // Find code/name pair
+      for (let i = 0; i < vals.length - 1; i++) {
+        const code = vals[i], name = vals[i + 1];
+        if (code && /^[A-Z0-9\-]{2,20}$/.test(code) && name && name.length > 8
+            && /fund|scheme|plan/i.test(name)) {
+          indexMap[code] = name; break;
+        }
+      }
+    }
+
+    const SKIP_SHEETS = new Set(['index','cover','summary','disclaimer','annexure',
+                                  'contents','readme','back','annexure-a']);
+    for (const sname of wb.SheetNames) {
+      if (SKIP_SHEETS.has(sname.trim().toLowerCase())) continue;
+      await _yield();
+      const ws   = wb.Sheets[sname];
+      const rows = sheetRows(ws);
+      if (rows.length < 4) continue;
+
+      const hintName = indexMap[sname] || '';
+      const parsed   = parseSheetUniversal(rows, hintName);
+      if (!parsed || parsed.holdings.length < 2) continue;
+
+      const total = parsed.holdings.reduce((s, h) => s + h.pct, 0);
+      if (total < 5 || total > 200) continue;
+
+      results.push({ fundName: parsed.fundName || sname, isClientFormat: false,
+                     holdings: parsed.holdings, pct: 0, cashPct: parsed.cashPct });
+    }
+    return;
+  }
+
+  // ── FORMAT C: Kotak — no Index, "Portfolio of X as on" in R1 ─────────
+  const isKotak = !hasIndex && wb.SheetNames.slice(0, 3).some(sn => {
+    const ws   = wb.Sheets[sn];
+    const rows = sheetRows(ws);
     const cell = String(rows[0]?.[2] || '').trim();
     return /^Portfolio of .+ as on/i.test(cell);
   });
 
   if (isKotak) {
-    const VALID_ISIN = /^IN[A-Z0-9]{10}$/;
+    const SKIP_SHEETS = new Set(['index','cover','summary','disclaimer']);
     for (const sname of wb.SheetNames) {
+      if (SKIP_SHEETS.has(sname.trim().toLowerCase())) continue;
       await _yield();
       const ws   = wb.Sheets[sname];
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      const rows = sheetRows(ws);
       if (rows.length < 3) continue;
 
-      // Fund name from row 1 col 2: "Portfolio of Kotak XXX Fund as on DD-Mon-YYYY"
-      const fundRaw  = String(rows[0]?.[2] || '').trim();
-      const m        = fundRaw.match(/^Portfolio of (.+?)\s+as on/i);
-      const fundName = m ? m[1].trim() : (fundRaw || sname);
-      if (!fundName || fundName === sname) continue;
+      let fundName = '';
+      const cell = String(rows[0]?.[2] || '').trim();
+      const m    = cell.match(/^Portfolio of (.+?)\s+as on/i);
+      if (m) fundName = m[1].trim();
 
-      // Cols: [2]=Name, [3]=ISIN, [4]=Sector, [8]=% to Net Assets (actual %, not decimal)
-      const holdings = [];
-      for (const row of rows.slice(2)) {
-        if (row.length < 9) continue;
-        const name    = String(row[2] || '').trim();
-        const isin    = String(row[3] || '').trim();
-        const sector  = String(row[4] || '').trim();
-        const pctRaw  = row[8];
-        if (!VALID_ISIN.test(isin)) continue;
-        if (!name || name.length < 2) continue;
-        const pct = parseFloat(pctRaw);
-        if (isNaN(pct) || pct <= 0 || pct > 100) continue;
-        holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000});
-      }
-      if (holdings.length >= 2)
-        results.push({fundName, isClientFormat:false, holdings, pct:0});
+      const parsed = parseSheetUniversal(rows, fundName);
+      if (!parsed || parsed.holdings.length < 2) continue;
+      const total = parsed.holdings.reduce((s, h) => s + h.pct, 0);
+      if (total < 5 || total > 200) continue;
+
+      results.push({ fundName: parsed.fundName, isClientFormat: false,
+                     holdings: parsed.holdings, pct: 0, cashPct: parsed.cashPct });
     }
     return;
   }
 
-  // ── Detect ICICI per-fund format ─────────────────────────────
-  // Row[0][1]=AMC name, Row[3] has "% to Nav" header, % stored as decimal
-  const isIcici = !isAdvisorkhoj && !isKotak && (() => {
-    const ws   = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', range:0});
-    const amc  = String(rows[0]?.[1] || '').toLowerCase();
-    const hdr  = (rows[3] || []).map(c => String(c||'').toLowerCase());
-    return (amc.includes('icici') || (amc.includes('mutual') && amc.includes('fund'))) &&
-           hdr.some(h => h.includes('% to nav') || h.includes('%nav'));
-  })();
+  // ── FORMAT D: Single fund per sheet (ICICI, HDFC) ────────────────────
+  // Also handles generic SEBI format
+  for (const sname of wb.SheetNames) {
+    await _yield();
+    const ws   = wb.Sheets[sname];
+    const rows = sheetRows(ws);
+    if (rows.length < 4) continue;
 
-  if (isIcici) {
-    const VALID_ISIN = /^IN[A-Z0-9]{10}$/;
-    const ws   = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-    if (rows.length >= 5) {
-      let fundName = String(rows[1]?.[1] || '').trim();
-      if (!fundName) fundName = filename.replace(/\.xlsx?$/i,'').trim();
-      const holdings = [];
-      for (const row of rows.slice(4)) {
-        if (row.length < 8) continue;
-        const name   = String(row[1] || '').trim();
-        const isin   = String(row[2] || '').trim();
-        const sector = String(row[4] || '').trim();
-        const pct    = parseFloat(row[7]) * 100;
-        if (!VALID_ISIN.test(isin) || !name || name.length < 2) continue;
-        if (isNaN(pct) || pct <= 0 || pct > 100) continue;
-        holdings.push({name, isin, sector, pct: Math.round(pct*10000)/10000});
-      }
-      if (holdings.length >= 2)
-        results.push({fundName, isClientFormat:false, holdings, pct:0});
-    }
-    return;
-  }
-
-  // ── Detect Wealth Manager format ─────────────────────────────────
-  // Signature: sheet named "Mutual Fund", header row has
-  // Particulars | Nature | Category | Units | Cost | Mkt Value | Nav
-  const isWealthMgrFormat = wb.SheetNames.some(sn => {
-    const ws  = wb.Sheets[sn];
-    const row = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', sheetRows:2})[0] || [];
-    const rl  = row.map(c => String(c).toLowerCase().trim());
-    return rl.some(c => c==='particulars' || c==='nature') &&
-           rl.some(c => c==='mkt value' || c.includes('mkt value')) &&
-           rl.some(c => c==='nav' || c==='nav ');
-  });
-
-  if (isWealthMgrFormat) {
-    const targetSheet = wb.SheetNames.find(sn => {
-      const ws  = wb.Sheets[sn];
-      const row = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', sheetRows:2})[0] || [];
-      return row.map(c => String(c).toLowerCase().trim()).some(c => c==='particulars');
-    }) || wb.SheetNames[0];
-
-    const ws   = wb.Sheets[targetSheet];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:true});
-    if (rows.length < 2) return;
-
-    // Build header→index map from actual header row
-    const hdr = rows[0];
-    const colIdx = {};
-    hdr.forEach((h, i) => { colIdx[String(h).trim().toLowerCase()] = i; });
-
-    // Use exact header strings from the format
-    const C_NAME    = colIdx['particulars']     ?? 0;
-    const C_NATURE  = colIdx['nature']          ?? 2;
-    const C_CAT     = colIdx['category']        ?? 3;
-    const C_UNITS   = colIdx['units']           ?? 4;
-    const C_COST    = colIdx['cost']            ?? 5;
-    const C_MKTVAL  = colIdx['mkt value']       ?? 7;
-    const C_NAV     = colIdx['nav']             ?? 8;
-    const C_UNRGL   = colIdx['unrealized g/l']  ?? 9;
-    const C_REALGL  = colIdx['realized gain/loss'] ?? 11;
-
-    console.log('[WealthMgr] colIdx:', colIdx);
-    console.log('[WealthMgr] Using:', {C_NAME,C_NATURE,C_UNITS,C_COST,C_MKTVAL,C_NAV});
-    if (rows[1]) console.log('[WealthMgr] Row2 raw:', JSON.stringify(rows[1]));
-
-    const NATURE_CLASS = {
-      'equity':                'Equity',
-      'debt/fixed income':     'Debt',
-      'cash/cash equivalents': 'Cash/MM',
-      'hybrid':                'Hybrid',
-      'international equity':  'International Equity',
-      'precious metals':       'Precious Metals',
-    };
-
-    const cleanName = n => n
-      .replace(/\s+(Reg|Dir|Regular|Direct)\s*[-–]?\s*(G|D|Growth|IDCW|Div)?\.?\s*$/i, '')
-      .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
-      .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
-
-    const toNum = v => {
-      if (v === undefined || v === null || v === '') return 0;
-      if (typeof v === 'number') return v;
-      const s = String(v).replace(/,/g, '').trim();
-      const n = parseFloat(s);
-      return isNaN(n) ? 0 : n;
-    };
-
-    const fundMap = {};
-
-    for (let r = 1; r < rows.length; r++) {
-      const row  = rows[r];
-      const name = String(row[C_NAME] ?? '').trim();
-      if (!name || /^total$/i.test(name)) continue;
-
-      const mktVal = toNum(row[C_MKTVAL]);
-      const cost   = toNum(row[C_COST]);
-      if (mktVal <= 0 && cost <= 0) continue;
-
-      const key = cleanName(name);
-      if (!key || key.length < 2) continue;
-
-      const entry = {
-        name:      key,
-        nature:    String(row[C_NATURE] ?? '').trim().toLowerCase(),
-        category:  String(row[C_CAT]    ?? '').trim(),
-        units:     toNum(row[C_UNITS]),
-        cost,
-        mktVal,
-        nav:       toNum(row[C_NAV]),
-        unrGL:     toNum(row[C_UNRGL]),
-        realGL:    toNum(row[C_REALGL]),
-      };
-      entry.assetClass = NATURE_CLASS[entry.nature] || 'Other';
-
-      if (fundMap[key]) {
-        fundMap[key].units  += entry.units;
-        fundMap[key].cost   += entry.cost;
-        fundMap[key].mktVal += entry.mktVal;
-        fundMap[key].unrGL  += entry.unrGL;
-        fundMap[key].realGL += entry.realGL;
-        if (entry.nav > 0) fundMap[key].nav = entry.nav;
-      } else {
-        fundMap[key] = entry;
-      }
-    }
-
-    const totalMktVal = Object.values(fundMap).reduce((s, f) => s + f.mktVal, 0);
-    console.log(`[WealthMgr] ${Object.keys(fundMap).length} funds, totalMktVal=${totalMktVal}`);
-    console.log('[WealthMgr] ALL funds:');
-    Object.values(fundMap).forEach(f => {
-      console.log(`  ${f.name}: mktVal=${f.mktVal}, cost=${f.cost}, nav=${f.nav}, units=${f.units}`);
-    });
-    // Also dump raw rows 1-5 so we can see exactly what SheetJS returns
-    console.log('[WealthMgr] Raw rows[1..5]:');
-    rows.slice(1,6).forEach((row,i) => console.log(`  R${i+2}:`, JSON.stringify(row)));
-
-    if (!Object.keys(fundMap).length) { showToast('No fund data found'); return; }
-
-    Object.values(fundMap).forEach(f => {
-      const pct = totalMktVal > 0 ? Math.round(f.mktVal / totalMktVal * 10000) / 100 : 0;
-      results.push({
-        fundName: f.name, isClientFormat: true, isWealthMgr: true,
-        pct, val: f.mktVal, cost: f.cost, units: f.units,
-        nav: f.nav, unrGL: f.unrGL, realGL: f.realGL,
-        assetClass: f.assetClass, category: f.category,
-      });
-    });
-    return;
-  }
-
-  const isClientFormat = wb.SheetNames.some(sn => {
-    const ws = wb.Sheets[sn];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-    for (let r=0; r<Math.min(10,rows.length); r++) {
-      const rl = rows[r].map(c=>String(c).toLowerCase().trim());
-      const nc = rl.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
-      const vc = rl.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value'||c.includes('curr. value')||c.includes('curr value'));
-      if (nc>=0 && vc>=0 && nc!==vc) return true;
-    }
-    return false;
-  });
-
-  for (const sheetName of wb.SheetNames) {
-    if (/^(index|cover|content|summary|disclaimer|back)$/i.test(sheetName)) continue;
-    const ws   = wb.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-    if (rows.length < 2) continue;
-
-    if (isClientFormat) {
-      let clientHeaderRow=-1, clientNameCol=-1, clientValueCol=-1, clientUnitsCol=-1;
-      for (let r=0; r<Math.min(10,rows.length); r++) {
-        const rl = rows[r].map(c=>String(c).toLowerCase().trim());
-        const nc=rl.findIndex(c=>c.includes('fund name')||c.includes('scheme name')||c==='scheme'||c==='fund'||c==='name');
-        const vc=rl.findIndex(c=>c.includes('current value')||c.includes('market value')||c.includes('amount')||c==='value'||c.includes('curr. value')||c.includes('curr value'));
-        const uc=rl.findIndex(c=>c==='units'||c==='units#'||c.includes('unit'));
-        if (nc>=0&&vc>=0&&nc!==vc){clientHeaderRow=r;clientNameCol=nc;clientValueCol=vc;clientUnitsCol=uc;break;}
-      }
-      if (clientHeaderRow>=0) {
-        const rawFunds=[]; let totalValue=0;
-        for (let r=clientHeaderRow+1;r<rows.length;r++) {
-          const row=rows[r];
-          const name=String(row[clientNameCol]||'').trim();
-          const valStr=String(row[clientValueCol]||'').replace(/[₹,\s]/g,'');
-          const val=parseFloat(valStr);
-          const unitStr=clientUnitsCol>=0?String(row[clientUnitsCol]||'').replace(/,/g,''):'';
-          const units=parseFloat(unitStr)||0;
-          if (!name||name.length<3||isNaN(val)||val<=0) continue;
-          rawFunds.push({name,val,units:isNaN(units)?0:units}); totalValue+=val;
+    // Detect fund name from first 4 rows
+    let fundName = '';
+    for (let r = 0; r < Math.min(rows.length, 4); r++) {
+      for (const c of rows[r]) {
+        const v = String(c || '').trim();
+        if (v.length > 8 && /fund/i.test(v) && !/mutual fund/i.test(v)) {
+          fundName = v; break;
         }
-        if (rawFunds.length&&totalValue>0) {
-          rawFunds.forEach(f=>{
-            const pct=Math.round(f.val/totalValue*10000)/100;
-            const cleanName=f.name.replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
-              .replace(/\s*\(IDCW\)\s*$/i,'')
-              .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
-              .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
-            if (cleanName.length>=3)
-              results.push({fundName:cleanName,isClientFormat:true,pct,val:f.val,units:f.units||0});
-          });
-        }
-        return;
       }
+      if (fundName) break;
     }
+    if (!fundName) fundName = filename.replace(/\.xlsx?$/i, '').trim();
 
-    // AMC disclosure format
-    let fundName = sheetName;
-    for (let r=0;r<Math.min(12,rows.length);r++) {
-      const cells=rows[r].map(c=>String(c||'').trim());
-      const c0=cells[0]||'';
-      const m=c0.match(/scheme\s*name\s*[:\-]\s*(.+)/i);
-      if (m&&m[1].trim().length>3){fundName=m[1].trim();break;}
-      if (cells.length>1&&/scheme\s*name/i.test(c0)&&cells[1].length>3){fundName=cells[1];break;}
-      for(const c of cells.slice(0,3)){
-        if(c.length>8&&/\bfund\b/i.test(c)&&!/mutual\s*fund$|asset\s*management/i.test(c)){fundName=c;break;}
-      }
-    }
-    if (fundName===sheetName&&filename) {
-      const fn=filename.replace(/\.(xlsx?|csv)$/i,'').replace(/[-_]/g,' ').trim();
-      if (fn.length>5&&/fund/i.test(fn)) fundName=fn;
-    }
+    const parsed = parseSheetUniversal(rows, fundName);
+    if (!parsed || parsed.holdings.length < 2) continue;
+    const total = parsed.holdings.reduce((s, h) => s + h.pct, 0);
+    if (total < 5 || total > 200) continue;
 
-    let headerRow=-1,nameCol=-1,isinCol=-1,sectorCol=-1,pctCol=-1;
-    for (let r=0;r<Math.min(20,rows.length);r++) {
-      const cl=rows[r].map(c=>String(c||'').toLowerCase().trim());
-      if (!cl.includes('isin')) continue;
-      headerRow=r; isinCol=cl.indexOf('isin');
-      nameCol=cl.findIndex(c=>['name','instrument','security','company','name of instrument'].includes(c));
-      if (nameCol<0) nameCol=cl.findIndex(c=>'name' in Object(c)||c.includes('name')||c.includes('instrument'));
-      sectorCol=cl.findIndex(c=>c.includes('sector')||c.includes('industry')||c.includes('rating'));
-      pctCol=cl.findIndex(c=>/%(to|of)(aum|nav)|nav%|aum%|weight%|%\s*of\s*net\s*asset/.test(c));
-      if (pctCol<0) pctCol=cl.findIndex(c=>c.includes('%')&&c!=='isin');
-      break;
-    }
-    if (headerRow<0||nameCol<0||pctCol<0) continue;
-
-    const SKIP_SEBI=/^(equity$|cash$|grand\s*total|no\.?\s*of|large\s*cap$|mid\s*cap$|small\s*cap$|mf\/etf|total$|sub.?total|net\s*equity|cblo|repo|treps|scheme\s*name|riskometer)/i;
-    const holdings=[];
-    for (let r=headerRow+1;r<rows.length;r++) {
-      const row=rows[r]; if(row.length<=Math.max(nameCol,pctCol)) continue;
-      const name=String(row[nameCol]||'').trim();
-      const isin=isinCol>=0&&isinCol<row.length?String(row[isinCol]||'').trim():'';
-      const sector=sectorCol>=0&&sectorCol<row.length?String(row[sectorCol]||'').trim():'';
-      const rpct=pctCol<row.length?row[pctCol]:null;
-      if (!name||name.length<2||SKIP_SEBI.test(name)) continue;
-      let pct=0; try{pct=parseFloat(String(rpct).replace('%','').replace(',','').trim());}catch(e){}
-      if (pct<=0||pct>100) continue;
-      holdings.push({name,isin,sector,pct:Math.round(pct*10000)/10000});
-    }
-    if (holdings.length>=3) results.push({fundName,isClientFormat:false,holdings,pct:0});
+    results.push({ fundName: parsed.fundName, isClientFormat: false,
+                   holdings: parsed.holdings, pct: 0, cashPct: parsed.cashPct });
   }
 }
+
 
 
 function showXlsPreview(results, filename) {
