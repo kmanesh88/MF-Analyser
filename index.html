@@ -119,7 +119,24 @@ window._fbSaveCloud = async () => {
     if (amcSnap.exists()) {
       const d = amcSnap.data();
       amcCtr = d.amcCtr || 0;
-      amcs = (d.amcs || []).map(a => ({ id:a.id, name:a.name, status:a.status, funds:a.funds||{} }));
+      // Load from Firestore but preserve equityStocks/debtItems from localStorage
+      // (Firestore only stores summary metrics to stay under 1MB limit)
+      const localAmcMap = {};
+      amcs.forEach(a => { localAmcMap[a.name] = a; });
+      amcs = (d.amcs || []).map(a => {
+        const localAmc = localAmcMap[a.name];
+        const mergedFunds = {};
+        Object.entries(a.funds || {}).forEach(([fname, f]) => {
+          const localFund = localAmc?.funds?.[fname];
+          mergedFunds[fname] = {
+            ...f,
+            // Restore stock-level data from localStorage if available
+            equityStocks: localFund?.equityStocks || f.equityStocks || [],
+            debtItems:    localFund?.debtItems    || f.debtItems    || [],
+          };
+        });
+        return { id:a.id, name:a.name, status:a.status, funds:mergedFunds };
+      });
       loaded = true;
     }
 
