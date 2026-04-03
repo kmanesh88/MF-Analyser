@@ -7250,7 +7250,10 @@ async function parseImport() {
           (localData.large || 0) + (localData.mid || 0) + (localData.small || 0) +
           (localData.gsec || 0) + (localData.debtTotal || 0) > 0
         );
-        if (!hasData) match = null; // reject empty match — let Pass 2 try server
+        if (!hasData) {
+          console.log(`[Pass1] Rejected empty match: "${f.name}" → "${match}" (no holdings data)`);
+          match = null; // reject empty match — let Pass 2 try server
+        }
       }
       f.matched = match;
     });
@@ -7268,9 +7271,10 @@ async function parseImport() {
               `${apiUrl}/search?q=${encodeURIComponent(f.name)}`,
               { signal: AbortSignal.timeout(8000) }
             );
-            if (!res.ok) return;
+            if (!res.ok) { console.log(`[Pass2] ${f.name}: HTTP ${res.status}`); return; }
             const json = await res.json();
             const top = json.results?.[0];
+            console.log(`[Pass2] "${f.name}" → top: ${top ? `"${top.key}" score=${top.score}` : 'none'}`);
             // Accept if score >= 0.4 (strong match)
             if (top && top.score >= 0.4) {
               f.matched   = top.name;
@@ -7278,7 +7282,7 @@ async function parseImport() {
               f.matchedAmc = top.amc;
               f.matchSource = 'server';
             }
-          } catch(e) { /* server unavailable — skip */ }
+          } catch(e) { console.log(`[Pass2] ${f.name}: ERROR ${e.message}`); }
         }));
       }
     }
