@@ -2622,7 +2622,18 @@ function runAnalysisForPortfolio(port) {
 
 function getActiveItems() {
   const uploadedMap = {};
-  allFunds().forEach(({name,amc,data}) => { uploadedMap[name] = {amc,data}; });
+  // Build fuzzy lookup — strip plan/option suffixes for matching
+  const normFund = n => n.toLowerCase()
+    .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
+    .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
+    .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$/i, '')
+    .replace(/\s+/g, ' ').trim();
+
+  allFunds().forEach(({name, amc, data}) => {
+    uploadedMap[name] = {amc, data};              // exact
+    uploadedMap[normFund(name)] = {amc, data};    // normalised
+  });
+
   const items = [];
   allocRows.forEach(r => {
     const wt = parseFloat(r.pct) || 0;
@@ -2642,7 +2653,7 @@ function getActiveItems() {
     else if (/\barbitrage\b/i.test(nm))
       specialType = 'Arbitrage';
 
-    const uploaded = uploadedMap[r.fundName];
+    const uploaded = uploadedMap[r.fundName] || uploadedMap[normFund(r.fundName)];
     if (uploaded) {
       items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, specialType, ...uploaded.data});
     } else {
@@ -7658,9 +7669,10 @@ async function _fetchServerHoldingsForPortfolio(port) {
   const apiUrl = getMfApiUrl();
   if (!apiUrl || !port) return;
 
-  // Find which imported funds were matched via server
-  const serverFunds = importParsedFunds.filter(f => f.matchSource === 'server' && f.matchedKey);
-  if (!serverFunds.length) return;
+  // Fetch holdings for ALL matched funds from server
+  // (both server-matched and locally-matched — server has richer stock-level data)
+  const fundsToFetch = importParsedFunds.filter(f => f.matched);
+  if (!fundsToFetch.length) return;
 
   // For each server-matched fund, fetch holdings and inject into local AMC data
   // so that runAnalysis() can find them via allFunds()
@@ -7670,7 +7682,7 @@ async function _fetchServerHoldingsForPortfolio(port) {
     return a;
   })();
 
-  await Promise.all(serverFunds.map(async f => {
+  await Promise.all(fundsToFetch.map(async f => {
     try {
       // Use matched server name (not raw CAS name) for reliable lookup
       const lookupName = f.matched || f.name;
@@ -7793,19 +7805,26 @@ function confirmImport() {
   renderPortfolioGrid();
   showToast(`"${name}" created — ${Object.keys(allocations).length} funds`);
 
-  // Go to summary — shows holdings banner; if factsheets uploaded, run full analysis
-  const hasLocalFactsheet = allFunds().some(f => allocations[f.name] > 0);
-  const hasServerMatch    = importParsedFunds.some(f => f.matchSource === 'server');
-
-  if (hasLocalFactsheet) {
-    runAnalysis();
-  } else if (hasServerMatch && getMfApiUrl()) {
-    // Fetch holdings from API server for server-matched funds then run analysis
-    showPage('summary');
-    showToast(`Fetching holdings from server…`);
-    _fetchServerHoldingsForPortfolio(port).then(() => {
-      runAnalysis();
+  // Go to summary — run analysis if any funds are matched (local or server)
+  const hasAnyMatch    = importParsedFunds.some(f => f.matched);
+  const hasServerMatch = importParsedFunds.some(f => f.matchSource === 'server');
+  const hasLocalFactsheet = allFunds().some(lf => {
+    const lfn = lf.name.toLowerCase().replace(/\s*-?\s*(direct|regular)\s*plan.*$/i,'')
+                       .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i,'').trim();
+    return Object.keys(allocations).some(fname => {
+      const fn = fname.toLowerCase().replace(/\s*-?\s*(direct|regular)\s*plan.*$/i,'')
+                      .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i,'').trim();
+      return lfn.includes(fn) || fn.includes(lfn) || lfn === fn;
     });
+  });
+
+  if (hasAnyMatch && getMfApiUrl()) {
+    // Fetch server holdings for all matched funds, then run analysis
+    showPage('summary');
+    showToast(`Fetching portfolio holdings from server…`);
+    _fetchServerHoldingsForPortfolio(port).then(() => runAnalysis());
+  } else if (hasLocalFactsheet || hasAnyMatch) {
+    runAnalysis();
   } else {
     showPage('summary');
   }
