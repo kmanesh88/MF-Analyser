@@ -2659,9 +2659,10 @@ function getActiveItems() {
       specialType = 'Arbitrage';
 
     const uploaded = uploadedMap[r.fundName] || uploadedMap[normFund(r.fundName)];
-    // Debug: log first 3 funds to trace data flow
-    if (items.length < 3) {
-      console.log(`[getActiveItems] "${r.fundName}" normKey="${normFund(r.fundName)}" found=${!!uploaded} stocks=${uploaded?.data?.equityStocks?.length||0}`);
+    // Debug: log first 5 funds to trace data flow
+    if (items.length < 5) {
+      const allKeys = Object.keys(uploadedMap).slice(0, 8).join(', ');
+      console.log(`[getActiveItems] "${r.fundName}" normKey="${normFund(r.fundName)}" found=${!!uploaded} stocks=${uploaded?.data?.equityStocks?.length||0} | uploadedMap sample: ${allKeys}`);
     }
     if (uploaded) {
       items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, specialType, ...uploaded.data});
@@ -7689,17 +7690,21 @@ async function _fetchServerHoldingsForPortfolio(port) {
     .replace(/\s*\bfund\b\s*$/i, '')        // strip trailing 'Fund'
     .replace(/\s+/g, ' ').trim();
 
-  // Build set of funds already available locally
-  const localKeys = new Set(allFunds().map(f => normFund(f.name)));
+  // Build set of funds already available locally WITH stock-level data
+  const localFundsWithStocks = new Set(
+    allFunds()
+      .filter(f => (f.data?.equityStocks?.length > 0) || (f.data?.debtItems?.length > 0))
+      .map(f => normFund(f.name))
+  );
 
-  // Only fetch from server funds NOT already available locally
+  // Fetch from server: all matched funds that don't have local stock data
   const fundsToFetch = importParsedFunds.filter(f => {
     if (!f.matched) return false;
     const nk = normFund(f.matched || f.name);
-    return !localKeys.has(nk);
+    return !localFundsWithStocks.has(nk);
   });
 
-  console.log(`[Fetch] ${fundsToFetch.length} funds need server fetch (${importParsedFunds.filter(f=>f.matched).length - fundsToFetch.length} already local)`);
+  console.log(`[Fetch] ${fundsToFetch.length} funds need server fetch (${importParsedFunds.filter(f=>f.matched).length - fundsToFetch.length} already have stock data locally)`);
 
   if (!fundsToFetch.length) return;
 
