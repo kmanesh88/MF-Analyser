@@ -3490,17 +3490,19 @@ async function parseWorkbook(wb, filename, results) {
       }
     }
 
-    // Detect decimal %
+    // Detect decimal % — sample up to 5 rows, if max value < 1.0 it's decimal
     let pctIsDecimal = false;
-    for (let r = headerRowIdx + 1; r < Math.min(rows.length, headerRowIdx + 8); r++) {
+    const pctSamples = [];
+    for (let r = headerRowIdx + 1; r < Math.min(rows.length, headerRowIdx + 20); r++) {
       const row = rows[r] || [];
       const vals = row.map(c => String(c || '').trim());
       if (VALID_ISIN.test(vals[isinCol] || '')) {
-        const pv = parseFloat(String(vals[pctCol] || '').replace(/[%,]/g, ''));
-        if (!isNaN(pv) && pv > 0 && pv < 0.6) pctIsDecimal = true;
-        break;
+        const pv = parseFloat(String(vals[pctCol] || '').replace(/[%,$]/g, '').replace(/[^\d.\-]/g, ''));
+        if (!isNaN(pv) && pv > 0) pctSamples.push(pv);
       }
+      if (pctSamples.length >= 5) break;
     }
+    if (pctSamples.length > 0) pctIsDecimal = Math.max(...pctSamples) < 1.0;
 
     // Parse holdings
     const holdings = [];
@@ -7195,22 +7197,21 @@ async function parseImport() {
       .replace(/\s*\(G\)\s*$|\s*\(D\)\s*$|\s*\(IDCW\)\s*$/i, '')
       .replace(/\s*[-–]\s*(DIRECT|REGULAR)\s*PLAN.*$/i, '')
       .replace(/\s*[-–]\s*(GROWTH|IDCW|DIVIDEND)\s*$/i, '')
-      .replace(/&/g, ' AND ')   // normalize & → AND
+      .replace(/&/g, ' AND ')
       .replace(/[.\-,()]/g, ' ')
       .replace(/\s+/g, ' ').trim();
 
-    // Significant words: length >= 3, excluding stopwords (keep CAP, MID as discriminators)
+    // Significant words: length >= 3, excluding stopwords
     const STOP_W = new Set(['FUND','SCHEME','PLAN','THE','AND','OF','FOR','IN','WITH']);
     const sigWords = n => new Set(
       normName(n).split(' ').filter(w => w.length >= 3 && !STOP_W.has(w))
     );
 
+    // Pass 1: Match against locally loaded AMC factsheets
     importParsedFunds.forEach(f => {
       const qn = normName(f.name);
       const qw = sigWords(f.name);
-      // 1. Exact normalized match
       let match = loadedFunds.find(lf => normName(lf.name) === qn)?.name || null;
-      // 2. Significant word-set exact match (handles & vs And, Ltd suffix differences)
       if (!match && qw.size > 0) {
         match = loadedFunds.find(lf => {
           const kw = sigWords(lf.name);
@@ -7219,6 +7220,34 @@ async function parseImport() {
       }
       f.matched = match;
     });
+
+    // Pass 2: For unmatched funds, query API server holdings
+    const apiUrl = getMfApiUrl();
+    if (apiUrl) {
+      const unmatched = importParsedFunds.filter(f => !f.matched);
+      if (unmatched.length > 0) {
+        status.textContent = `Linking to API server (${unmatched.length} funds)…`;
+        // Batch: search each unmatched fund against server
+        await Promise.all(unmatched.map(async f => {
+          try {
+            const res = await fetch(
+              `${apiUrl}/search?q=${encodeURIComponent(f.name)}`,
+              { signal: AbortSignal.timeout(8000) }
+            );
+            if (!res.ok) return;
+            const json = await res.json();
+            const top = json.results?.[0];
+            // Accept if score >= 0.4 (strong match)
+            if (top && top.score >= 0.4) {
+              f.matched   = top.name;
+              f.matchedKey = top.key;
+              f.matchedAmc = top.amc;
+              f.matchSource = 'server';
+            }
+          } catch(e) { /* server unavailable — skip */ }
+        }));
+      }
+    }
 
     showImportPreview();
     status.textContent = `${importParsedFunds.length} funds parsed`;
@@ -7565,6 +7594,70 @@ function showImportPreview() {
   document.getElementById('import-step2').style.display = 'block';
 }
 
+// ── Fetch holdings from API server for server-matched funds ────────────────
+async function _fetchServerHoldingsForPortfolio(port) {
+  const apiUrl = getMfApiUrl();
+  if (!apiUrl || !port) return;
+
+  // Find which imported funds were matched via server
+  const serverFunds = importParsedFunds.filter(f => f.matchSource === 'server' && f.matchedKey);
+  if (!serverFunds.length) return;
+
+  // For each server-matched fund, fetch holdings and inject into local AMC data
+  // so that runAnalysis() can find them via allFunds()
+  const syntheticAmc = amcs.find(a => a.name === '__server__') || (() => {
+    const a = { id: 'amc___server__', name: '__server__', status: 'loaded', funds: {} };
+    amcs.push(a);
+    return a;
+  })();
+
+  await Promise.all(serverFunds.map(async f => {
+    try {
+      const res = await fetch(
+        `${apiUrl}/holdings?fund=${encodeURIComponent(f.name)}`,
+        { signal: AbortSignal.timeout(10000) }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.holdings?.length) return;
+
+      const fname = f.matched || f.name;
+      const equityStocks = data.holdings
+        .filter(h => /^INE/.test(h.isin))
+        .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || '') }));
+      const debtItems = data.holdings
+        .filter(h => h.isin && !/^INE/.test(h.isin))
+        .map(h => ({ name: h.name, pct: h.pct, cat: classifyDebt(h.name) || 'aaa' }));
+
+      let lc=0, mc=0, sc=0;
+      equityStocks.forEach(s => {
+        const cap = classifyEquity(s.name);
+        if (cap==='large') lc+=s.pct; else if (cap==='mid') mc+=s.pct; else sc+=s.pct;
+      });
+      const eqTotal=lc+mc+sc;
+      const eqOther=Math.max(0,100-eqTotal-debtItems.reduce((s,d)=>s+d.pct,0));
+      if (eqTotal>0){const k=(100-eqOther)/eqTotal;lc*=k;mc*=k;sc*=k;}
+
+      let gsec=0,sdl=0,aaa=0,aa=0,mkt=0,cash=0;
+      debtItems.forEach(d=>{
+        if(d.cat==='gsec')gsec+=d.pct; else if(d.cat==='sdl')sdl+=d.pct;
+        else if(d.cat==='aaa')aaa+=d.pct; else if(d.cat==='aa')aa+=d.pct;
+        else if(d.cat==='mkt')mkt+=d.pct; else cash+=d.pct;
+      });
+
+      syntheticAmc.funds[fname] = {
+        large:lc, mid:mc, small:sc, eqOther,
+        gsec, sdl, aaa, aa, mkt, cash,
+        debtTotal: gsec+sdl+aaa+aa+mkt+cash,
+        cashPct: data.cashPct || 0,
+        equityStocks, debtItems, amc: data.amc || '__server__'
+      };
+    } catch(e) { /* skip if fetch fails */ }
+  }));
+
+  saveToStorage();
+}
+
 // ── Confirm & create portfolio ─────────────────────────────────────
 function confirmImport() {
   const name   = document.getElementById('imp-name').value.trim();
@@ -7640,9 +7733,18 @@ function confirmImport() {
   showToast(`"${name}" created — ${Object.keys(allocations).length} funds`);
 
   // Go to summary — shows holdings banner; if factsheets uploaded, run full analysis
-  const hasFactsheet = allFunds().some(f => allocations[f.name] > 0);
-  if (hasFactsheet) {
+  const hasLocalFactsheet = allFunds().some(f => allocations[f.name] > 0);
+  const hasServerMatch    = importParsedFunds.some(f => f.matchSource === 'server');
+
+  if (hasLocalFactsheet) {
     runAnalysis();
+  } else if (hasServerMatch && getMfApiUrl()) {
+    // Fetch holdings from API server for server-matched funds then run analysis
+    showPage('summary');
+    showToast(`Fetching holdings from server…`);
+    _fetchServerHoldingsForPortfolio(port).then(() => {
+      runAnalysis();
+    });
   } else {
     showPage('summary');
   }
