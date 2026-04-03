@@ -2627,6 +2627,8 @@ function getActiveItems() {
     .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
     .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
     .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$/i, '')
+    .replace(/\s+-g\s*$/i, '')          // strip trailing -G (CAS shorthand for Growth)
+    .replace(/\s*\bfund\b\s*$/i, '')    // strip trailing 'Fund'
     .replace(/\s+/g, ' ').trim();
 
   allFunds().forEach(({name, amc, data}) => {
@@ -7669,9 +7671,26 @@ async function _fetchServerHoldingsForPortfolio(port) {
   const apiUrl = getMfApiUrl();
   if (!apiUrl || !port) return;
 
-  // Fetch holdings for ALL matched funds from server
-  // (both server-matched and locally-matched — server has richer stock-level data)
-  const fundsToFetch = importParsedFunds.filter(f => f.matched);
+  const normFund = n => n.toLowerCase()
+    .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
+    .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
+    .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$/i, '')
+    .replace(/\s+-g\s*$/i, '')
+    .replace(/\s*\bfund\b\s*$/i, '')
+    .replace(/\s+/g, ' ').trim();
+
+  // Build set of funds already available locally
+  const localKeys = new Set(allFunds().map(f => normFund(f.name)));
+
+  // Only fetch from server funds NOT already available locally
+  const fundsToFetch = importParsedFunds.filter(f => {
+    if (!f.matched) return false;
+    const nk = normFund(f.matched || f.name);
+    return !localKeys.has(nk);
+  });
+
+  console.log(`[Fetch] ${fundsToFetch.length} funds need server fetch (${importParsedFunds.filter(f=>f.matched).length - fundsToFetch.length} already local)`);
+
   if (!fundsToFetch.length) return;
 
   // For each server-matched fund, fetch holdings and inject into local AMC data
@@ -7725,7 +7744,10 @@ async function _fetchServerHoldingsForPortfolio(port) {
         cashPct: data.cashPct || 0,
         equityStocks, debtItems, amc: data.amc || '__server__'
       };
-    } catch(e) { /* skip if fetch fails */ }
+      console.log(`[Fetch] ✓ "${fname}" → ${equityStocks.length}eq + ${debtItems.length}debt stocks, L${lc.toFixed(0)}M${mc.toFixed(0)}S${sc.toFixed(0)}`);
+    } catch(e) {
+      console.log(`[Fetch] ✗ "${f.matched || f.name}": ${e.message}`);
+    }
   }));
 
   saveToStorage();
@@ -7805,26 +7827,22 @@ function confirmImport() {
   renderPortfolioGrid();
   showToast(`"${name}" created — ${Object.keys(allocations).length} funds`);
 
-  // Go to summary — run analysis if any funds are matched (local or server)
-  const hasAnyMatch    = importParsedFunds.some(f => f.matched);
-  const hasServerMatch = importParsedFunds.some(f => f.matchSource === 'server');
-  const hasLocalFactsheet = allFunds().some(lf => {
-    const lfn = lf.name.toLowerCase().replace(/\s*-?\s*(direct|regular)\s*plan.*$/i,'')
-                       .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i,'').trim();
-    return Object.keys(allocations).some(fname => {
-      const fn = fname.toLowerCase().replace(/\s*-?\s*(direct|regular)\s*plan.*$/i,'')
-                      .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i,'').trim();
-      return lfn.includes(fn) || fn.includes(lfn) || lfn === fn;
-    });
-  });
+  // Go to summary and run analysis
+  // _fetchServerHoldingsForPortfolio only fetches funds NOT already in local allFunds()
+  // getActiveItems uses normFund fuzzy matching to find both local PDF and server holdings
+  const hasAnyMatch = importParsedFunds.some(f => f.matched);
 
-  if (hasAnyMatch && getMfApiUrl()) {
-    // Fetch server holdings for all matched funds, then run analysis
-    showPage('summary');
-    showToast(`Fetching portfolio holdings from server…`);
-    _fetchServerHoldingsForPortfolio(port).then(() => runAnalysis());
-  } else if (hasLocalFactsheet || hasAnyMatch) {
-    runAnalysis();
+  if (hasAnyMatch) {
+    if (getMfApiUrl()) {
+      showPage('summary');
+      showToast(`Loading portfolio analysis…`);
+      _fetchServerHoldingsForPortfolio(port).then(() => {
+        console.log('[Import] Server fetch done, running analysis');
+        runAnalysis();
+      });
+    } else {
+      runAnalysis();
+    }
   } else {
     showPage('summary');
   }
