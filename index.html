@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MF Portfolio Analyser</title>
+<title>MF Portfolio Analyser v119</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -8691,8 +8693,7 @@ window.MFPortfolioBuilder.scoreGARPFunds = async function(cb) {
     where('framework','==','GARP'),
     where('planType','==','Regular')
   ));
- const funds = snap.docs.map(d => d.data()).filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct'));
-  );
+  const funds = snap.docs.map(d => d.data()).filter(f => !f.schemeName.toLowerCase().includes('idcw') && !f.schemeName.toLowerCase().includes('dividend') && !f.schemeName.toLowerCase().includes('bonus') && !f.schemeName.toLowerCase().includes('direct'));
   log('Found ' + funds.length + ' GARP Regular Growth funds', 10);
 
   // Benchmark — Nifty 500 proxy
