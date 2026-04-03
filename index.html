@@ -7718,8 +7718,9 @@ async function _fetchServerHoldingsForPortfolio(port) {
 
   await Promise.all(fundsToFetch.map(async f => {
     try {
-      // Use matched server name (not raw CAS name) for reliable lookup
-      const lookupName = f.matched || f.name;
+      // Use the CAS fund name (f.name) — shorter, cleaner for server fuzzy search
+      // f.matched may be a long PDF name with parenthetical regulatory text
+      const lookupName = f.name;
       const res = await fetch(
         `${apiUrl}/holdings?fund=${encodeURIComponent(lookupName)}`,
         { signal: AbortSignal.timeout(10000) }
@@ -7728,7 +7729,9 @@ async function _fetchServerHoldingsForPortfolio(port) {
       const data = await res.json();
       if (!data.holdings?.length) return;
 
-      const fname = f.matched || f.name;
+      // Store using the CAS fund name — this is what allocRows.fundName contains
+      // so getActiveItems can find it via uploadedMap[normFund(r.fundName)]
+      const fname = f.name;
       const equityStocks = data.holdings
         .filter(h => /^INE/.test(h.isin))
         .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || '') }));
