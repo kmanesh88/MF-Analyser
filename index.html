@@ -2624,11 +2624,14 @@ function getActiveItems() {
   const uploadedMap = {};
   // Build fuzzy lookup — strip plan/option suffixes for matching
   const normFund = n => n.toLowerCase()
+    .replace(/\bpru\b/g, 'prudential')       // expand Pru → Prudential
+    .replace(/\s*[-–]\s*(direct|regular)\s*(plan|-).*$/i, '') // 'Fund - Direct Plan'
     .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
+    .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i, '')
     .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
     .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$/i, '')
-    .replace(/\s+-g\s*$/i, '')          // strip trailing -G (CAS shorthand for Growth)
-    .replace(/\s*\bfund\b\s*$/i, '')    // strip trailing 'Fund'
+    .replace(/\s*-g\s*$/i, '')               // strip trailing -G or -g
+    .replace(/\s*\bfund\b\s*$/i, '')        // strip trailing 'Fund'
     .replace(/\s+/g, ' ').trim();
 
   allFunds().forEach(({name, amc, data}) => {
@@ -7672,11 +7675,14 @@ async function _fetchServerHoldingsForPortfolio(port) {
   if (!apiUrl || !port) return;
 
   const normFund = n => n.toLowerCase()
+    .replace(/\bpru\b/g, 'prudential')       // expand Pru → Prudential
+    .replace(/\s*[-–]\s*(direct|regular)\s*(plan|-).*$/i, '') // 'Fund - Direct Plan'
     .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
+    .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i, '')
     .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
     .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$/i, '')
-    .replace(/\s+-g\s*$/i, '')
-    .replace(/\s*\bfund\b\s*$/i, '')
+    .replace(/\s*-g\s*$/i, '')               // strip trailing -G or -g
+    .replace(/\s*\bfund\b\s*$/i, '')        // strip trailing 'Fund'
     .replace(/\s+/g, ' ').trim();
 
   // Build set of funds already available locally
