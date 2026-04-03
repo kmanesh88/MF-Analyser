@@ -2691,7 +2691,7 @@ function takeSnapshot() {
   const commItems  = items.filter(f => f.commodityType);
   const specItems  = items.filter(f => f.specialType && !f.commodityType);
   const fundItemsT = items.filter(f => !f.commodityType && !f.specialType);
-  const ftw = fundItemsT.reduce((s,f)=>s+f.wt,0) || 1;
+  const ftw = items.reduce((s,f)=>s+f.wt,0) || 1;  // total portfolio weight
   const bl  = k => fundItemsT.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
 
   const equityPct = fundItemsT.reduce((s,f) => {
@@ -5819,7 +5819,7 @@ function buildSummary() {
   const commItems = items.filter(f => f.commodityType);
   const specItems  = items.filter(f => f.specialType && !f.commodityType);
   const fundItemsS = items.filter(f => !f.commodityType && !f.specialType);
-  const ftw  = fundItemsS.reduce((s,f)=>s+f.wt,0) || 1;
+  const ftw  = items.reduce((s,f)=>s+f.wt,0) || 1;  // total portfolio weight
   const bl   = k => fundItemsS.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
 
   // ── Asset Allocation — portfolio level ──────────────────────────
