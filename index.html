@@ -7193,6 +7193,9 @@ async function parseImport() {
     // Match against loaded AMC funds — use exact normalized match first, then word overlap
     const loadedFunds = allFunds();
     const normName = n => n.toUpperCase()
+      .replace(/\s*\([^)]{20,}\).*$/, '')   // strip long regulatory parentheticals
+      .replace(/\bPRU\b/g, 'PRUDENTIAL')    // expand abbreviations
+      .replace(/\bFOF\b/gi, 'FUND OF FUNDS')
       .replace(/\bLTD\.?\b|\bLIMITED\b|\bPVT\.?\b/g, '')
       .replace(/\s*\(G\)\s*$|\s*\(D\)\s*$|\s*\(IDCW\)\s*$/i, '')
       .replace(/\s*[-–]\s*(DIRECT|REGULAR)\s*PLAN.*$/i, '')
