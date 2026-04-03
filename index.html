@@ -2659,6 +2659,10 @@ function getActiveItems() {
       specialType = 'Arbitrage';
 
     const uploaded = uploadedMap[r.fundName] || uploadedMap[normFund(r.fundName)];
+    // Debug: log first 3 funds to trace data flow
+    if (items.length < 3) {
+      console.log(`[getActiveItems] "${r.fundName}" normKey="${normFund(r.fundName)}" found=${!!uploaded} stocks=${uploaded?.data?.equityStocks?.length||0}`);
+    }
     if (uploaded) {
       items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, specialType, ...uploaded.data});
     } else {
@@ -7843,7 +7847,14 @@ function confirmImport() {
       showPage('summary');
       showToast(`Loading portfolio analysis…`);
       _fetchServerHoldingsForPortfolio(port).then(() => {
-        console.log('[Import] Server fetch done, running analysis');
+        const serverAmc = amcs.find(a => a.name === '__server__');
+        const serverFundCount = serverAmc ? Object.keys(serverAmc.funds).length : 0;
+        const totalFunds = allFunds().length;
+        console.log(`[Import] Fetch done: __server__ has ${serverFundCount} funds, allFunds()=${totalFunds} total`);
+        if (serverAmc && serverFundCount > 0) {
+          const sample = Object.entries(serverAmc.funds)[0];
+          console.log(`[Import] Sample server fund: "${sample[0]}" equityStocks=${sample[1].equityStocks?.length||0}`);
+        }
         runAnalysis();
       });
     } else {
