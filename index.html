@@ -7251,6 +7251,13 @@ async function parseImport() {
 
     showImportPreview();
     status.textContent = `${importParsedFunds.length} funds parsed`;
+
+    // Log unmatched funds so you can see which ones need server upload
+    const unlinked = importParsedFunds.filter(f => !f.matched);
+    if (unlinked.length > 0) {
+      console.log(`[Import] ${unlinked.length} unlinked funds (not on server):`);
+      unlinked.forEach(f => console.log(`  - ${f.name}`));
+    }
   } catch(e) {
     status.style.color = 'var(--red)';
     status.textContent = '✗ ' + e.message;
@@ -7578,9 +7585,12 @@ function showImportPreview() {
         const gl     = (f.value||0) - (f.cost||0);
         const glPct  = f.cost > 0 ? gl/f.cost*100 : null;
         const glCol  = gl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+        const linkBadge = f.matched
+          ? `<span style="font-size:.55rem;color:var(--green);margin-left:.3rem">${f.matchSource==='server'?'☁ server':'✓ local'}</span>`
+          : `<span style="font-size:.55rem;color:var(--muted2);margin-left:.3rem">— no factsheet</span>`;
         return `<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr;gap:.5rem;align-items:center">
           <div>
-            <div style="font-size:.72rem;color:var(--text)">${cleanName}</div>
+            <div style="font-size:.72rem;color:var(--text)">${cleanName}${linkBadge}</div>
             ${f.assetClass ? `<div style="font-size:.58rem;color:var(--muted)">${f.assetClass}${f.category?' · '+f.category:''}</div>` : ''}
             ${f.cost > 0 && glPct !== null ? `<div style="font-size:.6rem;font-family:'IBM Plex Mono',monospace;${glCol}">${gl>=0?'+':''}₹${Math.abs(gl).toLocaleString('en-IN',{maximumFractionDigits:0})} (${glPct.toFixed(1)}%)</div>` : ''}
           </div>
