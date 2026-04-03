@@ -63,7 +63,8 @@ window._fbSaveCloud = async () => {
   if (!user) return;
   try {
     const uid = user.uid;
-    // Save AMC factsheet data (split into chunks if large)
+    // Save AMC factsheet data — summary metrics only, NOT equityStocks/debtItems
+    // (stock-level data lives on API server; saving it here would exceed Firestore 1MB limit)
     const amcPayload = {
       amcCtr,
       savedAt: new Date().toISOString(),
@@ -71,10 +72,11 @@ window._fbSaveCloud = async () => {
         id: a.id, name: a.name, status: a.status,
         funds: Object.fromEntries(
           Object.entries(a.funds).map(([fname, f]) => [fname, {
-            large:f.large, mid:f.mid, small:f.small, eqOther:f.eqOther,
-            gsec:f.gsec, sdl:f.sdl, aaa:f.aaa, aa:f.aa,
-            mkt:f.mkt, cash:f.cash, debtTotal:f.debtTotal, amc:f.amc,
-            equityStocks: f.equityStocks||[], debtItems: f.debtItems||[]
+            large:f.large||0, mid:f.mid||0, small:f.small||0, eqOther:f.eqOther||0,
+            gsec:f.gsec||0, sdl:f.sdl||0, aaa:f.aaa||0, aa:f.aa||0,
+            mkt:f.mkt||0, cash:f.cash||0, debtTotal:f.debtTotal||0,
+            cashPct:f.cashPct||0, amc:f.amc||a.name
+            // equityStocks and debtItems intentionally excluded — too large for Firestore
           }])
         )
       }))
@@ -2854,7 +2856,7 @@ function saveToStorage() {
       amcCtr,
       savedAt: new Date().toISOString(),
       capRecompVer: CAP_RECOMP_VER,
-      amcs: amcs.map(a => ({
+      amcs: amcs.filter(a => a.name !== '__server__').map(a => ({
         id: a.id,
         name: a.name,
         status: a.status === 'loaded' ? 'loaded' : 'empty',
@@ -7661,8 +7663,10 @@ async function _fetchServerHoldingsForPortfolio(port) {
 
   await Promise.all(serverFunds.map(async f => {
     try {
+      // Use matched server name (not raw CAS name) for reliable lookup
+      const lookupName = f.matched || f.name;
       const res = await fetch(
-        `${apiUrl}/holdings?fund=${encodeURIComponent(f.name)}`,
+        `${apiUrl}/holdings?fund=${encodeURIComponent(lookupName)}`,
         { signal: AbortSignal.timeout(10000) }
       );
       if (!res.ok) return;
