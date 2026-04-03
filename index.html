@@ -7252,6 +7252,12 @@ async function parseImport() {
           (localData.large || 0) + (localData.mid || 0) + (localData.small || 0) +
           (localData.gsec || 0) + (localData.debtTotal || 0) > 0
         );
+        // Debug: log what was found for these specific problem funds
+        if (/kotak arbitrage|axis gold|kotak us specific/i.test(f.name)) {
+          console.log(`[Pass1 DEBUG] "${f.name}" → matched "${match}" hasData=${hasData}`,
+            { eq: (localData?.equityStocks?.length||0), debt: (localData?.debtItems?.length||0),
+              large: localData?.large, mid: localData?.mid, gsec: localData?.gsec });
+        }
         if (!hasData) {
           console.log(`[Pass1] Rejected empty match: "${f.name}" → "${match}" (no holdings data)`);
           match = null; // reject empty match — let Pass 2 try server
@@ -7264,6 +7270,7 @@ async function parseImport() {
     const apiUrl = getMfApiUrl();
     if (apiUrl) {
       const unmatched = importParsedFunds.filter(f => !f.matched);
+      console.log(`[Pass2] Starting — ${unmatched.length} unmatched funds:`, unmatched.map(f=>f.name));
       if (unmatched.length > 0) {
         status.textContent = `Linking to API server (${unmatched.length} funds)…`;
         // Batch: search each unmatched fund against server
@@ -7292,11 +7299,13 @@ async function parseImport() {
     showImportPreview();
     status.textContent = `${importParsedFunds.length} funds parsed`;
 
-    // Log unmatched funds so you can see which ones need server upload
+    // Log unmatched funds AFTER both passes complete
     const unlinked = importParsedFunds.filter(f => !f.matched);
     if (unlinked.length > 0) {
       console.log(`[Import] ${unlinked.length} unlinked funds (not on server):`);
       unlinked.forEach(f => console.log(`  - ${f.name}`));
+    } else {
+      console.log(`[Import] All ${importParsedFunds.length} funds linked ✓`);
     }
   } catch(e) {
     status.style.color = 'var(--red)';
