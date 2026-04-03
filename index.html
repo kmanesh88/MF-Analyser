@@ -2476,14 +2476,17 @@ function renderPortfolioGrid() {
       const allocs = Object.entries(p.allocations||{});
       const totalWt = allocs.reduce((s,[,w])=>s+w, 0) || 100;
       let goldWt=0, silverWt=0, otherCommWt=0;
+      let specialWt = 0;
       allocs.forEach(([fname, wt]) => {
         const nm = fname.toLowerCase();
         if (/\bgold\b/.test(nm) && !/golden/.test(nm)) goldWt   += wt;
         else if (/\bsilver\b/.test(nm))                silverWt  += wt;
         else if (/\bcommodi/i.test(nm))                otherCommWt += wt;
+        else if (/overseas|international|world|us\s*equity|nasdaq|s&p|global\s*(?!gold)|foreign|\bfof\b|fund\s*of\s*fund|\barbitrage\b/i.test(nm))
+          specialWt += wt;
       });
       const totalCommWt = goldWt + silverWt + otherCommWt;
-      const nonCommWt   = totalWt - totalCommWt;
+      const nonCommWt   = totalWt - totalCommWt - specialWt;
 
       // Use stored asset-class fields if present (new snapshots)
       // Otherwise derive from allocations (old snapshots)
@@ -2505,15 +2508,16 @@ function renderPortfolioGrid() {
         ca = 0;
       }
 
-      const tot = eq + dt + ca + goldWt + silverWt + otherCommWt || 100;
+      const tot = eq + dt + ca + goldWt + silverWt + otherCommWt + (specialWt||0) || 100;
 
       const classes = [
-        { label:'Equity',    val:eq,          color:'var(--lc)',     fg:'var(--lc)'     },
-        { label:'Debt',      val:dt,          color:'var(--dc-aaa)', fg:'var(--teal)'   },
-        { label:'Cash/MM',   val:ca,          color:'var(--dc-mkt)', fg:'var(--green)'  },
-        { label:'Gold',      val:goldWt,      color:'#b8860b',       fg:'#b8860b'       },
-        { label:'Silver',    val:silverWt,    color:'#888',          fg:'var(--muted2)' },
-        { label:'Commodity', val:otherCommWt, color:'#9a6b00',       fg:'#9a6b00'       },
+        { label:'Equity',       val:eq,          color:'var(--lc)',     fg:'var(--lc)'     },
+        { label:'Debt',         val:dt,          color:'var(--dc-aaa)', fg:'var(--teal)'   },
+        { label:'Cash/MM',      val:ca,          color:'var(--dc-mkt)', fg:'var(--green)'  },
+        { label:'Intl/FoF',     val:specialWt||0,color:'#7b68ee',       fg:'#7b68ee'       },
+        { label:'Gold',         val:goldWt,      color:'#b8860b',       fg:'#b8860b'       },
+        { label:'Silver',       val:silverWt,    color:'#888',          fg:'var(--muted2)' },
+        { label:'Commodity',    val:otherCommWt, color:'#9a6b00',       fg:'#9a6b00'       },
       ].filter(c => c.val > 0.5);
 
       const barSegs = classes.map(c =>
@@ -2626,11 +2630,21 @@ function getActiveItems() {
     if (/\bgold\b/.test(nm) && !/golden/.test(nm)) commodityType = 'Gold';
     else if (/\bsilver\b/.test(nm))                commodityType = 'Silver';
     else if (/\bcommodi/i.test(nm))                commodityType = 'Commodity';
+
+    // International / FoF / Arbitrage — excluded from Indian equity cap analysis
+    let specialType = null;
+    if (/overseas|international|world|us\s*equity|nasdaq|s&p|global\s*(?!gold)|foreign/i.test(nm))
+      specialType = 'International';
+    else if (/\bfof\b|fund\s*of\s*fund/i.test(nm) && !/arbitrage/i.test(nm))
+      specialType = 'International';
+    else if (/\barbitrage\b/i.test(nm))
+      specialType = 'Arbitrage';
+
     const uploaded = uploadedMap[r.fundName];
     if (uploaded) {
-      items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, ...uploaded.data});
+      items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, specialType, ...uploaded.data});
     } else {
-      items.push({name: r.fundName, amc: r.amcName, wt, commodityType,
+      items.push({name: r.fundName, amc: r.amcName, wt, commodityType, specialType,
         large:0,mid:0,small:0,eqOther:0,gsec:0,sdl:0,aaa:0,aa:0,mkt:0,cash:0,debtTotal:0,
         equityStocks:[],debtItems:[]});
     }
@@ -2650,7 +2664,8 @@ function takeSnapshot() {
 
   // Separate commodity funds
   const commItems  = items.filter(f => f.commodityType);
-  const fundItemsT = items.filter(f => !f.commodityType);
+  const specItems  = items.filter(f => f.specialType && !f.commodityType);
+  const fundItemsT = items.filter(f => !f.commodityType && !f.specialType);
   const ftw = fundItemsT.reduce((s,f)=>s+f.wt,0) || 1;
   const bl  = k => fundItemsT.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
 
@@ -2666,6 +2681,7 @@ function takeSnapshot() {
   const debtPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
   const cashPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
   const commodityPct= commItems.reduce((s,f)=>s+f.wt,0);
+  const specialPct  = specItems.reduce((s,f)=>s+f.wt,0);
 
   const sectorMap={};
   items.forEach(f=>(f.equityStocks||[]).forEach(s=>{
@@ -5776,7 +5792,8 @@ function buildSummary() {
   const tw   = items.reduce((s,f)=>s+f.wt, 0);
   // Exclude commodity funds from equity/debt metrics
   const commItems = items.filter(f => f.commodityType);
-  const fundItemsS = items.filter(f => !f.commodityType);
+  const specItems  = items.filter(f => f.specialType && !f.commodityType);
+  const fundItemsS = items.filter(f => !f.commodityType && !f.specialType);
   const ftw  = fundItemsS.reduce((s,f)=>s+f.wt,0) || 1;
   const bl   = k => fundItemsS.reduce((s,f)=>s+f.wt*(f[k]||0),0)/ftw;
 
@@ -5797,7 +5814,8 @@ function buildSummary() {
   const debtPct      = fundItemsS.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
   const cashPortPct  = fundItemsS.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
   const commodityPct = commItems.reduce((s,f)=>s+f.wt,0);
-  const totalKnown   = equityPct + debtPct + cashPortPct + commodityPct;
+  const specialPct   = specItems.reduce((s,f)=>s+f.wt,0);
+  const totalKnown   = equityPct + debtPct + cashPortPct + commodityPct + specialPct;
   const unknownPct   = Math.max(0, 100 - totalKnown);
 
   const uniqueStocks = new Set(
@@ -5816,6 +5834,7 @@ function buildSummary() {
     { label:'Equity',    val:equityPct,   color:'var(--lc)',      seg:'sg-l'    },
     { label:'Debt',      val:debtPct,     color:'var(--dc-aaa)',  seg:'sg-aaa'  },
     { label:'Cash/MM',   val:cashPortPct, color:'var(--dc-mkt)',  seg:'sg-mkt'  },
+    ...(specialPct > 0.1 ? [{ label:'Intl/FoF', val:specialPct, color:'#7b68ee', seg:'sg-intl' }] : []),
     ...commItems.map(f=>({ label:f.commodityType||'Commodity', val:f.wt, color:'#b8860b', seg:'sg-comm' })),
     ...(unknownPct > 1 ? [{ label:'Other', val:unknownPct, color:'var(--s4)', seg:'sg-oeq' }] : []),
   ].filter(a=>a.val > 0.1);
@@ -7986,12 +8005,18 @@ window.MFPortfolioBuilder.REF = {
     "Gold Fund":              { framework: "Gold",                assetClass: "gold"   },
     "Silver ETF":             { framework: "Silver",              assetClass: "silver" },
     "Silver Fund":            { framework: "Silver",              assetClass: "silver" },
+    "Fund of Funds":          { framework: "International",       assetClass: "international" },
+    "Overseas Fund of Fund":  { framework: "International",       assetClass: "international" },
+    "International Fund":     { framework: "International",       assetClass: "international" },
+    "Arbitrage Fund":         { framework: "Arbitrage",           assetClass: "arbitrage"    },
   },
   taxRules: {
     equity:  { stcgRate: 0.20, ltcgRate: 0.125, ltcgExemption: 125000, ltcgDays: 365 },
     debt:    { taxType: "slab" },
     gold:    { taxType: "slab" },
     silver:  { taxType: "slab" },
+    international: { taxType: "slab" },
+    arbitrage: { stcgRate: 0.20, ltcgRate: 0.125, ltcgExemption: 125000, ltcgDays: 365 },
     elss:    { lockInDays: 1095, ltcgRate: 0.125, ltcgExemption: 125000, deduction80C: 150000 },
     sgb:     { maturityExempt: true, interestTaxType: "slab" },
   },
