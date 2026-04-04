@@ -70,7 +70,7 @@ window._fbSaveCloud = async () => {
     const amcPayload = {
       amcCtr,
       savedAt: new Date().toISOString(),
-      amcs: amcs.map(a => ({
+      amcs: amcs.filter(a => a.name !== '__server__').map(a => ({
         id: a.id, name: a.name, status: a.status,
         funds: Object.fromEntries(
           Object.entries(a.funds).map(([fname, f]) => [fname, {
@@ -2621,12 +2621,25 @@ function loadPortfolio(id) {
     return;
   }
 
-  // Has allocations — go straight to summary (shows holdings banner + analysis if factsheet data exists)
-  const hasFactsheet = allFunds().some(f => (port.allocations||{})[f.name] > 0);
-  if (hasFactsheet) {
-    runAnalysis(); // builds full analysis then shows summary
+  // Has allocations — go straight to summary
+  // Check if any fund has actual stock-level data
+  const allocNames = new Set(Object.keys(port.allocations || {}));
+  const fundsWithStocks = allFunds().filter(f =>
+    allocNames.has(f.name) && (f.data?.equityStocks?.length > 0 || f.data?.debtItems?.length > 0)
+  );
+  const fundsNeedingFetch = allFunds().filter(f =>
+    allocNames.has(f.name) && f.amc === '__server__' && !(f.data?.equityStocks?.length > 0)
+  );
+
+  if (fundsNeedingFetch.length > 0 && getMfApiUrl()) {
+    // __server__ funds exist but have no stocks — re-fetch silently
+    showPage('summary');
+    showToast('Refreshing holdings data…');
+    _fetchServerHoldingsForPortfolio(port).then(() => runAnalysis());
+  } else if (fundsWithStocks.length > 0 || allFunds().some(f => allocNames.has(f.name) && ((f.data?.large||0)+(f.data?.mid||0)+(f.data?.small||0) > 0))) {
+    runAnalysis();
   } else {
-    showPage('summary'); // shows holdings banner with "upload factsheets" message
+    showPage('summary');
   }
 }
 
@@ -7719,14 +7732,21 @@ async function _fetchServerHoldingsForPortfolio(port) {
       .map(f => normFund(f.name))
   );
 
-  // Fetch from server: all matched funds that don't have local stock data
-  const fundsToFetch = importParsedFunds.filter(f => {
-    if (!f.matched) return false;
+  // Source fund list: importParsedFunds if available (fresh import),
+  // otherwise build from portfolio allocations (reload scenario)
+  let sourceFunds = importParsedFunds.filter(f => f.matched);
+  if (!sourceFunds.length && port?.allocations) {
+    // Reload scenario — construct minimal fund objects from saved allocations
+    sourceFunds = Object.keys(port.allocations).map(name => ({ name, matched: name }));
+  }
+
+  // Fetch from server: all funds that don't have local stock data
+  const fundsToFetch = sourceFunds.filter(f => {
     const nk = normFund(f.matched || f.name);
     return !localFundsWithStocks.has(nk);
   });
 
-  console.log(`[Fetch] ${fundsToFetch.length} funds need server fetch (${importParsedFunds.filter(f=>f.matched).length - fundsToFetch.length} already have stock data locally)`);
+  console.log(`[Fetch] ${fundsToFetch.length} funds need server fetch (${sourceFunds.length - fundsToFetch.length} already have stock data locally)`);
 
   if (!fundsToFetch.length) return;
 
