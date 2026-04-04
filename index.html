@@ -5863,7 +5863,7 @@ function buildSummary() {
   const unknownPct   = Math.max(0, 100 - totalKnown);
 
   const uniqueStocks = new Set(
-    items.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))
+    fundItemsT.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))
   ).size;
 
   document.getElementById('sum-kpi').innerHTML = [
@@ -7752,12 +7752,13 @@ async function _fetchServerHoldingsForPortfolio(port) {
       // Distinguish equity vs debt using server-provided type field,
       // falling back to sector-based detection for older server data
       const DEBT_SECTOR = /crisil|care|icra|fitch|ind-ra|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
-      const isDebtHolding = h => h.type === 'debt' || (!h.type && (DEBT_SECTOR.test(h.sector || '') || /^\d+\.?\d*%/.test(h.name)));
+      const DEBT_NAME   = /\bncd\b|\bdebenture|\bbond\b|preference share|\bnabard\b|\bsidbi\b|\bnhb\b|\bnhpc\b|\bpfc\b|\brec\b.*bond|\bnhai\b|infra.*trust|highway.*trust|liquid.*gold|\bshinhan\b|\bfedbank.*fin|^\d+\.?\d*%/i;
+      const isDebtHolding = h => h.type === 'debt' || (!h.type && (DEBT_SECTOR.test(h.sector || '') || DEBT_NAME.test(h.name || '')));
 
       const equityStocks = data.holdings
         .filter(h => h.isin
                && !isDebtHolding(h)
-               && !/mutual fund|mf -|etf|\bfof\b|fund of fund/i.test(h.name))
+               && !/mutual fund|mf -|etf|\bfof\b|fund of fund|liquid fund/i.test(h.name))
         .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || ''), cap: h.cap || null }));
       const debtItems = data.holdings
         .filter(h => h.isin && isDebtHolding(h))
