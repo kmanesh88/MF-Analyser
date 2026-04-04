@@ -7739,18 +7739,25 @@ async function _fetchServerHoldingsForPortfolio(port) {
       const data = await res.json();
       if (!data.holdings?.length) return;
 
-      // Store using the CAS fund name — this is what allocRows.fundName contains
-      // so getActiveItems can find it via uploadedMap[normFund(r.fundName)]
-      const fname = f.name;
+      // Store using the cleaned fund name — MUST match what confirmImport stores in
+      // allocations/allocRows (which applies cleanFundName to f.name before saving).
+      // getActiveItems looks up allocRows[i].fundName in uploadedMap, so the key here
+      // must equal cleanFundName(f.name), not the raw f.name.
+      const cleanFundName = n => n
+        .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+        .replace(/\s*\(IDCW\)\s*$/i,'')
+        .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
+        .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+      const fname = cleanFundName(f.name);
       // Distinguish equity vs debt using server-provided type field,
       // falling back to sector-based detection for older server data
       const DEBT_SECTOR = /crisil|care|icra|fitch|ind-ra|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
       const isDebtHolding = h => h.type === 'debt' || (!h.type && (DEBT_SECTOR.test(h.sector || '') || /^\d+\.?\d*%/.test(h.name)));
 
       const equityStocks = data.holdings
-        .filter(h => h.isin && !isDebtHolding(h)
-               && !/mutual fund|mf -|etf|\bfof\b|fund of fund/i.test(h.name)
-               || (h.cap && h.cap !== null))  // keep if server classified it
+        .filter(h => h.isin
+               && !isDebtHolding(h)
+               && !/mutual fund|mf -|etf|\bfof\b|fund of fund/i.test(h.name))
         .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || ''), cap: h.cap || null }));
       const debtItems = data.holdings
         .filter(h => h.isin && isDebtHolding(h))
