@@ -123,6 +123,8 @@ window._fbSaveCloud = async () => {
       // (Firestore only stores summary metrics to stay under 1MB limit)
       const localAmcMap = {};
       amcs.forEach(a => { localAmcMap[a.name] = a; });
+      // Preserve __server__ AMC (server-fetched holdings) — never in Firestore
+      const serverAmc = localAmcMap['__server__'];
       amcs = (d.amcs || []).map(a => {
         const localAmc = localAmcMap[a.name];
         const mergedFunds = {};
@@ -137,6 +139,8 @@ window._fbSaveCloud = async () => {
         });
         return { id:a.id, name:a.name, status:a.status, funds:mergedFunds };
       });
+      // Re-add __server__ AMC after Firestore replace
+      if (serverAmc) amcs.push(serverAmc);
       loaded = true;
     }
 
@@ -2891,7 +2895,7 @@ function saveToStorage() {
       amcCtr,
       savedAt: new Date().toISOString(),
       capRecompVer: CAP_RECOMP_VER,
-      amcs: amcs.filter(a => a.name !== '__server__').map(a => ({
+      amcs: amcs.map(a => ({
         id: a.id,
         name: a.name,
         status: a.status === 'loaded' ? 'loaded' : 'empty',
@@ -2943,21 +2947,22 @@ function loadFromStorage() {
       const amc = { id: saved.id, name: saved.name, status: saved.status, funds: saved.funds || {} };
 
       // Recompute large/mid/small from stored equityStocks if version changed
-      if (needsRecomp) {
+      if (needsRecomp && saved.name !== '__server__') {
         Object.entries(amc.funds).forEach(([fname, f]) => {
           if (!f.equityStocks?.length) return;
           let lc=0, mc=0, sc=0;
           f.equityStocks.forEach(s => {
-            const c = classifyEquity(s.name);
+            // Use server-provided cap if available, else browser name-based
+            const c = s.cap || classifyEquity(s.name);
             if (c==='large') lc+=s.pct;
             else if (c==='mid') mc+=s.pct;
             else sc+=s.pct;
           });
           const eqTotal=lc+mc+sc;
           if (eqTotal>0) {
-            const eqOther = Math.max(0, 100-eqTotal-(f.debtTotal||0));
-            const k = (100-eqOther)/eqTotal;
-            f.large = lc*k; f.mid = mc*k; f.small = sc*k; f.eqOther = eqOther;
+            f.large = lc; f.mid = mc; f.small = sc;
+            f.eqTotal = eqTotal;
+            f.eqOther = Math.max(0, 100-eqTotal-(f.debtTotal||0));
           }
         });
       }
