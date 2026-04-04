@@ -2710,11 +2710,10 @@ function takeSnapshot() {
   const equityPct = fundItemsT.reduce((s,f) => {
     const hasHoldings = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0)+(f.debtTotal||0) > 0;
     if (!hasHoldings) return s + f.wt; // no factsheet — assume 100% equity
-    // Equity = large+mid+small+eqOther (eqOther includes TREPS/cash in AMFI disclosures)
-    // Subtract explicit cashPct so it shows separately, avoid double-counting
-    const rawEq   = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0);
-    const adjEq   = Math.max(0, rawEq - (f.cashPct||0)); // remove cash from equity bucket
-    return s + f.wt * adjEq/100;
+    // Use eqTotal if available (sector-based), else sum of cap splits
+    const rawEq = f.eqTotal != null ? f.eqTotal
+                : (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0);
+    return s + f.wt * Math.min(rawEq, 100)/100;
   }, 0);
   const debtPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
   const cashPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
@@ -2899,6 +2898,7 @@ function saveToStorage() {
         funds: Object.fromEntries(
           Object.entries(a.funds).map(([fname, f]) => [fname, {
             large: f.large, mid: f.mid, small: f.small, eqOther: f.eqOther,
+            eqTotal: f.eqTotal,
             gsec: f.gsec, sdl: f.sdl, aaa: f.aaa, aa: f.aa,
             mkt: f.mkt, cash: f.cash, debtTotal: f.debtTotal,
             cashPct: f.cashPct || 0,
@@ -4001,11 +4001,14 @@ function doSavePortfolioExcel() {
   // Each result sheet = one fund in the AMC
   _xlsParsedFunds.forEach(result => {
     const fname = result.fundName || `${amc.name} Fund`;
+    const DEBT_SECTOR = /crisil|care|icra|fitch|ind-ra|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
+    const isDebtHolding = h => DEBT_SECTOR.test(h.sector || '') || /^\d+\.?\d*%/.test(h.name);
+
     const equityStocks = result.holdings
-      .filter(h => !h.isin || /^INE/.test(h.isin)) // equity ISINs start with INE
+      .filter(h => !isDebtHolding(h) && !/mutual fund|mf -|\betf\b|\bfof\b|fund of fund/i.test(h.name))
       .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || '') }));
     const debtItems = result.holdings
-      .filter(h => h.isin && /^IN[09]/.test(h.isin))
+      .filter(h => isDebtHolding(h))
       .map(h => ({ name: h.name, pct: h.pct, cat: classifyDebt(h.name) || 'aaa' }));
 
     let lc=0, mc=0, sc=0;
@@ -4013,17 +4016,19 @@ function doSavePortfolioExcel() {
       const c = classifyEquity(s.name);
       if (c==='large') lc+=s.pct; else if (c==='mid') mc+=s.pct; else sc+=s.pct;
     });
-    const eqTotal=lc+mc+sc, eqOther=Math.max(0,100-eqTotal-debtItems.reduce((s,d)=>s+d.pct,0));
-    if (eqTotal>0){const k=(100-eqOther)/eqTotal;lc*=k;mc*=k;sc*=k;}
+    const eqTotal = lc+mc+sc;
+    const debtTotal = debtItems.reduce((s,d)=>s+d.pct, 0);
+    const eqOther = Math.max(0, 100 - eqTotal - debtTotal - (result.cashPct||0));
+    // Store raw pcts — no normalisation
 
     let gsec=0,sdl=0,aaa=0,aa=0,mkt=0,cash=0;
     debtItems.forEach(d=>{if(d.cat==='gsec')gsec+=d.pct;else if(d.cat==='sdl')sdl+=d.pct;else if(d.cat==='aaa')aaa+=d.pct;else if(d.cat==='aa')aa+=d.pct;else if(d.cat==='mkt')mkt+=d.pct;else cash+=d.pct;});
 
     amc.funds[fname] = {
-      large:lc, mid:mc, small:sc, eqOther,
+      large:lc, mid:mc, small:sc, eqOther, eqTotal,
       gsec, sdl, aaa, aa, mkt, cash,
       debtTotal: gsec+sdl+aaa+aa+mkt+cash,
-      cashPct: result.cashPct || 0,  // TREPS/money market cash from disclosure
+      cashPct: result.cashPct || 0,
       equityStocks, debtItems, amc: amc.name
     };
   });
@@ -5844,10 +5849,11 @@ function buildSummary() {
 
   const equityPct    = fundItemsS.reduce((s,f) => {
     const hasHoldings = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0)+(f.debtTotal||0) > 0;
-    if (!hasHoldings) return s + f.wt;
-    const rawEq = (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0);
-    const adjEq = Math.max(0, rawEq - (f.cashPct||0));
-    return s + f.wt * adjEq/100;
+    if (!hasHoldings) return s + f.wt; // no factsheet — assume 100% equity
+    // Use eqTotal if available (set from sector-based split), else fall back to sum of caps
+    const rawEq = f.eqTotal != null ? f.eqTotal
+                : (f.large||0)+(f.mid||0)+(f.small||0)+(f.eqOther||0);
+    return s + f.wt * Math.min(rawEq, 100)/100;
   }, 0);
   const debtPct      = fundItemsS.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
   const cashPortPct  = fundItemsS.reduce((s,f)=>s+f.wt*((f.cashPct||0)/100),0);
@@ -7736,21 +7742,32 @@ async function _fetchServerHoldingsForPortfolio(port) {
       // Store using the CAS fund name — this is what allocRows.fundName contains
       // so getActiveItems can find it via uploadedMap[normFund(r.fundName)]
       const fname = f.name;
+      // Distinguish equity vs debt using server-provided type field,
+      // falling back to sector-based detection for older server data
+      const DEBT_SECTOR = /crisil|care|icra|fitch|ind-ra|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
+      const isDebtHolding = h => h.type === 'debt' || (!h.type && (DEBT_SECTOR.test(h.sector || '') || /^\d+\.?\d*%/.test(h.name)));
+
       const equityStocks = data.holdings
-        .filter(h => /^INE/.test(h.isin))
-        .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || '') }));
+        .filter(h => h.isin && !isDebtHolding(h)
+               && !/mutual fund|mf -|etf|\bfof\b|fund of fund/i.test(h.name)
+               || (h.cap && h.cap !== null))  // keep if server classified it
+        .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || ''), cap: h.cap || null }));
       const debtItems = data.holdings
-        .filter(h => h.isin && !/^INE/.test(h.isin))
+        .filter(h => h.isin && isDebtHolding(h))
         .map(h => ({ name: h.name, pct: h.pct, cat: classifyDebt(h.name) || 'aaa' }));
 
       let lc=0, mc=0, sc=0;
       equityStocks.forEach(s => {
-        const cap = classifyEquity(s.name);
+        // Use server-provided cap if available, else fallback to browser classifyEquity
+        const cap = s.cap || classifyEquity(s.name);
         if (cap==='large') lc+=s.pct; else if (cap==='mid') mc+=s.pct; else sc+=s.pct;
       });
-      const eqTotal=lc+mc+sc;
-      const eqOther=Math.max(0,100-eqTotal-debtItems.reduce((s,d)=>s+d.pct,0));
-      if (eqTotal>0){const k=(100-eqOther)/eqTotal;lc*=k;mc*=k;sc*=k;}
+      const eqTotal = lc+mc+sc;
+      const debtTotal = debtItems.reduce((s,d)=>s+d.pct, 0);
+      // eqOther = cash/TREPS/unclassified equity (not debt, not identified stocks)
+      const eqOther = Math.max(0, 100 - eqTotal - debtTotal - (data.cashPct||0));
+      // Store raw pcts — DO NOT normalise lc/mc/sc
+      // equityPct in analysis uses eqTotal directly, cap split uses lc/mc/sc as portfolio %
 
       let gsec=0,sdl=0,aaa=0,aa=0,mkt=0,cash=0;
       debtItems.forEach(d=>{
@@ -7760,7 +7777,7 @@ async function _fetchServerHoldingsForPortfolio(port) {
       });
 
       syntheticAmc.funds[fname] = {
-        large:lc, mid:mc, small:sc, eqOther,
+        large:lc, mid:mc, small:sc, eqOther, eqTotal,
         gsec, sdl, aaa, aa, mkt, cash,
         debtTotal: gsec+sdl+aaa+aa+mkt+cash,
         cashPct: data.cashPct || 0,
