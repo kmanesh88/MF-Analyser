@@ -5863,7 +5863,7 @@ function buildSummary() {
   const unknownPct   = Math.max(0, 100 - totalKnown);
 
   const uniqueStocks = new Set(
-    fundItemsT.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))
+    fundItemsS.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))
   ).size;
 
   document.getElementById('sum-kpi').innerHTML = [
