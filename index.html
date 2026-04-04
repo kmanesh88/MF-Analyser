@@ -2678,11 +2678,7 @@ function getActiveItems() {
       specialType = 'Arbitrage';
 
     const uploaded = uploadedMap[r.fundName] || uploadedMap[normFund(r.fundName)];
-    // Debug: log first 5 funds to trace data flow
-    if (items.length < 5) {
-      const allKeys = Object.keys(uploadedMap).slice(0, 8).join(', ');
-      console.log(`[getActiveItems] "${r.fundName}" normKey="${normFund(r.fundName)}" found=${!!uploaded} stocks=${uploaded?.data?.equityStocks?.length||0} | uploadedMap sample: ${allKeys}`);
-    }
+
     if (uploaded) {
       items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, specialType, ...uploaded.data});
     } else {
@@ -7293,11 +7289,6 @@ async function parseImport() {
           (localData.gsec || 0) + (localData.debtTotal || 0) > 0
         );
         // Debug: log what was found for these specific problem funds
-        if (/kotak arbitrage|axis gold|kotak us specific/i.test(f.name)) {
-          console.log(`[Pass1 DEBUG] "${f.name}" → matched "${match}" hasData=${hasData}`,
-            { eq: (localData?.equityStocks?.length||0), debt: (localData?.debtItems?.length||0),
-              large: localData?.large, mid: localData?.mid, gsec: localData?.gsec });
-        }
         if (!hasData) {
           console.log(`[Pass1] Rejected empty match: "${f.name}" → "${match}" (no holdings data)`);
           match = null; // reject empty match — let Pass 2 try server
@@ -7310,8 +7301,7 @@ async function parseImport() {
     const apiUrl = getMfApiUrl();
     if (apiUrl) {
       const unmatched = importParsedFunds.filter(f => !f.matched);
-      console.log(`[Pass2] Starting — ${unmatched.length} unmatched funds:`, unmatched.map(f=>f.name));
-      if (unmatched.length > 0) {
+        if (unmatched.length > 0) {
         status.textContent = `Linking to API server (${unmatched.length} funds)…`;
         // Batch: search each unmatched fund against server
         await Promise.all(unmatched.map(async f => {
@@ -7320,10 +7310,8 @@ async function parseImport() {
               `${apiUrl}/search?q=${encodeURIComponent(f.name)}`,
               { signal: AbortSignal.timeout(8000) }
             );
-            if (!res.ok) { console.log(`[Pass2] ${f.name}: HTTP ${res.status}`); return; }
             const json = await res.json();
             const top = json.results?.[0];
-            console.log(`[Pass2] "${f.name}" → top: ${top ? `"${top.key}" score=${top.score}` : 'none'}`);
             // Accept if score >= 0.4 (strong match)
             if (top && top.score >= 0.4) {
               f.matched   = top.name;
@@ -7339,13 +7327,10 @@ async function parseImport() {
     showImportPreview();
     status.textContent = `${importParsedFunds.length} funds parsed`;
 
-    // Log unmatched funds AFTER both passes complete
+    // Count unlinked for status display
     const unlinked = importParsedFunds.filter(f => !f.matched);
     if (unlinked.length > 0) {
-      console.log(`[Import] ${unlinked.length} unlinked funds (not on server):`);
-      unlinked.forEach(f => console.log(`  - ${f.name}`));
-    } else {
-      console.log(`[Import] All ${importParsedFunds.length} funds linked ✓`);
+      console.warn(`[Import] ${unlinked.length} funds not linked:`, unlinked.map(f=>f.name));
     }
   } catch(e) {
     status.style.color = 'var(--red)';
@@ -7874,14 +7859,6 @@ function confirmImport() {
       showPage('summary');
       showToast(`Loading portfolio analysis…`);
       _fetchServerHoldingsForPortfolio(port).then(() => {
-        const serverAmc = amcs.find(a => a.name === '__server__');
-        const serverFundCount = serverAmc ? Object.keys(serverAmc.funds).length : 0;
-        const totalFunds = allFunds().length;
-        console.log(`[Import] Fetch done: __server__ has ${serverFundCount} funds, allFunds()=${totalFunds} total`);
-        if (serverAmc && serverFundCount > 0) {
-          const sample = Object.entries(serverAmc.funds)[0];
-          console.log(`[Import] Sample server fund: "${sample[0]}" equityStocks=${sample[1].equityStocks?.length||0}`);
-        }
         runAnalysis();
       });
     } else {
