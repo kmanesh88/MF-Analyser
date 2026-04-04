@@ -2657,8 +2657,15 @@ function getActiveItems() {
     .replace(/\s*\bfund\b\s*$/i, '')        // strip trailing 'Fund'
     .replace(/\s+/g, ' ').trim();
 
-  allFunds().forEach(({name, amc, data}) => {
-    uploadedMap[name] = {amc, data};              // exact
+  // Two-pass build: local AMC funds first, __server__ last so it always wins.
+  // __server__ has ISIN-level equityStocks; local factsheet funds only have cap splits.
+  const allF = allFunds();
+  allF.filter(f => f.amc !== '__server__').forEach(({name, amc, data}) => {
+    uploadedMap[name] = {amc, data};
+    uploadedMap[normFund(name)] = {amc, data};
+  });
+  allF.filter(f => f.amc === '__server__').forEach(({name, amc, data}) => {
+    uploadedMap[name] = {amc, data};              // exact — always overwrites local
     uploadedMap[normFund(name)] = {amc, data};    // normalised
   });
 
