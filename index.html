@@ -7285,19 +7285,19 @@ async function parseImport() {
           return kw.size === qw.size && [...qw].every(w => kw.has(w));
         })?.name || null;
       }
-      // Only accept local match if the fund has real holdings data
+      // Only accept local match if the fund has ISIN-level stock data (equityStocks/debtItems).
+      // Reject matches that only have name-classified cap splits (large/mid/small) with no
+      // equityStocks — those came from PDF parsing with browser name-matching which is inaccurate.
+      // Server fetch (Pass 2) gives ISIN-based classification which is far more reliable.
       if (match) {
         const localData = loadedFunds.find(lf => lf.name === match)?.data;
-        const hasData = localData && (
+        const hasStockData = localData && (
           (localData.equityStocks?.length > 0) ||
-          (localData.debtItems?.length > 0) ||
-          (localData.large || 0) + (localData.mid || 0) + (localData.small || 0) +
-          (localData.gsec || 0) + (localData.debtTotal || 0) > 0
+          (localData.debtItems?.length > 0)
         );
-        // Debug: log what was found for these specific problem funds
-        if (!hasData) {
-          console.log(`[Pass1] Rejected empty match: "${f.name}" → "${match}" (no holdings data)`);
-          match = null; // reject empty match — let Pass 2 try server
+        if (!hasStockData) {
+          console.log(`[Pass1] Rejected: "${f.name}" → "${match}" (no ISIN stock data, deferring to server)`);
+          match = null; // let Pass 2 fetch from server with ISIN-based cap classification
         }
       }
       f.matched = match;
