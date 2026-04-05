@@ -7806,7 +7806,11 @@ async function _fetchServerHoldingsForPortfolio(port) {
       // falling back to sector-based detection for older server data
       const DEBT_SECTOR = /crisil|care|icra|fitch|ind-ra|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
       const DEBT_NAME   = /\bncd\b|\bdebenture|\bbond\b|preference share|\bnabard\b|\bsidbi\b|\bnhb\b|\bnhpc\b|\bpfc\b|\brec\b.*bond|\bnhai\b|infra.*trust|highway.*trust|liquid.*gold|\bshinhan\b|\bfedbank.*fin|^\d+\.?\d*%/i;
-      const isDebtHolding = h => h.type === 'debt' || (!h.type && (DEBT_SECTOR.test(h.sector || '') || DEBT_NAME.test(h.name || '')));
+      // Trust server type field — only fall back to sector/name heuristics when type is absent
+      // For sector match: require sector to look like a rating label, not a company sector
+      // e.g. "CRISIL AAA" is debt sector, "Financial Services" is equity sector
+      const isRatingSector = s => DEBT_SECTOR.test(s) && !/^(banks|insurance|it|software|pharma|auto|fmcg|consumer|capital|industrial|financial services|healthcare|telecom|cement|metal|energy|power|realty|media|retail|chemicals|textiles|agri)/i.test(s);
+      const isDebtHolding = h => h.type === 'debt' || (!h.type && (isRatingSector(h.sector || '') || DEBT_NAME.test(h.name || '')));
 
       const equityStocks = data.holdings
         .filter(h => h.isin
