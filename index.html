@@ -7773,6 +7773,12 @@ async function _fetchServerHoldingsForPortfolio(port) {
     }
   });
 
+  // Clear stale snapshots so they get recomputed with correct data after fetch
+  if (port.snapshots?.length) {
+    port.snapshots = [];
+    savePortfolios();
+  }
+
   await Promise.all(fundsToFetch.map(async f => {
     try {
       // Use the CAS fund name (f.name) — shorter, cleaner for server fuzzy search
