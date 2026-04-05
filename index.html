@@ -7741,7 +7741,14 @@ async function _fetchServerHoldingsForPortfolio(port) {
   }
 
   // Fetch from server: all funds that don't have local stock data
+  // Skip commodity/gold/silver funds — their "equity" holdings are irrelevant for cap analysis
+  const SKIP_FETCH = /\bgold\b|\bsilver\b|\bcommodi|\bgetf\b|\bgold etf/i;
   const fundsToFetch = sourceFunds.filter(f => {
+    const nm = (f.name || '').toLowerCase();
+    if (SKIP_FETCH.test(nm)) {
+      console.log(`[Fetch] Skipping commodity fund: "${f.name}"`);
+      return false;
+    }
     const nk = normFund(f.matched || f.name);
     return !localFundsWithStocks.has(nk);
   });
@@ -7757,6 +7764,14 @@ async function _fetchServerHoldingsForPortfolio(port) {
     amcs.push(a);
     return a;
   })();
+
+  // Remove any previously fetched data for commodity funds — they shouldn't be in __server__
+  Object.keys(syntheticAmc.funds).forEach(k => {
+    if (SKIP_FETCH.test(k.toLowerCase())) {
+      delete syntheticAmc.funds[k];
+      console.log(`[Fetch] Cleared stale commodity fund data: "${k}"`);
+    }
+  });
 
   await Promise.all(fundsToFetch.map(async f => {
     try {
