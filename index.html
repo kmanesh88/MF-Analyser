@@ -15,7 +15,7 @@
 import { initializeApp }                          from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import { getAuth, signInWithPopup, signOut, GoogleAuthProvider, onAuthStateChanged }
                                                    from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs }
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs }
                                                    from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -12607,6 +12607,10 @@ window.MFPortfolioBuilder.showClientList = async function() {
               style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">
               🔧 ${port?'Rebuild':'Build'} Portfolio
             </button>
+            <button onclick="MFPortfolioBuilder._deleteClient('${c.clientId}', '${(c.name||'').replace(/'/g, "\\'")}')"
+              style="background:#1a1a2e;border:1px solid #c0392b40;color:#e57373;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">
+              🗑 Delete
+            </button>
           </div>
         </div>
       `;
@@ -13149,6 +13153,19 @@ window.MFPortfolioBuilder.showClientList = async function() {
       `;
     });
   };
+  window.MFPortfolioBuilder._deleteClient = async (clientId, clientName) => {
+    if (!confirm(`Delete client "${clientName}"?\n\nThis will permanently remove their profile, portfolio, and holdings data.`)) return;
+    try {
+      await deleteDoc(doc(db, 'clients', clientId));
+      await deleteDoc(doc(db, 'client_holdings', clientId));
+      showToast(`Client "${clientName}" deleted`);
+      loadClients();
+    } catch(e) {
+      console.error('Delete client failed:', e);
+      showToast('Delete failed — check console');
+    }
+  };
+
   window.MFPortfolioBuilder._buildPortfolio = (clientId) => {
     document.getElementById('cl-page')?.remove();
     window.MFPortfolioBuilder._pbBackPage = () => window.MFPortfolioBuilder.showClientList();
