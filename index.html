@@ -347,7 +347,7 @@ body {
 .page { display: none; }
 .page.active { display: block; }
 
-.pg-header { margin-bottom: 2rem; }
+.pg-header { margin-bottom: 2rem; display:flex; justify-content:space-between; align-items:flex-start; }
 .pg-title {
   font-family: 'Fraunces', serif;
   font-size: 1.75rem; font-weight: 600;
@@ -1707,10 +1707,16 @@ body {
       <div class="pg-title">Portfolio Summary</div>
       <div class="pg-sub">Stock split · Industry · Debt · Top holdings</div>
     </div>
-    <button class="btn sm" id="compare-recommended-btn" onclick="showCompareRecommended()"
-      style="display:none;font-size:.68rem;white-space:nowrap">
-      ⚖ Compare with Recommended
-    </button>
+    <div id="summary-action-btns" style="display:none;display:flex;gap:.5rem;align-items:center">
+      <button class="btn sm" id="build-portfolio-btn" onclick="showBuildPortfolioFromSummary()"
+        style="font-size:.68rem;white-space:nowrap">
+        🔧 Build Portfolio
+      </button>
+      <button class="btn sm" id="compare-recommended-btn" onclick="showCompareRecommended()"
+        style="display:none;font-size:.68rem;white-space:nowrap">
+        ⚖ Compare with Recommended
+      </button>
+    </div>
   </div>
 
   <!-- Holdings Banner -->
@@ -2470,6 +2476,23 @@ function refreshActivePortfolioUI() {
     } else {
       banner.style.display = 'none';
     }
+  }
+}
+
+// ── Build Portfolio from Summary page ─────────────────────────────────────
+function showBuildPortfolioFromSummary() {
+  const port = portfolios.find(p => p.id === activePortId);
+  if (!port) return;
+  const clientId = port.clientId;
+  if (clientId) {
+    // Jump straight to Portfolio Builder for this client
+    window.MFPortfolioBuilder._buildPortfolio(clientId);
+  } else if (port.client) {
+    // Has client name but no ID — open client list so advisor can find them
+    window.MFPortfolioBuilder.showClientList();
+    showToast(`Find "${port.client}" in the client list to build their portfolio`);
+  } else {
+    showToast('No client linked to this portfolio');
   }
 }
 
@@ -5941,10 +5964,23 @@ function buildSummary() {
   const items = getActiveItems();
   if (!items.length) return;
 
-  // ── Show/hide Compare button based on whether portfolio has a linked client ──
-  const compareBtn = document.getElementById('compare-recommended-btn');
+  // ── Show/hide action buttons based on whether portfolio has a linked client ──
   const port = activePortId ? portfolios.find(p=>p.id===activePortId) : null;
-  if (compareBtn) compareBtn.style.display = port?.clientId ? 'inline-flex' : 'none';
+  const actionBtns   = document.getElementById('summary-action-btns');
+  const compareBtn   = document.getElementById('compare-recommended-btn');
+  const buildPortBtn = document.getElementById('build-portfolio-btn');
+  if (port?.clientId) {
+    if (actionBtns)   actionBtns.style.display   = 'flex';
+    if (buildPortBtn) buildPortBtn.style.display  = 'inline-flex';
+    if (compareBtn)   compareBtn.style.display    = 'inline-flex';
+  } else if (port?.client) {
+    // Has client name but no clientId — show Build only (no compare without clientId)
+    if (actionBtns)   actionBtns.style.display   = 'flex';
+    if (buildPortBtn) buildPortBtn.style.display  = 'inline-flex';
+    if (compareBtn)   compareBtn.style.display    = 'none';
+  } else {
+    if (actionBtns)   actionBtns.style.display   = 'none';
+  }
 
   // ── Holdings Banner ──────────────────────────────────────────
   const holdingsDetail = port?.holdingsDetail || {};
