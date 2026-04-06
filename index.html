@@ -1197,6 +1197,23 @@ body {
 </div>
 
 <!-- ── Import Modal ── -->
+<!-- ── Compare with Recommended Modal ─────────────────────────── -->
+<div id="compare-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:2rem 1rem">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);width:100%;max-width:720px;margin:auto;padding:1.5rem;position:relative">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem">
+      <div>
+        <div style="font-size:.85rem;font-weight:700;color:var(--text)">Compare with Recommended Portfolio</div>
+        <div id="compare-client-label" style="font-size:.65rem;color:var(--muted);margin-top:.2rem"></div>
+      </div>
+      <button onclick="document.getElementById('compare-modal').style.display='none'"
+        style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer;padding:.2rem .5rem">✕</button>
+    </div>
+    <div id="compare-modal-body">
+      <div style="text-align:center;padding:2rem;color:var(--muted);font-size:.72rem">Loading…</div>
+    </div>
+  </div>
+</div>
+
 <div id="import-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;align-items:center;justify-content:center">
   <div style="background:var(--s1);border:1px solid var(--border2);border-radius:var(--r-lg);padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)">
 
@@ -1685,8 +1702,16 @@ body {
 
 <!-- ── Portfolio Summary ── -->
 <div class="page" id="page-summary">
-  <div class="pg-header"><div class="pg-title">Portfolio Summary</div>
-  <div class="pg-sub">Stock split · Industry · Debt · Top holdings</div></div>
+  <div class="pg-header">
+    <div>
+      <div class="pg-title">Portfolio Summary</div>
+      <div class="pg-sub">Stock split · Industry · Debt · Top holdings</div>
+    </div>
+    <button class="btn sm" id="compare-recommended-btn" onclick="showCompareRecommended()"
+      style="display:none;font-size:.68rem;white-space:nowrap">
+      ⚖ Compare with Recommended
+    </button>
+  </div>
 
   <!-- Holdings Banner -->
   <div class="card" id="sum-holdings-banner" style="margin-bottom:1.1rem;display:none">
@@ -2445,6 +2470,173 @@ function refreshActivePortfolioUI() {
     } else {
       banner.style.display = 'none';
     }
+  }
+}
+
+// ── Compare with Recommended Portfolio ────────────────────────────────────
+async function showCompareRecommended() {
+  const port = portfolios.find(p => p.id === activePortId);
+  if (!port?.clientId) return;
+
+  const modal = document.getElementById('compare-modal');
+  const body  = document.getElementById('compare-modal-body');
+  const lbl   = document.getElementById('compare-client-label');
+  modal.style.display = 'flex';
+  body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--muted);font-size:.72rem">Loading recommended portfolio…</div>';
+  lbl.textContent = port.client ? `Client: ${port.client}` : '';
+
+  try {
+    const { getFirestore, doc, getDoc } = await import('https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js');
+    const db2 = getFirestore();
+    const snap = await getDoc(doc(db2, 'client_portfolios', port.clientId));
+
+    if (!snap.exists()) {
+      body.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted);font-size:.72rem">
+        No recommended portfolio found for this client.<br>
+        <span style="font-size:.62rem">Build one in the Portfolio Builder first.</span>
+      </div>`;
+      return;
+    }
+
+    const rec = snap.data();
+    const recFunds = rec.funds || [];
+    const recAlloc = rec.finalAllocation || {};
+
+    // ── Current portfolio data ──
+    const currentFunds = Object.entries(port.allocations || {}).map(([name, pct]) => ({
+      name, pct,
+      val: port.holdingsDetail?.[name]?.val || 0,
+    }));
+    const totalVal = currentFunds.reduce((s, f) => s + f.val, 0);
+
+    // Current asset allocation from latest snapshot
+    const snap2 = port.snapshots?.[port.snapshots.length - 1]?.summary;
+    const currAlloc = snap2 ? {
+      equity: snap2.equityPct?.toFixed(1),
+      debt:   (snap2.debtPct || 0).toFixed(1),
+      gold:   snap2.commodityPct?.toFixed(1) || '0.0',
+      cash:   (snap2.cashPct || 0).toFixed(1),
+    } : null;
+
+    // ── Normalise fund names for matching ──
+    const norm = n => n.toLowerCase()
+      .replace(/\s*[-–]\s*(direct|regular)\s*(plan)?.*$/i, '')
+      .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i, '')
+      .replace(/\s*\(g\)\s*$/i, '')
+      .replace(/\bfund\b\s*$/i, '')
+      .replace(/\s+/g, ' ').trim();
+
+    const currentMap = {};
+    currentFunds.forEach(f => { currentMap[norm(f.name)] = f; });
+    const recMap = {};
+    recFunds.forEach(f => { recMap[norm(f.schemeName)] = f; });
+
+    // Categorise funds
+    const allKeys = new Set([...Object.keys(currentMap), ...Object.keys(recMap)]);
+    const inBoth = [], onlyCurrent = [], onlyRec = [];
+    allKeys.forEach(k => {
+      const c = currentMap[k], r = recMap[k];
+      if (c && r) inBoth.push({ key: k, current: c, rec: r });
+      else if (c)  onlyCurrent.push({ key: k, current: c });
+      else         onlyRec.push({ key: k, rec: r });
+    });
+
+    // ── Render ──
+    const pct = v => `${(+v || 0).toFixed(1)}%`;
+    const allocBar = (val, color) => `
+      <div style="display:flex;align-items:center;gap:.4rem">
+        <div style="flex:1;height:5px;background:var(--border);border-radius:3px">
+          <div style="width:${Math.min(+val||0,100)}%;height:100%;background:${color};border-radius:3px"></div>
+        </div>
+        <span style="font-size:.65rem;color:var(--text2);width:3rem;text-align:right">${pct(val)}</span>
+      </div>`;
+
+    const assetClasses = [
+      { key: 'equity', label: 'Equity',  color: 'var(--lc)' },
+      { key: 'debt',   label: 'Debt',    color: 'var(--dc-aaa)' },
+      { key: 'gold',   label: 'Gold',    color: '#b8860b' },
+      { key: 'silver', label: 'Silver',  color: '#aaa' },
+      { key: 'cash',   label: 'Cash',    color: 'var(--dc-mkt)' },
+    ];
+
+    const allocSection = `
+      <div style="margin-bottom:1.2rem">
+        <div style="font-size:.7rem;font-weight:600;color:var(--text);margin-bottom:.75rem;text-transform:uppercase;letter-spacing:.05em">Asset Allocation</div>
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:.4rem .8rem;align-items:center">
+          <div></div>
+          <div style="font-size:.6rem;color:var(--muted);text-align:center;font-weight:600">CURRENT</div>
+          <div style="font-size:.6rem;color:var(--muted);text-align:center;font-weight:600">RECOMMENDED</div>
+          ${assetClasses.map(a => {
+            const cv = currAlloc ? currAlloc[a.key] : '—';
+            const rv = recAlloc[a.key] || 0;
+            const diff = currAlloc ? ((+rv) - (+cv)).toFixed(1) : null;
+            const diffColor = diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--red)' : 'var(--muted)';
+            return `
+              <div style="font-size:.65rem;color:var(--muted)">${a.label}</div>
+              <div>${currAlloc ? allocBar(cv, a.color) : '<span style="font-size:.62rem;color:var(--muted)">—</span>'}</div>
+              <div style="display:flex;align-items:center;gap:.4rem">
+                ${allocBar(rv, a.color)}
+                ${diff !== null ? `<span style="font-size:.6rem;color:${diffColor};width:3rem">${diff > 0 ? '+' : ''}${diff}%</span>` : ''}
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+
+    const fundRow = (name, currPct, recPct, status) => {
+      const statusColor = status === 'exit' ? '#e57373' : status === 'add' ? 'var(--green)' : 'var(--muted)';
+      const statusLabel = status === 'exit' ? 'EXIT' : status === 'add' ? 'ADD' : 'HOLD';
+      const diff = (recPct !== null && currPct !== null) ? (recPct - currPct).toFixed(1) : null;
+      return `
+        <tr>
+          <td style="font-size:.65rem;color:var(--text)">${name}</td>
+          <td style="font-size:.65rem;color:var(--text2);text-align:right">${currPct !== null ? pct(currPct) : '—'}</td>
+          <td style="font-size:.65rem;color:var(--text2);text-align:right">${recPct !== null ? pct(recPct) : '—'}</td>
+          <td style="font-size:.6rem;text-align:right;color:${diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--red)' : 'var(--muted)'}">${diff !== null ? (diff > 0 ? '+' : '') + diff + '%' : ''}</td>
+          <td style="text-align:right">
+            <span style="font-size:.58rem;font-weight:600;color:${statusColor};background:${statusColor}18;border-radius:3px;padding:1px 6px">${statusLabel}</span>
+          </td>
+        </tr>`;
+    };
+
+    const tableHead = `
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border)">
+            <th style="font-size:.6rem;color:var(--muted);text-align:left;padding:.4rem 0;font-weight:600">FUND</th>
+            <th style="font-size:.6rem;color:var(--muted);text-align:right;padding:.4rem 0;font-weight:600">CURRENT</th>
+            <th style="font-size:.6rem;color:var(--muted);text-align:right;padding:.4rem 0;font-weight:600">RECOMMENDED</th>
+            <th style="font-size:.6rem;color:var(--muted);text-align:right;padding:.4rem 0;font-weight:600">DIFF</th>
+            <th style="font-size:.6rem;color:var(--muted);text-align:right;padding:.4rem 0;font-weight:600">ACTION</th>
+          </tr>
+        </thead><tbody>`;
+
+    const fundsSection = `
+      <div style="margin-bottom:1rem">
+        <div style="font-size:.7rem;font-weight:600;color:var(--text);margin-bottom:.75rem;text-transform:uppercase;letter-spacing:.05em">Fund Comparison</div>
+        ${tableHead}
+          ${inBoth.map(f => fundRow(f.current.name, f.current.pct, f.rec.allocationPct, 'hold')).join('')}
+          ${onlyCurrent.map(f => fundRow(f.current.name, f.current.pct, null, 'exit')).join('')}
+          ${onlyRec.map(f => fundRow(f.rec.schemeName, null, f.rec.allocationPct, 'add')).join('')}
+        </tbody></table>
+      </div>`;
+
+    // Summary counts
+    const exitCount = onlyCurrent.length;
+    const addCount  = onlyRec.length;
+    const holdCount = inBoth.length;
+    const summaryBar = `
+      <div style="display:flex;gap:.5rem;margin-bottom:1.2rem;flex-wrap:wrap">
+        <span style="font-size:.62rem;background:#e5737318;color:#e57373;border-radius:4px;padding:3px 10px;font-weight:600">${exitCount} to Exit</span>
+        <span style="font-size:.62rem;background:var(--green)18;color:var(--green);border-radius:4px;padding:3px 10px;font-weight:600">${addCount} to Add</span>
+        <span style="font-size:.62rem;background:var(--muted)18;color:var(--muted);border-radius:4px;padding:3px 10px;font-weight:600">${holdCount} to Hold</span>
+        ${totalVal > 0 ? `<span style="font-size:.62rem;background:var(--s3);color:var(--text2);border-radius:4px;padding:3px 10px">Portfolio Value: ₹${totalVal.toLocaleString('en-IN', {maximumFractionDigits:0})}</span>` : ''}
+      </div>`;
+
+    body.innerHTML = allocSection + summaryBar + fundsSection;
+
+  } catch(e) {
+    console.error('Compare failed:', e);
+    body.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted);font-size:.72rem">Failed to load: ${e.message}</div>`;
   }
 }
 
@@ -5749,8 +5941,12 @@ function buildSummary() {
   const items = getActiveItems();
   if (!items.length) return;
 
-  // ── Holdings Banner ──────────────────────────────────────────
+  // ── Show/hide Compare button based on whether portfolio has a linked client ──
+  const compareBtn = document.getElementById('compare-recommended-btn');
   const port = activePortId ? portfolios.find(p=>p.id===activePortId) : null;
+  if (compareBtn) compareBtn.style.display = port?.clientId ? 'inline-flex' : 'none';
+
+  // ── Holdings Banner ──────────────────────────────────────────
   const holdingsDetail = port?.holdingsDetail || {};
   const hasDetail = Object.keys(holdingsDetail).some(k => holdingsDetail[k]?.val > 0);
   const bannerEl = document.getElementById('sum-holdings-banner');
@@ -7908,7 +8104,7 @@ function confirmImport() {
   });
 
   const port = {
-    id, name, client,
+    id, name, client, clientId: (clientId && clientId !== '__new__') ? clientId : null,
     createdAt: new Date().toISOString(),
     allocations,
     holdingsDetail,
