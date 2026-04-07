@@ -6282,11 +6282,9 @@ function buildSummary() {
 
 
 function buildMetrics() {
-  const items = [];
-  allFunds().forEach(({name,amc,data}) => {
-    const wt = getAllocWeight(name);
-    if (wt>0) items.push({name, amc, wt, ...data});
-  });
+  // Use getActiveItems() — same source as buildSummary — ensures metrics
+  // reflect only the active portfolio's funds with correct weights and stock data
+  const items = getActiveItems();
   if (!items.length) {
     ['ov-metrics','sector-bars','sector-tbody','overlap-tbody','holdings-tbody','ov-tbody'].forEach(id => {
       const el = document.getElementById(id);
@@ -6346,6 +6344,10 @@ function buildMetrics() {
   items.forEach(f => {
     (f.equityStocks||[]).forEach(s => {
       const { sector: sec, conf } = getSectorWithConfidence(s.name, s.sector);
+      // Skip sectors that are just company names (sector field = stock name, conf=2 but looks like a proper noun)
+      // A real sector is short and generic; a company name is long and specific
+      const isCompanyName = conf <= 2 && sec.length > 20 && /[A-Z]/.test(sec[0]) && /\bLtd|\bLimited|\bInc|\bCorp/i.test(sec);
+      if (isCompanyName) return;
       if (!sectorMap[sec]) sectorMap[sec] = {totalPct:0, stocks:new Set(), funds:new Set(), minConf:3};
       sectorMap[sec].totalPct += s.pct * f.wt / 100;
       sectorMap[sec].stocks.add(s.name);
