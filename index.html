@@ -102,6 +102,11 @@ window._fbSaveCloud = async () => {
 
 // ── Load from Firestore ──
   window._fbLoadCloud = async () => {
+  // Guard: wait for main script to initialize (amcCtr declared in main script block)
+  if (typeof amcCtr === 'undefined') {
+    setTimeout(() => window._fbLoadCloud(), 300);
+    return;
+  }
   const user = window._fb.currentUser;
   if (!user) return;
   try {
@@ -1077,10 +1082,10 @@ body {
   </div>
 
   <div class="nav-sect">Pages</div>
-  <div class="nav-item active" id="nav-clients"   onclick="showPage('clients')"><div class="ndot"></div>Portfolios</div>
-  <div class="nav-item" id="nav-alerts"           onclick="showPage('alerts')"><div class="ndot"></div>Alerts Dashboard</div>
-  <div class="nav-item" id="nav-thresholds"       onclick="showPage('thresholds')"><div class="ndot"></div>Thresholds</div>
-  <div class="nav-item" id="nav-monitor"          onclick="showPage('monitor')"><div class="ndot"></div>Market Monitor</div>
+  <div class="nav-item active" id="nav-clients"   onclick="typeof showPage!=='undefined'&&showPage('clients')"><div class="ndot"></div>Portfolios</div>
+  <div class="nav-item" id="nav-alerts"           onclick="typeof showPage!=='undefined'&&showPage('alerts')"><div class="ndot"></div>Alerts Dashboard</div>
+  <div class="nav-item" id="nav-thresholds"       onclick="typeof showPage!=='undefined'&&showPage('thresholds')"><div class="ndot"></div>Thresholds</div>
+  <div class="nav-item" id="nav-monitor"          onclick="typeof showPage!=='undefined'&&showPage('monitor')"><div class="ndot"></div>Market Monitor</div>
   <div class="nav-div"></div>
 
   <!-- Active portfolio switcher -->
@@ -7067,6 +7072,19 @@ async function loadMarketMonitor() {
   if (btn) { btn.disabled=false; btn.textContent='⟳ Refresh'; }
 }
 
+function _indexRangeBar(yrL, yrH, cur, col) {
+  if (!yrH || !yrL || !cur) return '';
+  const pos = Math.min(100, Math.max(0, ((cur-yrL)/(yrH-yrL))*100));
+  const lo = Number(yrL).toLocaleString('en-IN',{maximumFractionDigits:0});
+  const hi = Number(yrH).toLocaleString('en-IN',{maximumFractionDigits:0});
+  return '<div style="margin-top:.35rem">' +
+    '<div style="display:flex;justify-content:space-between;font-size:.52rem;color:var(--muted);margin-bottom:2px">' +
+    '<span>' + lo + '</span><span style="font-size:.5rem;color:var(--muted2)">52W</span><span>' + hi + '</span></div>' +
+    '<div style="height:3px;background:var(--border);border-radius:2px;position:relative">' +
+    '<div style="position:absolute;left:' + pos + '%;top:-1px;width:5px;height:5px;background:' + col + ';border-radius:50%;transform:translateX(-50%)"></div>' +
+    '</div></div>';
+}
+
 function renderIndices(indices) {
   const el = document.getElementById('indices-strip');
   if (!el) return;
@@ -7074,33 +7092,18 @@ function renderIndices(indices) {
     el.innerHTML = '<div style="color:var(--muted);font-size:.7rem;grid-column:1/-1;text-align:center;padding:.5rem">Could not load index data — NSE may be closed or blocking requests</div>';
     return;
   }
-  el.innerHTML = indices.map(idx => {
+  el.innerHTML = indices.map(function(idx) {
     const up  = (idx.changePct||0) >= 0;
     const col = up ? 'var(--green)' : 'var(--red)';
     const val = idx.value != null ? Number(idx.value).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
     const chg = idx.change != null ? (up?'+':'')+Number(idx.change).toLocaleString('en-IN',{maximumFractionDigits:2}) : '';
     const pct = Math.abs(idx.changePct||0).toFixed(2);
-    // 52-week range bar
-    const yrH = idx.yearHigh, yrL = idx.yearLow, cur = idx.value;
-    const rangeBar = (yrH && yrL && cur) ? (() => {
-      const pos = Math.min(100, Math.max(0, ((cur-yrL)/(yrH-yrL))*100));
-      return \`<div style="margin-top:.35rem">
-        <div style="display:flex;justify-content:space-between;font-size:.52rem;color:var(--muted);margin-bottom:2px">
-          <span>\${Number(yrL).toLocaleString('en-IN',{maximumFractionDigits:0})}</span>
-          <span style="font-size:.5rem;color:var(--muted2)">52W</span>
-          <span>\${Number(yrH).toLocaleString('en-IN',{maximumFractionDigits:0})}</span>
-        </div>
-        <div style="height:3px;background:var(--border);border-radius:2px;position:relative">
-          <div style="position:absolute;left:\${pos}%;top:-1px;width:5px;height:5px;background:\${col};border-radius:50%;transform:translateX(-50%)"></div>
-        </div>
-      </div>\`;
-    })() : '';
-    return \`<div style="text-align:center;padding:.45rem .5rem;background:var(--s2);border-radius:var(--r-sm);border:1px solid var(--border)">
-      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem">\${idx.name}</div>
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:.8rem;font-weight:700;color:var(--text)">\${val}</div>
-      <div style="font-size:.62rem;color:\${col};font-family:'IBM Plex Mono',monospace">\${up?'▲':'▼'} \${chg} (\${pct}%)</div>
-      \${rangeBar}
-    </div>\`;
+    const rangeBar = _indexRangeBar(idx.yearLow, idx.yearHigh, idx.value, col);
+    return '<div style="text-align:center;padding:.45rem .5rem;background:var(--s2);border-radius:var(--r-sm);border:1px solid var(--border)">' +
+      '<div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem">' + idx.name + '</div>' +
+      '<div style="font-size:.8rem;font-weight:700;color:var(--text)">' + val + '</div>' +
+      '<div style="font-size:.62rem;color:' + col + '">' + (up?'▲':'▼') + ' ' + chg + ' (' + pct + '%)</div>' +
+      rangeBar + '</div>';
   }).join('');
 }
 
