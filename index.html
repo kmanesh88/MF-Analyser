@@ -2974,7 +2974,7 @@ function takeSnapshot() {
     gsec:bl('gsec'),sdl:bl('sdl'),aaa:bl('aaa'),aa:bl('aa'),mkt:bl('mkt'),cash:bl('cash'),
     debtTotal:bl('gsec')+bl('sdl')+bl('aaa')+bl('aa')+bl('mkt')+bl('cash'),
     sectors:sectorMap,
-    uniqueStocks:new Set(items.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))).size,
+    uniqueStocks:new Set(fundItemsT.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))).size,
     fundCount:items.length,
   };
   port.snapshots=port.snapshots||[];
@@ -6295,14 +6295,20 @@ function buildMetrics() {
 
   const tw = items.reduce((s,f)=>s+f.wt,0);
 
+  // Separate out commodity and special-type funds — same logic as buildSummary
+  // International/FoF/Arbitrage funds' holdings are not Indian equity — exclude from analysis
+  const commItems  = items.filter(f => f.commodityType);
+  const specItems  = items.filter(f => f.specialType && !f.commodityType);
+  const coreItems  = items.filter(f => !f.commodityType && !f.specialType);
+
   // ── 1. OVERVIEW ──────────────────────────────────────────────
-  const totalEq   = items.reduce((s,f)=>s+f.wt*((f.large+f.mid+f.small)||0),0)/tw;
-  const totalDebt = items.reduce((s,f)=>s+f.wt*(f.debtTotal||0),0)/tw;
+  const totalEq   = coreItems.reduce((s,f)=>s+f.wt*((f.large+f.mid+f.small)||0),0)/tw;
+  const totalDebt = coreItems.reduce((s,f)=>s+f.wt*(f.debtTotal||0),0)/tw;
   const totalOther= 100-totalEq-totalDebt;
-  const blendL    = items.reduce((s,f)=>s+f.wt*(f.large||0),0)/tw;
-  const blendM    = items.reduce((s,f)=>s+f.wt*(f.mid||0),0)/tw;
-  const blendS    = items.reduce((s,f)=>s+f.wt*(f.small||0),0)/tw;
-  const totalStocks = new Set(items.flatMap(f=>(f.equityStocks||[]).map(s=>s.name.toLowerCase()))).size;
+  const blendL    = coreItems.reduce((s,f)=>s+f.wt*(f.large||0),0)/tw;
+  const blendM    = coreItems.reduce((s,f)=>s+f.wt*(f.mid||0),0)/tw;
+  const blendS    = coreItems.reduce((s,f)=>s+f.wt*(f.small||0),0)/tw;
+  const totalStocks = new Set(coreItems.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))).size;
   const totalFunds  = items.length;
 
   document.getElementById('ov-metrics').innerHTML = [
@@ -6341,11 +6347,10 @@ function buildMetrics() {
 
   // ── 2. SECTOR EXPOSURE ───────────────────────────────────────
   const sectorMap = {};
-  items.forEach(f => {
+  coreItems.forEach(f => {
     (f.equityStocks||[]).forEach(s => {
       const { sector: sec, conf } = getSectorWithConfidence(s.name, s.sector);
       // Skip sectors that are just company names (sector field = stock name, conf=2 but looks like a proper noun)
-      // A real sector is short and generic; a company name is long and specific
       const isCompanyName = conf <= 2 && sec.length > 20 && /[A-Z]/.test(sec[0]) && /\bLtd|\bLimited|\bInc|\bCorp/i.test(sec);
       if (isCompanyName) return;
       if (!sectorMap[sec]) sectorMap[sec] = {totalPct:0, stocks:new Set(), funds:new Set(), minConf:3};
@@ -6387,7 +6392,7 @@ function buildMetrics() {
 
   // ── 3. STOCK OVERLAP ─────────────────────────────────────────
   const stockFundMap = {}; // stockKey → {name, sector, funds:[], totalEffWt}
-  items.forEach(f => {
+  coreItems.forEach(f => {
     (f.equityStocks||[]).forEach(s => {
       const key = s.name.toLowerCase().replace(/\s+/g,'').replace(/ltd\.?|limited/gi,'');
       if (!stockFundMap[key]) stockFundMap[key] = {name:s.name, sector:s.sector||'', funds:[], totalEffWt:0};
