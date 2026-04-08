@@ -65,33 +65,60 @@ window._fbSaveCloud = async () => {
   if (!user) return;
   try {
     const uid = user.uid;
-    // Save AMC factsheet data — summary metrics only, NOT equityStocks/debtItems
-    // (stock-level data lives on API server; saving it here would exceed Firestore 1MB limit)
-    const amcPayload = {
+    const savedAt = new Date().toISOString();
+
+    // Save each AMC as a separate Firestore document — includes equityStocks/debtItems
+    // One doc per AMC keeps each well under 1MB (each AMC has ~20-50 stocks)
+    // Collection: users/{uid}/amcs/{amcId}
+    const amcsToSave = amcs.filter(a => a.name !== '__server__');
+    const amcSaves = amcsToSave.map(a => {
+      const fundsPayload = Object.fromEntries(
+        Object.entries(a.funds).map(([fname, f]) => [fname, {
+          large:f.large||0, mid:f.mid||0, small:f.small||0,
+          eqOther:f.eqOther||0, eqTotal:f.eqTotal||0,
+          gsec:f.gsec||0, sdl:f.sdl||0, aaa:f.aaa||0, aa:f.aa||0,
+          mkt:f.mkt||0, cash:f.cash||0, debtTotal:f.debtTotal||0,
+          cashPct:f.cashPct||0, amc:f.amc||a.name,
+          equityStocks: (f.equityStocks||[]).map(s=>({
+            name:s.name, pct:s.pct, sector:s.sector||'', cap:s.cap||null
+          })),
+          debtItems: (f.debtItems||[]).map(d=>({
+            name:d.name, pct:d.pct, cat:d.cat||'aaa'
+          })),
+        }])
+      );
+      return setDoc(doc(db, 'users', uid, 'amcs', a.id), {
+        id: a.id, name: a.name, status: a.status,
+        funds: fundsPayload, savedAt
+      });
+    });
+
+    // Also save index doc with amcCtr and list of AMC ids for fast loading
+    const indexSave = setDoc(doc(db, 'users', uid, 'data', 'amcs'), {
       amcCtr,
-      savedAt: new Date().toISOString(),
-      amcs: amcs.filter(a => a.name !== '__server__').map(a => ({
+      savedAt,
+      amcIds: amcsToSave.map(a => a.id),
+      // Keep summary-only version for backward compat
+      amcs: amcsToSave.map(a => ({
         id: a.id, name: a.name, status: a.status,
         funds: Object.fromEntries(
           Object.entries(a.funds).map(([fname, f]) => [fname, {
             large:f.large||0, mid:f.mid||0, small:f.small||0, eqOther:f.eqOther||0,
-            gsec:f.gsec||0, sdl:f.sdl||0, aaa:f.aaa||0, aa:f.aa||0,
-            mkt:f.mkt||0, cash:f.cash||0, debtTotal:f.debtTotal||0,
+            eqTotal:f.eqTotal||0, gsec:f.gsec||0, sdl:f.sdl||0, aaa:f.aaa||0,
+            aa:f.aa||0, mkt:f.mkt||0, cash:f.cash||0, debtTotal:f.debtTotal||0,
             cashPct:f.cashPct||0, amc:f.amc||a.name
-            // equityStocks and debtItems intentionally excluded — too large for Firestore
           }])
         )
       }))
-    };
-    await setDoc(doc(db, 'users', uid, 'data', 'amcs'), amcPayload);
-
-    // Save portfolios
-    await setDoc(doc(db, 'users', uid, 'data', 'portfolios'), {
-      portfolios, portCtr, activePortId, savedAt: new Date().toISOString()
     });
 
-    // Save thresholds
-    await setDoc(doc(db, 'users', uid, 'data', 'thresholds'), { thresholds });
+    // Save portfolios and thresholds in parallel with AMC saves
+    const portSave = setDoc(doc(db, 'users', uid, 'data', 'portfolios'), {
+      portfolios, portCtr, activePortId, savedAt
+    });
+    const threshSave = setDoc(doc(db, 'users', uid, 'data', 'thresholds'), { thresholds });
+
+    await Promise.all([...amcSaves, indexSave, portSave, threshSave]);
 
     document.getElementById('fb-sync-status').textContent = '☁ Synced ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
   } catch(e) {
@@ -124,27 +151,48 @@ window._fbSaveCloud = async () => {
     if (amcSnap.exists()) {
       const d = amcSnap.data();
       amcCtr = d.amcCtr || 0;
-      // Load from Firestore but preserve equityStocks/debtItems from localStorage
-      // (Firestore only stores summary metrics to stay under 1MB limit)
+
+      // Preserve __server__ AMC before replacing amcs array
+      const serverAmc = amcs.find(a => a.name === '__server__');
+
+      // Try to load full AMC docs (with equityStocks) from subcollection
+      const amcIds = d.amcIds || [];
+      let fullAmcDocs = {};
+      if (amcIds.length > 0) {
+        try {
+          const fullSnaps = await Promise.all(
+            amcIds.map(id => getDoc(doc(db, 'users', uid, 'amcs', id)))
+          );
+          fullSnaps.forEach(snap => {
+            if (snap.exists()) fullAmcDocs[snap.data().name] = snap.data();
+          });
+        } catch(e) {
+          console.warn('Full AMC load failed, falling back to summary:', e);
+        }
+      }
+
+      // Build amcs array — prefer full doc (with equityStocks), fall back to summary
       const localAmcMap = {};
       amcs.forEach(a => { localAmcMap[a.name] = a; });
-      // Preserve __server__ AMC (server-fetched holdings) — never in Firestore
-      const serverAmc = localAmcMap['__server__'];
+
       amcs = (d.amcs || []).map(a => {
-        const localAmc = localAmcMap[a.name];
+        const fullDoc  = fullAmcDocs[a.name];  // has equityStocks from subcollection
+        const localAmc = localAmcMap[a.name];   // has equityStocks from localStorage
         const mergedFunds = {};
         Object.entries(a.funds || {}).forEach(([fname, f]) => {
+          const fullFund  = fullDoc?.funds?.[fname];
           const localFund = localAmc?.funds?.[fname];
           mergedFunds[fname] = {
             ...f,
-            // Restore stock-level data from localStorage if available
-            equityStocks: localFund?.equityStocks || f.equityStocks || [],
-            debtItems:    localFund?.debtItems    || f.debtItems    || [],
+            // Priority: full Firestore doc > localStorage > empty
+            equityStocks: fullFund?.equityStocks || localFund?.equityStocks || [],
+            debtItems:    fullFund?.debtItems    || localFund?.debtItems    || [],
           };
         });
         return { id:a.id, name:a.name, status:a.status, funds:mergedFunds };
       });
-      // Re-add __server__ AMC after Firestore replace
+
+      // Re-add __server__ AMC
       if (serverAmc) amcs.push(serverAmc);
       loaded = true;
     }
