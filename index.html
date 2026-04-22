@@ -15,7 +15,7 @@
 import { initializeApp }                          from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import { getAuth, signInWithPopup, signOut, GoogleAuthProvider, onAuthStateChanged }
                                                    from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs }
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs }
                                                    from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -65,60 +65,33 @@ window._fbSaveCloud = async () => {
   if (!user) return;
   try {
     const uid = user.uid;
-    const savedAt = new Date().toISOString();
-
-    // Save each AMC as a separate Firestore document — includes equityStocks/debtItems
-    // One doc per AMC keeps each well under 1MB (each AMC has ~20-50 stocks)
-    // Collection: users/{uid}/amcs/{amcId}
-    const amcsToSave = amcs.filter(a => a.name !== '__server__');
-    const amcSaves = amcsToSave.map(a => {
-      const fundsPayload = Object.fromEntries(
-        Object.entries(a.funds).map(([fname, f]) => [fname, {
-          large:f.large||0, mid:f.mid||0, small:f.small||0,
-          eqOther:f.eqOther||0, eqTotal:f.eqTotal||0,
-          gsec:f.gsec||0, sdl:f.sdl||0, aaa:f.aaa||0, aa:f.aa||0,
-          mkt:f.mkt||0, cash:f.cash||0, debtTotal:f.debtTotal||0,
-          cashPct:f.cashPct||0, amc:f.amc||a.name,
-          equityStocks: (f.equityStocks||[]).map(s=>({
-            name:s.name, pct:s.pct, sector:s.sector||'', cap:s.cap||null
-          })),
-          debtItems: (f.debtItems||[]).map(d=>({
-            name:d.name, pct:d.pct, cat:d.cat||'aaa'
-          })),
-        }])
-      );
-      return setDoc(doc(db, 'users', uid, 'amcs', a.id), {
-        id: a.id, name: a.name, status: a.status,
-        funds: fundsPayload, savedAt
-      });
-    });
-
-    // Also save index doc with amcCtr and list of AMC ids for fast loading
-    const indexSave = setDoc(doc(db, 'users', uid, 'data', 'amcs'), {
+    // Save AMC factsheet data — summary metrics only, NOT equityStocks/debtItems
+    // (stock-level data lives on API server; saving it here would exceed Firestore 1MB limit)
+    const amcPayload = {
       amcCtr,
-      savedAt,
-      amcIds: amcsToSave.map(a => a.id),
-      // Keep summary-only version for backward compat
-      amcs: amcsToSave.map(a => ({
+      savedAt: new Date().toISOString(),
+      amcs: amcs.map(a => ({
         id: a.id, name: a.name, status: a.status,
         funds: Object.fromEntries(
           Object.entries(a.funds).map(([fname, f]) => [fname, {
             large:f.large||0, mid:f.mid||0, small:f.small||0, eqOther:f.eqOther||0,
-            eqTotal:f.eqTotal||0, gsec:f.gsec||0, sdl:f.sdl||0, aaa:f.aaa||0,
-            aa:f.aa||0, mkt:f.mkt||0, cash:f.cash||0, debtTotal:f.debtTotal||0,
+            gsec:f.gsec||0, sdl:f.sdl||0, aaa:f.aaa||0, aa:f.aa||0,
+            mkt:f.mkt||0, cash:f.cash||0, debtTotal:f.debtTotal||0,
             cashPct:f.cashPct||0, amc:f.amc||a.name
+            // equityStocks and debtItems intentionally excluded — too large for Firestore
           }])
         )
       }))
+    };
+    await setDoc(doc(db, 'users', uid, 'data', 'amcs'), amcPayload);
+
+    // Save portfolios
+    await setDoc(doc(db, 'users', uid, 'data', 'portfolios'), {
+      portfolios, portCtr, activePortId, savedAt: new Date().toISOString()
     });
 
-    // Save portfolios and thresholds in parallel with AMC saves
-    const portSave = setDoc(doc(db, 'users', uid, 'data', 'portfolios'), {
-      portfolios, portCtr, activePortId, savedAt
-    });
-    const threshSave = setDoc(doc(db, 'users', uid, 'data', 'thresholds'), { thresholds });
-
-    await Promise.all([...amcSaves, indexSave, portSave, threshSave]);
+    // Save thresholds
+    await setDoc(doc(db, 'users', uid, 'data', 'thresholds'), { thresholds });
 
     document.getElementById('fb-sync-status').textContent = '☁ Synced ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
   } catch(e) {
@@ -129,11 +102,6 @@ window._fbSaveCloud = async () => {
 
 // ── Load from Firestore ──
   window._fbLoadCloud = async () => {
-  // Guard: wait for main script to initialize (amcCtr declared in main script block)
-  if (typeof amcCtr === 'undefined') {
-    setTimeout(() => window._fbLoadCloud(), 300);
-    return;
-  }
   const user = window._fb.currentUser;
   if (!user) return;
   try {
@@ -151,49 +119,24 @@ window._fbSaveCloud = async () => {
     if (amcSnap.exists()) {
       const d = amcSnap.data();
       amcCtr = d.amcCtr || 0;
-
-      // Preserve __server__ AMC before replacing amcs array
-      const serverAmc = amcs.find(a => a.name === '__server__');
-
-      // Try to load full AMC docs (with equityStocks) from subcollection
-      const amcIds = d.amcIds || [];
-      let fullAmcDocs = {};
-      if (amcIds.length > 0) {
-        try {
-          const fullSnaps = await Promise.all(
-            amcIds.map(id => getDoc(doc(db, 'users', uid, 'amcs', id)))
-          );
-          fullSnaps.forEach(snap => {
-            if (snap.exists()) fullAmcDocs[snap.data().name] = snap.data();
-          });
-        } catch(e) {
-          console.warn('Full AMC load failed, falling back to summary:', e);
-        }
-      }
-
-      // Build amcs array — prefer full doc (with equityStocks), fall back to summary
+      // Load from Firestore but preserve equityStocks/debtItems from localStorage
+      // (Firestore only stores summary metrics to stay under 1MB limit)
       const localAmcMap = {};
       amcs.forEach(a => { localAmcMap[a.name] = a; });
-
       amcs = (d.amcs || []).map(a => {
-        const fullDoc  = fullAmcDocs[a.name];  // has equityStocks from subcollection
-        const localAmc = localAmcMap[a.name];   // has equityStocks from localStorage
+        const localAmc = localAmcMap[a.name];
         const mergedFunds = {};
         Object.entries(a.funds || {}).forEach(([fname, f]) => {
-          const fullFund  = fullDoc?.funds?.[fname];
           const localFund = localAmc?.funds?.[fname];
           mergedFunds[fname] = {
             ...f,
-            // Priority: full Firestore doc > localStorage > empty
-            equityStocks: fullFund?.equityStocks || localFund?.equityStocks || [],
-            debtItems:    fullFund?.debtItems    || localFund?.debtItems    || [],
+            // Restore stock-level data from localStorage if available
+            equityStocks: localFund?.equityStocks || f.equityStocks || [],
+            debtItems:    localFund?.debtItems    || f.debtItems    || [],
           };
         });
         return { id:a.id, name:a.name, status:a.status, funds:mergedFunds };
       });
-
-      // Re-add __server__ AMC
-      if (serverAmc) amcs.push(serverAmc);
       loaded = true;
     }
 
@@ -400,7 +343,7 @@ body {
 .page { display: none; }
 .page.active { display: block; }
 
-.pg-header { margin-bottom: 2rem; display:flex; justify-content:space-between; align-items:flex-start; }
+.pg-header { margin-bottom: 2rem; }
 .pg-title {
   font-family: 'Fraunces', serif;
   font-size: 1.75rem; font-weight: 600;
@@ -1130,10 +1073,10 @@ body {
   </div>
 
   <div class="nav-sect">Pages</div>
-  <div class="nav-item active" id="nav-clients"   onclick="typeof showPage!=='undefined'&&showPage('clients')"><div class="ndot"></div>Portfolios</div>
-  <div class="nav-item" id="nav-alerts"           onclick="typeof showPage!=='undefined'&&showPage('alerts')"><div class="ndot"></div>Alerts Dashboard</div>
-  <div class="nav-item" id="nav-thresholds"       onclick="typeof showPage!=='undefined'&&showPage('thresholds')"><div class="ndot"></div>Thresholds</div>
-  <div class="nav-item" id="nav-monitor"          onclick="typeof showPage!=='undefined'&&showPage('monitor')"><div class="ndot"></div>Market Monitor</div>
+  <div class="nav-item active" id="nav-clients"   onclick="showPage('clients')"><div class="ndot"></div>Portfolios</div>
+  <div class="nav-item" id="nav-alerts"           onclick="showPage('alerts')"><div class="ndot"></div>Alerts Dashboard</div>
+  <div class="nav-item" id="nav-thresholds"       onclick="showPage('thresholds')"><div class="ndot"></div>Thresholds</div>
+  <div class="nav-item" id="nav-monitor"          onclick="showPage('monitor')"><div class="ndot"></div>Market Monitor</div>
   <div class="nav-div"></div>
 
   <!-- Active portfolio switcher -->
@@ -1250,23 +1193,6 @@ body {
 </div>
 
 <!-- ── Import Modal ── -->
-<!-- ── Compare with Recommended Modal ─────────────────────────── -->
-<div id="compare-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:2rem 1rem">
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);width:100%;max-width:720px;margin:auto;padding:1.5rem;position:relative">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem">
-      <div>
-        <div style="font-size:.85rem;font-weight:700;color:var(--text)">Compare with Recommended Portfolio</div>
-        <div id="compare-client-label" style="font-size:.65rem;color:var(--muted);margin-top:.2rem"></div>
-      </div>
-      <button onclick="document.getElementById('compare-modal').style.display='none'"
-        style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer;padding:.2rem .5rem">✕</button>
-    </div>
-    <div id="compare-modal-body">
-      <div style="text-align:center;padding:2rem;color:var(--muted);font-size:.72rem">Loading…</div>
-    </div>
-  </div>
-</div>
-
 <div id="import-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;align-items:center;justify-content:center">
   <div style="background:var(--s1);border:1px solid var(--border2);border-radius:var(--r-lg);padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)">
 
@@ -1755,22 +1681,8 @@ body {
 
 <!-- ── Portfolio Summary ── -->
 <div class="page" id="page-summary">
-  <div class="pg-header">
-    <div>
-      <div class="pg-title">Portfolio Summary</div>
-      <div class="pg-sub">Stock split · Industry · Debt · Top holdings</div>
-    </div>
-    <div id="summary-action-btns" style="display:none;display:flex;gap:.5rem;align-items:center">
-      <button class="btn sm" id="build-portfolio-btn" onclick="showBuildPortfolioFromSummary()"
-        style="font-size:.68rem;white-space:nowrap">
-        🔧 Build Portfolio
-      </button>
-      <button class="btn sm" id="compare-recommended-btn" onclick="showCompareRecommended()"
-        style="display:none;font-size:.68rem;white-space:nowrap">
-        ⚖ Compare with Recommended
-      </button>
-    </div>
-  </div>
+  <div class="pg-header"><div class="pg-title">Portfolio Summary</div>
+  <div class="pg-sub">Stock split · Industry · Debt · Top holdings</div></div>
 
   <!-- Holdings Banner -->
   <div class="card" id="sum-holdings-banner" style="margin-bottom:1.1rem;display:none">
@@ -1936,6 +1848,14 @@ body {
           Search any stock to see which portfolios hold it.
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Fixed Income Market Markers -->
+  <div class="card" style="margin-bottom:1.1rem">
+    <div class="card-title">Fixed Income Market</div>
+    <div id="fixed-income-content">
+      <div style="color:var(--muted);font-size:.7rem;padding:.5rem 0">Loading…</div>
     </div>
   </div>
 
@@ -2239,9 +2159,8 @@ async function fetchAmfiCapData() {
     } catch(e) { console.warn('AMFI proxy fetch failed:', e.message); }
   }
 
-  // ── Path 2: Direct AMFI Excel fetch — skipped (always blocked by CORS from browser)
-  // Cap classification is handled server-side via ISIN lookup in main.py
-  if (false) for (const url of AMFI_XLSX_URLS) {
+  // ── Path 2: Direct AMFI Excel fetch (blocked by CORS in most browsers) ──
+  for (const url of AMFI_XLSX_URLS) {
     try {
       const res = await fetch(url, { cache: 'force-cache', signal: AbortSignal.timeout(15000) });
       if (!res.ok) continue;
@@ -2533,190 +2452,6 @@ function refreshActivePortfolioUI() {
   }
 }
 
-// ── Build Portfolio from Summary page ─────────────────────────────────────
-function showBuildPortfolioFromSummary() {
-  const port = portfolios.find(p => p.id === activePortId);
-  if (!port) return;
-  const clientId = port.clientId;
-  if (clientId) {
-    // Jump straight to Portfolio Builder for this client
-    window.MFPortfolioBuilder._buildPortfolio(clientId);
-  } else if (port.client) {
-    // Has client name but no ID — open client list so advisor can find them
-    window.MFPortfolioBuilder.showClientList();
-    showToast(`Find "${port.client}" in the client list to build their portfolio`);
-  } else {
-    showToast('No client linked to this portfolio');
-  }
-}
-
-// ── Compare with Recommended Portfolio ────────────────────────────────────
-async function showCompareRecommended() {
-  const port = portfolios.find(p => p.id === activePortId);
-  if (!port?.clientId) return;
-
-  const modal = document.getElementById('compare-modal');
-  const body  = document.getElementById('compare-modal-body');
-  const lbl   = document.getElementById('compare-client-label');
-  modal.style.display = 'flex';
-  body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--muted);font-size:.72rem">Loading recommended portfolio…</div>';
-  lbl.textContent = port.client ? `Client: ${port.client}` : '';
-
-  try {
-    const { getFirestore, doc, getDoc } = await import('https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js');
-    const db2 = getFirestore();
-    const snap = await getDoc(doc(db2, 'client_portfolios', port.clientId));
-
-    if (!snap.exists()) {
-      body.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted);font-size:.72rem">
-        No recommended portfolio found for this client.<br>
-        <span style="font-size:.62rem">Build one in the Portfolio Builder first.</span>
-      </div>`;
-      return;
-    }
-
-    const rec = snap.data();
-    const recFunds = rec.funds || [];
-    const recAlloc = rec.finalAllocation || {};
-
-    // ── Current portfolio data ──
-    const currentFunds = Object.entries(port.allocations || {}).map(([name, pct]) => ({
-      name, pct,
-      val: port.holdingsDetail?.[name]?.val || 0,
-    }));
-    const totalVal = currentFunds.reduce((s, f) => s + f.val, 0);
-
-    // Current asset allocation from latest snapshot
-    const snap2 = port.snapshots?.[port.snapshots.length - 1]?.summary;
-    const currAlloc = snap2 ? {
-      equity: snap2.equityPct?.toFixed(1),
-      debt:   (snap2.debtPct || 0).toFixed(1),
-      gold:   snap2.commodityPct?.toFixed(1) || '0.0',
-      cash:   (snap2.cashPct || 0).toFixed(1),
-    } : null;
-
-    // ── Normalise fund names for matching ──
-    const norm = n => n.toLowerCase()
-      .replace(/\s*[-–]\s*(direct|regular)\s*(plan)?.*$/i, '')
-      .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i, '')
-      .replace(/\s*\(g\)\s*$/i, '')
-      .replace(/\bfund\b\s*$/i, '')
-      .replace(/\s+/g, ' ').trim();
-
-    const currentMap = {};
-    currentFunds.forEach(f => { currentMap[norm(f.name)] = f; });
-    const recMap = {};
-    recFunds.forEach(f => { recMap[norm(f.schemeName)] = f; });
-
-    // Categorise funds
-    const allKeys = new Set([...Object.keys(currentMap), ...Object.keys(recMap)]);
-    const inBoth = [], onlyCurrent = [], onlyRec = [];
-    allKeys.forEach(k => {
-      const c = currentMap[k], r = recMap[k];
-      if (c && r) inBoth.push({ key: k, current: c, rec: r });
-      else if (c)  onlyCurrent.push({ key: k, current: c });
-      else         onlyRec.push({ key: k, rec: r });
-    });
-
-    // ── Render ──
-    const pct = v => `${(+v || 0).toFixed(1)}%`;
-    const allocBar = (val, color) => `
-      <div style="display:flex;align-items:center;gap:.4rem">
-        <div style="flex:1;height:5px;background:var(--border);border-radius:3px">
-          <div style="width:${Math.min(+val||0,100)}%;height:100%;background:${color};border-radius:3px"></div>
-        </div>
-        <span style="font-size:.65rem;color:var(--text2);width:3rem;text-align:right">${pct(val)}</span>
-      </div>`;
-
-    const assetClasses = [
-      { key: 'equity', label: 'Equity',  color: 'var(--lc)' },
-      { key: 'debt',   label: 'Debt',    color: 'var(--dc-aaa)' },
-      { key: 'gold',   label: 'Gold',    color: '#b8860b' },
-      { key: 'silver', label: 'Silver',  color: '#aaa' },
-      { key: 'cash',   label: 'Cash',    color: 'var(--dc-mkt)' },
-    ];
-
-    const allocSection = `
-      <div style="margin-bottom:1.2rem">
-        <div style="font-size:.7rem;font-weight:600;color:var(--text);margin-bottom:.75rem;text-transform:uppercase;letter-spacing:.05em">Asset Allocation</div>
-        <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:.4rem .8rem;align-items:center">
-          <div></div>
-          <div style="font-size:.6rem;color:var(--muted);text-align:center;font-weight:600">CURRENT</div>
-          <div style="font-size:.6rem;color:var(--muted);text-align:center;font-weight:600">RECOMMENDED</div>
-          ${assetClasses.map(a => {
-            const cv = currAlloc ? currAlloc[a.key] : '—';
-            const rv = recAlloc[a.key] || 0;
-            const diff = currAlloc ? ((+rv) - (+cv)).toFixed(1) : null;
-            const diffColor = diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--red)' : 'var(--muted)';
-            return `
-              <div style="font-size:.65rem;color:var(--muted)">${a.label}</div>
-              <div>${currAlloc ? allocBar(cv, a.color) : '<span style="font-size:.62rem;color:var(--muted)">—</span>'}</div>
-              <div style="display:flex;align-items:center;gap:.4rem">
-                ${allocBar(rv, a.color)}
-                ${diff !== null ? `<span style="font-size:.6rem;color:${diffColor};width:3rem">${diff > 0 ? '+' : ''}${diff}%</span>` : ''}
-              </div>`;
-          }).join('')}
-        </div>
-      </div>`;
-
-    const fundRow = (name, currPct, recPct, status) => {
-      const statusColor = status === 'exit' ? '#e57373' : status === 'add' ? 'var(--green)' : 'var(--muted)';
-      const statusLabel = status === 'exit' ? 'EXIT' : status === 'add' ? 'ADD' : 'HOLD';
-      const diff = (recPct !== null && currPct !== null) ? (recPct - currPct).toFixed(1) : null;
-      return `
-        <tr>
-          <td style="font-size:.65rem;color:var(--text)">${name}</td>
-          <td style="font-size:.65rem;color:var(--text2);text-align:right">${currPct !== null ? pct(currPct) : '—'}</td>
-          <td style="font-size:.65rem;color:var(--text2);text-align:right">${recPct !== null ? pct(recPct) : '—'}</td>
-          <td style="font-size:.6rem;text-align:right;color:${diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--red)' : 'var(--muted)'}">${diff !== null ? (diff > 0 ? '+' : '') + diff + '%' : ''}</td>
-          <td style="text-align:right">
-            <span style="font-size:.58rem;font-weight:600;color:${statusColor};background:${statusColor}18;border-radius:3px;padding:1px 6px">${statusLabel}</span>
-          </td>
-        </tr>`;
-    };
-
-    const tableHead = `
-      <table style="width:100%;border-collapse:collapse">
-        <thead>
-          <tr style="border-bottom:1px solid var(--border)">
-            <th style="font-size:.6rem;color:var(--muted);text-align:left;padding:.4rem 0;font-weight:600">FUND</th>
-            <th style="font-size:.6rem;color:var(--muted);text-align:right;padding:.4rem 0;font-weight:600">CURRENT</th>
-            <th style="font-size:.6rem;color:var(--muted);text-align:right;padding:.4rem 0;font-weight:600">RECOMMENDED</th>
-            <th style="font-size:.6rem;color:var(--muted);text-align:right;padding:.4rem 0;font-weight:600">DIFF</th>
-            <th style="font-size:.6rem;color:var(--muted);text-align:right;padding:.4rem 0;font-weight:600">ACTION</th>
-          </tr>
-        </thead><tbody>`;
-
-    const fundsSection = `
-      <div style="margin-bottom:1rem">
-        <div style="font-size:.7rem;font-weight:600;color:var(--text);margin-bottom:.75rem;text-transform:uppercase;letter-spacing:.05em">Fund Comparison</div>
-        ${tableHead}
-          ${inBoth.map(f => fundRow(f.current.name, f.current.pct, f.rec.allocationPct, 'hold')).join('')}
-          ${onlyCurrent.map(f => fundRow(f.current.name, f.current.pct, null, 'exit')).join('')}
-          ${onlyRec.map(f => fundRow(f.rec.schemeName, null, f.rec.allocationPct, 'add')).join('')}
-        </tbody></table>
-      </div>`;
-
-    // Summary counts
-    const exitCount = onlyCurrent.length;
-    const addCount  = onlyRec.length;
-    const holdCount = inBoth.length;
-    const summaryBar = `
-      <div style="display:flex;gap:.5rem;margin-bottom:1.2rem;flex-wrap:wrap">
-        <span style="font-size:.62rem;background:#e5737318;color:#e57373;border-radius:4px;padding:3px 10px;font-weight:600">${exitCount} to Exit</span>
-        <span style="font-size:.62rem;background:var(--green)18;color:var(--green);border-radius:4px;padding:3px 10px;font-weight:600">${addCount} to Add</span>
-        <span style="font-size:.62rem;background:var(--muted)18;color:var(--muted);border-radius:4px;padding:3px 10px;font-weight:600">${holdCount} to Hold</span>
-        ${totalVal > 0 ? `<span style="font-size:.62rem;background:var(--s3);color:var(--text2);border-radius:4px;padding:3px 10px">Portfolio Value: ₹${totalVal.toLocaleString('en-IN', {maximumFractionDigits:0})}</span>` : ''}
-      </div>`;
-
-    body.innerHTML = allocSection + summaryBar + fundsSection;
-
-  } catch(e) {
-    console.error('Compare failed:', e);
-    body.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted);font-size:.72rem">Failed to load: ${e.message}</div>`;
-  }
-}
-
 function deletePortfolio(id) {
   portfolios = portfolios.filter(p => p.id !== id);
   if (activePortId === id) {
@@ -2890,25 +2625,12 @@ function loadPortfolio(id) {
     return;
   }
 
-  // Has allocations — go straight to summary
-  // Check if any fund has actual stock-level data
-  const allocNames = new Set(Object.keys(port.allocations || {}));
-  const fundsWithStocks = allFunds().filter(f =>
-    allocNames.has(f.name) && (f.data?.equityStocks?.length > 0 || f.data?.debtItems?.length > 0)
-  );
-  const fundsNeedingFetch = allFunds().filter(f =>
-    allocNames.has(f.name) && f.amc === '__server__' && !(f.data?.equityStocks?.length > 0)
-  );
-
-  if (fundsNeedingFetch.length > 0 && getMfApiUrl()) {
-    // __server__ funds exist but have no stocks — re-fetch silently
-    showPage('summary');
-    showToast('Refreshing holdings data…');
-    _fetchServerHoldingsForPortfolio(port).then(() => runAnalysis());
-  } else if (fundsWithStocks.length > 0 || allFunds().some(f => allocNames.has(f.name) && ((f.data?.large||0)+(f.data?.mid||0)+(f.data?.small||0) > 0))) {
-    runAnalysis();
+  // Has allocations — go straight to summary (shows holdings banner + analysis if factsheet data exists)
+  const hasFactsheet = allFunds().some(f => (port.allocations||{})[f.name] > 0);
+  if (hasFactsheet) {
+    runAnalysis(); // builds full analysis then shows summary
   } else {
-    showPage('summary');
+    showPage('summary'); // shows holdings banner with "upload factsheets" message
   }
 }
 
@@ -2939,15 +2661,8 @@ function getActiveItems() {
     .replace(/\s*\bfund\b\s*$/i, '')        // strip trailing 'Fund'
     .replace(/\s+/g, ' ').trim();
 
-  // Two-pass build: local AMC funds first, __server__ last so it always wins.
-  // __server__ has ISIN-level equityStocks; local factsheet funds only have cap splits.
-  const allF = allFunds();
-  allF.filter(f => f.amc !== '__server__').forEach(({name, amc, data}) => {
-    uploadedMap[name] = {amc, data};
-    uploadedMap[normFund(name)] = {amc, data};
-  });
-  allF.filter(f => f.amc === '__server__').forEach(({name, amc, data}) => {
-    uploadedMap[name] = {amc, data};              // exact — always overwrites local
+  allFunds().forEach(({name, amc, data}) => {
+    uploadedMap[name] = {amc, data};              // exact
     uploadedMap[normFund(name)] = {amc, data};    // normalised
   });
 
@@ -3028,7 +2743,7 @@ function takeSnapshot() {
     gsec:bl('gsec'),sdl:bl('sdl'),aaa:bl('aaa'),aa:bl('aa'),mkt:bl('mkt'),cash:bl('cash'),
     debtTotal:bl('gsec')+bl('sdl')+bl('aaa')+bl('aa')+bl('mkt')+bl('cash'),
     sectors:sectorMap,
-    uniqueStocks:new Set(fundItemsT.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))).size,
+    uniqueStocks:new Set(items.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))).size,
     fundCount:items.length,
   };
   port.snapshots=port.snapshots||[];
@@ -3184,7 +2899,7 @@ function saveToStorage() {
       amcCtr,
       savedAt: new Date().toISOString(),
       capRecompVer: CAP_RECOMP_VER,
-      amcs: amcs.map(a => ({
+      amcs: amcs.filter(a => a.name !== '__server__').map(a => ({
         id: a.id,
         name: a.name,
         status: a.status === 'loaded' ? 'loaded' : 'empty',
@@ -3236,22 +2951,21 @@ function loadFromStorage() {
       const amc = { id: saved.id, name: saved.name, status: saved.status, funds: saved.funds || {} };
 
       // Recompute large/mid/small from stored equityStocks if version changed
-      if (needsRecomp && saved.name !== '__server__') {
+      if (needsRecomp) {
         Object.entries(amc.funds).forEach(([fname, f]) => {
           if (!f.equityStocks?.length) return;
           let lc=0, mc=0, sc=0;
           f.equityStocks.forEach(s => {
-            // Use server-provided cap if available, else browser name-based
-            const c = s.cap || classifyEquity(s.name);
+            const c = classifyEquity(s.name);
             if (c==='large') lc+=s.pct;
             else if (c==='mid') mc+=s.pct;
             else sc+=s.pct;
           });
           const eqTotal=lc+mc+sc;
           if (eqTotal>0) {
-            f.large = lc; f.mid = mc; f.small = sc;
-            f.eqTotal = eqTotal;
-            f.eqOther = Math.max(0, 100-eqTotal-(f.debtTotal||0));
+            const eqOther = Math.max(0, 100-eqTotal-(f.debtTotal||0));
+            const k = (100-eqOther)/eqTotal;
+            f.large = lc*k; f.mid = mc*k; f.small = sc*k; f.eqOther = eqOther;
           }
         });
       }
@@ -6018,25 +5732,8 @@ function buildSummary() {
   const items = getActiveItems();
   if (!items.length) return;
 
-  // ── Show/hide action buttons based on whether portfolio has a linked client ──
-  const port = activePortId ? portfolios.find(p=>p.id===activePortId) : null;
-  const actionBtns   = document.getElementById('summary-action-btns');
-  const compareBtn   = document.getElementById('compare-recommended-btn');
-  const buildPortBtn = document.getElementById('build-portfolio-btn');
-  if (port?.clientId) {
-    if (actionBtns)   actionBtns.style.display   = 'flex';
-    if (buildPortBtn) buildPortBtn.style.display  = 'inline-flex';
-    if (compareBtn)   compareBtn.style.display    = 'inline-flex';
-  } else if (port?.client) {
-    // Has client name but no clientId — show Build only (no compare without clientId)
-    if (actionBtns)   actionBtns.style.display   = 'flex';
-    if (buildPortBtn) buildPortBtn.style.display  = 'inline-flex';
-    if (compareBtn)   compareBtn.style.display    = 'none';
-  } else {
-    if (actionBtns)   actionBtns.style.display   = 'none';
-  }
-
   // ── Holdings Banner ──────────────────────────────────────────
+  const port = activePortId ? portfolios.find(p=>p.id===activePortId) : null;
   const holdingsDetail = port?.holdingsDetail || {};
   const hasDetail = Object.keys(holdingsDetail).some(k => holdingsDetail[k]?.val > 0);
   const bannerEl = document.getElementById('sum-holdings-banner');
@@ -6174,7 +5871,7 @@ function buildSummary() {
   const unknownPct   = Math.max(0, 100 - totalKnown);
 
   const uniqueStocks = new Set(
-    fundItemsS.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))
+    items.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))
   ).size;
 
   document.getElementById('sum-kpi').innerHTML = [
@@ -6336,9 +6033,11 @@ function buildSummary() {
 
 
 function buildMetrics() {
-  // Use getActiveItems() — same source as buildSummary — ensures metrics
-  // reflect only the active portfolio's funds with correct weights and stock data
-  const items = getActiveItems();
+  const items = [];
+  allFunds().forEach(({name,amc,data}) => {
+    const wt = getAllocWeight(name);
+    if (wt>0) items.push({name, amc, wt, ...data});
+  });
   if (!items.length) {
     ['ov-metrics','sector-bars','sector-tbody','overlap-tbody','holdings-tbody','ov-tbody'].forEach(id => {
       const el = document.getElementById(id);
@@ -6349,20 +6048,14 @@ function buildMetrics() {
 
   const tw = items.reduce((s,f)=>s+f.wt,0);
 
-  // Separate out commodity and special-type funds — same logic as buildSummary
-  // International/FoF/Arbitrage funds' holdings are not Indian equity — exclude from analysis
-  const commItems  = items.filter(f => f.commodityType);
-  const specItems  = items.filter(f => f.specialType && !f.commodityType);
-  const coreItems  = items.filter(f => !f.commodityType && !f.specialType);
-
   // ── 1. OVERVIEW ──────────────────────────────────────────────
-  const totalEq   = coreItems.reduce((s,f)=>s+f.wt*((f.large+f.mid+f.small)||0),0)/tw;
-  const totalDebt = coreItems.reduce((s,f)=>s+f.wt*(f.debtTotal||0),0)/tw;
+  const totalEq   = items.reduce((s,f)=>s+f.wt*((f.large+f.mid+f.small)||0),0)/tw;
+  const totalDebt = items.reduce((s,f)=>s+f.wt*(f.debtTotal||0),0)/tw;
   const totalOther= 100-totalEq-totalDebt;
-  const blendL    = coreItems.reduce((s,f)=>s+f.wt*(f.large||0),0)/tw;
-  const blendM    = coreItems.reduce((s,f)=>s+f.wt*(f.mid||0),0)/tw;
-  const blendS    = coreItems.reduce((s,f)=>s+f.wt*(f.small||0),0)/tw;
-  const totalStocks = new Set(coreItems.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))).size;
+  const blendL    = items.reduce((s,f)=>s+f.wt*(f.large||0),0)/tw;
+  const blendM    = items.reduce((s,f)=>s+f.wt*(f.mid||0),0)/tw;
+  const blendS    = items.reduce((s,f)=>s+f.wt*(f.small||0),0)/tw;
+  const totalStocks = new Set(items.flatMap(f=>(f.equityStocks||[]).map(s=>s.name.toLowerCase()))).size;
   const totalFunds  = items.length;
 
   document.getElementById('ov-metrics').innerHTML = [
@@ -6401,12 +6094,9 @@ function buildMetrics() {
 
   // ── 2. SECTOR EXPOSURE ───────────────────────────────────────
   const sectorMap = {};
-  coreItems.forEach(f => {
+  items.forEach(f => {
     (f.equityStocks||[]).forEach(s => {
       const { sector: sec, conf } = getSectorWithConfidence(s.name, s.sector);
-      // Skip sectors that are just company names (sector field = stock name, conf=2 but looks like a proper noun)
-      const isCompanyName = conf <= 2 && sec.length > 20 && /[A-Z]/.test(sec[0]) && /\bLtd|\bLimited|\bInc|\bCorp/i.test(sec);
-      if (isCompanyName) return;
       if (!sectorMap[sec]) sectorMap[sec] = {totalPct:0, stocks:new Set(), funds:new Set(), minConf:3};
       sectorMap[sec].totalPct += s.pct * f.wt / 100;
       sectorMap[sec].stocks.add(s.name);
@@ -6446,7 +6136,7 @@ function buildMetrics() {
 
   // ── 3. STOCK OVERLAP ─────────────────────────────────────────
   const stockFundMap = {}; // stockKey → {name, sector, funds:[], totalEffWt}
-  coreItems.forEach(f => {
+  items.forEach(f => {
     (f.equityStocks||[]).forEach(s => {
       const key = s.name.toLowerCase().replace(/\s+/g,'').replace(/ltd\.?|limited/gi,'');
       if (!stockFundMap[key]) stockFundMap[key] = {name:s.name, sector:s.sector||'', funds:[], totalEffWt:0};
@@ -7017,7 +6707,7 @@ async function loadMarketMonitor() {
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
 
   const loadingHtml = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem 0"><span class="spin"></span> Loading…</div>';
-  ['fii-dii-content','earnings-content','market-news-content','portfolio-news-content']
+  ['fii-dii-content','earnings-content','market-news-content','portfolio-news-content','fixed-income-content']
     .forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=loadingHtml; });
   const indEl = document.getElementById('indices-strip');
   if (indEl) indEl.innerHTML = loadingHtml;
@@ -7088,16 +6778,7 @@ async function loadMarketMonitor() {
     renderEarnings(data.earnings || []);
     renderMarketNews(data.market_news || []);
     renderPortfolioNews(data.portfolio_news || []);
-
-    // If news is still loading in background, show indicator and auto-refresh
-    if (data.news_status === 'loading' && (!data.market_news?.length)) {
-      const loadingMsg = '<div style="color:var(--muted);font-size:.7rem;padding:.5rem"><span class="spin"></span> Fetching latest news… auto-refreshing in 30s</div>';
-      ['earnings-content','market-news-content','portfolio-news-content'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el && !el.innerText.trim()) el.innerHTML = loadingMsg;
-      });
-      setTimeout(() => loadMarketMonitor(), 30000);
-    }
+    renderFixedIncome(data.fixed_income || {});
 
     const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
     if (upd) upd.textContent = `Updated ${now}`;
@@ -7121,39 +6802,85 @@ async function loadMarketMonitor() {
   if (btn) { btn.disabled=false; btn.textContent='⟳ Refresh'; }
 }
 
-function _indexRangeBar(yrL, yrH, cur, col) {
-  if (!yrH || !yrL || !cur) return '';
-  const pos = Math.min(100, Math.max(0, ((cur-yrL)/(yrH-yrL))*100));
-  const lo = Number(yrL).toLocaleString('en-IN',{maximumFractionDigits:0});
-  const hi = Number(yrH).toLocaleString('en-IN',{maximumFractionDigits:0});
-  return '<div style="margin-top:.35rem">' +
-    '<div style="display:flex;justify-content:space-between;font-size:.52rem;color:var(--muted);margin-bottom:2px">' +
-    '<span>' + lo + '</span><span style="font-size:.5rem;color:var(--muted2)">52W</span><span>' + hi + '</span></div>' +
-    '<div style="height:3px;background:var(--border);border-radius:2px;position:relative">' +
-    '<div style="position:absolute;left:' + pos + '%;top:-1px;width:5px;height:5px;background:' + col + ';border-radius:50%;transform:translateX(-50%)"></div>' +
-    '</div></div>';
-}
-
 function renderIndices(indices) {
   const el = document.getElementById('indices-strip');
+  if (!el || !indices.length) return;
+  el.innerHTML = indices.map(idx => {
+    const up = (idx.changePct||0) >= 0;
+    const col = up ? 'var(--green)' : 'var(--red)';
+    return `<div style="text-align:center;padding:.35rem .5rem;background:var(--s2);border-radius:var(--r-sm);border:1px solid var(--border)">
+      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">${idx.name}</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:.78rem;font-weight:700;color:var(--text)">${idx.value != null ? idx.value.toLocaleString('en-IN') : '—'}</div>
+      <div style="font-size:.62rem;color:${col};font-family:'IBM Plex Mono',monospace">${up?'▲':'▼'} ${Math.abs(idx.changePct||0).toFixed(2)}%</div>
+    </div>`;
+  }).join('');
+}
+
+function renderFixedIncome(d) {
+  const el = document.getElementById('fixed-income-content');
   if (!el) return;
-  if (!indices.length) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:.7rem;grid-column:1/-1;text-align:center;padding:.5rem">Could not load index data — NSE may be closed or blocking requests</div>';
+  if (!d || !Object.keys(d).length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.7rem">Fixed income data not available</div>';
     return;
   }
-  el.innerHTML = indices.map(function(idx) {
-    const up  = (idx.changePct||0) >= 0;
-    const col = up ? 'var(--green)' : 'var(--red)';
-    const val = idx.value != null ? Number(idx.value).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
-    const chg = idx.change != null ? (up?'+':'')+Number(idx.change).toLocaleString('en-IN',{maximumFractionDigits:2}) : '';
-    const pct = Math.abs(idx.changePct||0).toFixed(2);
-    const rangeBar = _indexRangeBar(idx.yearLow, idx.yearHigh, idx.value, col);
-    return '<div style="text-align:center;padding:.45rem .5rem;background:var(--s2);border-radius:var(--r-sm);border:1px solid var(--border)">' +
-      '<div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem">' + idx.name + '</div>' +
-      '<div style="font-size:.8rem;font-weight:700;color:var(--text)">' + val + '</div>' +
-      '<div style="font-size:.62rem;color:' + col + '">' + (up?'▲':'▼') + ' ' + chg + ' (' + pct + '%)</div>' +
-      rangeBar + '</div>';
-  }).join('');
+  const fmt = (v, dec=2) => (v != null && v !== 0) ? Number(v).toFixed(dec) + '%' : '—';
+  const fmtBps = v => (v != null && v !== 0) ? Number(v).toFixed(0) + ' bps' : '—';
+  const yldColor = v => v > 7 ? 'var(--red)' : v > 6.5 ? 'var(--accent)' : 'var(--green)';
+  const stanceColor = s => {
+    if (!s) return 'var(--muted)';
+    const sl = s.toLowerCase();
+    if (sl.includes('accommodative')) return 'var(--green)';
+    if (sl.includes('hawkish')) return 'var(--red)';
+    if (sl.includes('withdrawal')) return 'var(--accent)';
+    return 'var(--muted2)';
+  };
+
+  // Yield curve slope indicator
+  const slope = d.yield_curve_slope || 0;
+  const slopeLabel = slope > 50 ? 'Steep (pro-duration)' : slope > 0 ? 'Normal' : 'Inverted (caution)';
+  const slopeColor = slope > 50 ? 'var(--green)' : slope > 0 ? 'var(--muted2)' : 'var(--red)';
+
+  el.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">' +
+
+    // Left column — yields
+    '<div>' +
+      '<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem">G-Sec Yields</div>' +
+      '<div style="display:flex;flex-direction:column;gap:.4rem">' +
+        _fiRow('10Y G-Sec', fmt(d.gsec_10y), yldColor(d.gsec_10y)) +
+        _fiRow('5Y G-Sec',  fmt(d.gsec_5y),  yldColor(d.gsec_5y)) +
+        _fiRow('1Y G-Sec',  fmt(d.gsec_1y),  yldColor(d.gsec_1y)) +
+        _fiRow('MIBOR Overnight', fmt(d.mibor_overnight), 'var(--muted2)') +
+      '</div>' +
+      '<div style="margin-top:.75rem;font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem">Yield Curve</div>' +
+      '<div style="font-size:.68rem;color:' + slopeColor + '">' + fmtBps(slope) + ' <span style="color:var(--muted)">' + slopeLabel + '</span></div>' +
+    '</div>' +
+
+    // Right column — policy & credit
+    '<div>' +
+      '<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem">Policy & Credit</div>' +
+      '<div style="display:flex;flex-direction:column;gap:.4rem">' +
+        _fiRow('Repo Rate', fmt(d.repo_rate), 'var(--blue)') +
+        _fiRow('CPI Inflation', fmt(d.cpi_inflation), d.cpi_inflation > 5 ? 'var(--red)' : 'var(--green)') +
+        _fiRow('AAA Spread (10Y)', fmtBps(d.aaa_spread_10y), d.aaa_spread_10y > 80 ? 'var(--green)' : 'var(--muted2)') +
+      '</div>' +
+      '<div style="margin-top:.75rem;font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem">RBI Stance</div>' +
+      '<div style="font-size:.68rem;font-weight:600;color:' + stanceColor(d.rbi_stance) + '">' + (d.rbi_stance || '—') + '</div>' +
+    '</div>' +
+
+  '</div>' +
+
+  // Advisory view
+  (d.debt_market_view ? '<div style="margin-top:.85rem;padding:.6rem .75rem;background:var(--s2);border-radius:var(--r-sm);border-left:3px solid var(--blue)">' +
+    '<div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.2rem">Duration View</div>' +
+    '<div style="font-size:.7rem;color:var(--text);line-height:1.5">' + d.debt_market_view + '</div>' +
+  '</div>' : '');
+}
+
+function _fiRow(label, value, color) {
+  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.25rem 0;border-bottom:1px solid var(--border)">' +
+    '<span style="font-size:.65rem;color:var(--muted)">' + label + '</span>' +
+    '<span style="font-size:.68rem;font-weight:600;color:' + color + ';font-family:monospace">' + value + '</span>' +
+  '</div>';
 }
 
 function renderFiiDii(d) {
@@ -7634,19 +7361,19 @@ async function parseImport() {
           return kw.size === qw.size && [...qw].every(w => kw.has(w));
         })?.name || null;
       }
-      // Only accept local match if the fund has ISIN-level stock data (equityStocks/debtItems).
-      // Reject matches that only have name-classified cap splits (large/mid/small) with no
-      // equityStocks — those came from PDF parsing with browser name-matching which is inaccurate.
-      // Server fetch (Pass 2) gives ISIN-based classification which is far more reliable.
+      // Only accept local match if the fund has real holdings data
       if (match) {
         const localData = loadedFunds.find(lf => lf.name === match)?.data;
-        const hasStockData = localData && (
+        const hasData = localData && (
           (localData.equityStocks?.length > 0) ||
-          (localData.debtItems?.length > 0)
+          (localData.debtItems?.length > 0) ||
+          (localData.large || 0) + (localData.mid || 0) + (localData.small || 0) +
+          (localData.gsec || 0) + (localData.debtTotal || 0) > 0
         );
-        if (!hasStockData) {
-          console.log(`[Pass1] Rejected: "${f.name}" → "${match}" (no ISIN stock data, deferring to server)`);
-          match = null; // let Pass 2 fetch from server with ISIN-based cap classification
+        // Debug: log what was found for these specific problem funds
+        if (!hasData) {
+          console.log(`[Pass1] Rejected empty match: "${f.name}" → "${match}" (no holdings data)`);
+          match = null; // reject empty match — let Pass 2 try server
         }
       }
       f.matched = match;
@@ -8056,28 +7783,14 @@ async function _fetchServerHoldingsForPortfolio(port) {
       .map(f => normFund(f.name))
   );
 
-  // Source fund list: importParsedFunds if available (fresh import),
-  // otherwise build from portfolio allocations (reload scenario)
-  let sourceFunds = importParsedFunds.filter(f => f.matched);
-  if (!sourceFunds.length && port?.allocations) {
-    // Reload scenario — construct minimal fund objects from saved allocations
-    sourceFunds = Object.keys(port.allocations).map(name => ({ name, matched: name }));
-  }
-
-  // Fetch from server: all funds that don't have local stock data
-  // Skip commodity/gold/silver funds — their "equity" holdings are irrelevant for cap analysis
-  const SKIP_FETCH = /\bgold\b|\bsilver\b|\bcommodi|\bgetf\b|\bgold etf/i;
-  const fundsToFetch = sourceFunds.filter(f => {
-    const nm = (f.name || '').toLowerCase();
-    if (SKIP_FETCH.test(nm)) {
-      console.log(`[Fetch] Skipping commodity fund: "${f.name}"`);
-      return false;
-    }
+  // Fetch from server: all matched funds that don't have local stock data
+  const fundsToFetch = importParsedFunds.filter(f => {
+    if (!f.matched) return false;
     const nk = normFund(f.matched || f.name);
     return !localFundsWithStocks.has(nk);
   });
 
-  console.log(`[Fetch] ${fundsToFetch.length} funds need server fetch (${sourceFunds.length - fundsToFetch.length} already have stock data locally)`);
+  console.log(`[Fetch] ${fundsToFetch.length} funds need server fetch (${importParsedFunds.filter(f=>f.matched).length - fundsToFetch.length} already have stock data locally)`);
 
   if (!fundsToFetch.length) return;
 
@@ -8088,20 +7801,6 @@ async function _fetchServerHoldingsForPortfolio(port) {
     amcs.push(a);
     return a;
   })();
-
-  // Remove any previously fetched data for commodity funds — they shouldn't be in __server__
-  Object.keys(syntheticAmc.funds).forEach(k => {
-    if (SKIP_FETCH.test(k.toLowerCase())) {
-      delete syntheticAmc.funds[k];
-      console.log(`[Fetch] Cleared stale commodity fund data: "${k}"`);
-    }
-  });
-
-  // Clear stale snapshots so they get recomputed with correct data after fetch
-  if (port.snapshots?.length) {
-    port.snapshots = [];
-    savePortfolios();
-  }
 
   await Promise.all(fundsToFetch.map(async f => {
     try {
@@ -8116,30 +7815,18 @@ async function _fetchServerHoldingsForPortfolio(port) {
       const data = await res.json();
       if (!data.holdings?.length) return;
 
-      // Store using the cleaned fund name — MUST match what confirmImport stores in
-      // allocations/allocRows (which applies cleanFundName to f.name before saving).
-      // getActiveItems looks up allocRows[i].fundName in uploadedMap, so the key here
-      // must equal cleanFundName(f.name), not the raw f.name.
-      const cleanFundName = n => n
-        .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
-        .replace(/\s*\(IDCW\)\s*$/i,'')
-        .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
-        .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
-      const fname = cleanFundName(f.name);
+      // Store using the CAS fund name — this is what allocRows.fundName contains
+      // so getActiveItems can find it via uploadedMap[normFund(r.fundName)]
+      const fname = f.name;
       // Distinguish equity vs debt using server-provided type field,
       // falling back to sector-based detection for older server data
       const DEBT_SECTOR = /crisil|care|icra|fitch|ind-ra|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
-      const DEBT_NAME   = /\bncd\b|\bdebenture|\bbond\b|preference share|\bnabard\b|\bsidbi\b|\bnhb\b|\bnhpc\b|\bpfc\b|\brec\b.*bond|\bnhai\b|infra.*trust|highway.*trust|liquid.*gold|\bshinhan\b|\bfedbank.*fin|^\d+\.?\d*%/i;
-      // Trust server type field — only fall back to sector/name heuristics when type is absent
-      // For sector match: require sector to look like a rating label, not a company sector
-      // e.g. "CRISIL AAA" is debt sector, "Financial Services" is equity sector
-      const isRatingSector = s => DEBT_SECTOR.test(s) && !/^(banks|insurance|it|software|pharma|auto|fmcg|consumer|capital|industrial|financial services|healthcare|telecom|cement|metal|energy|power|realty|media|retail|chemicals|textiles|agri)/i.test(s);
-      const isDebtHolding = h => h.type === 'debt' || (!h.type && (isRatingSector(h.sector || '') || DEBT_NAME.test(h.name || '')));
+      const isDebtHolding = h => h.type === 'debt' || (!h.type && (DEBT_SECTOR.test(h.sector || '') || /^\d+\.?\d*%/.test(h.name)));
 
       const equityStocks = data.holdings
-        .filter(h => h.isin
-               && !isDebtHolding(h)
-               && !/mutual fund|mf -|etf|\bfof\b|fund of fund|liquid fund/i.test(h.name))
+        .filter(h => h.isin && !isDebtHolding(h)
+               && !/mutual fund|mf -|etf|\bfof\b|fund of fund/i.test(h.name)
+               || (h.cap && h.cap !== null))  // keep if server classified it
         .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || ''), cap: h.cap || null }));
       const debtItems = data.holdings
         .filter(h => h.isin && isDebtHolding(h))
@@ -8232,7 +7919,7 @@ function confirmImport() {
   });
 
   const port = {
-    id, name, client, clientId: (clientId && clientId !== '__new__') ? clientId : null,
+    id, name, client,
     createdAt: new Date().toISOString(),
     allocations,
     holdingsDetail,
@@ -12931,10 +12618,6 @@ window.MFPortfolioBuilder.showClientList = async function() {
               style="background:#1a1a2e;border:1px solid #333;color:#888;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">
               🔧 ${port?'Rebuild':'Build'} Portfolio
             </button>
-            <button onclick="MFPortfolioBuilder._deleteClient('${c.clientId}', '${(c.name||'').replace(/'/g, "\\'")}')"
-              style="background:#1a1a2e;border:1px solid #c0392b40;color:#e57373;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">
-              🗑 Delete
-            </button>
           </div>
         </div>
       `;
@@ -13477,19 +13160,6 @@ window.MFPortfolioBuilder.showClientList = async function() {
       `;
     });
   };
-  window.MFPortfolioBuilder._deleteClient = async (clientId, clientName) => {
-    if (!confirm(`Delete client "${clientName}"?\n\nThis will permanently remove their profile, portfolio, and holdings data.`)) return;
-    try {
-      await deleteDoc(doc(db, 'clients', clientId));
-      await deleteDoc(doc(db, 'client_holdings', clientId));
-      showToast(`Client "${clientName}" deleted`);
-      loadClients();
-    } catch(e) {
-      console.error('Delete client failed:', e);
-      showToast('Delete failed — check console');
-    }
-  };
-
   window.MFPortfolioBuilder._buildPortfolio = (clientId) => {
     document.getElementById('cl-page')?.remove();
     window.MFPortfolioBuilder._pbBackPage = () => window.MFPortfolioBuilder.showClientList();
