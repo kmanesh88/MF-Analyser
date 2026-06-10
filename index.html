@@ -1954,8 +1954,9 @@ body {
       <span class="mode-badge mode-pre" id="fluid-mode-badge">Pre-meeting</span>
       <button onclick="fluidToggleListening()" id="fluid-listen-btn" style="display:flex;align-items:center;gap:.4rem;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.3rem .8rem;cursor:pointer;font-size:.68rem;color:var(--text2);font-family:'Inter',sans-serif;transition:all .2s">
         <div id="fluid-listen-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted)"></div>
-        <span id="fluid-listen-label">Start Listening</span>
+        <span id="fluid-listen-label">🎤 Start Listening</span>
       </button>
+      <button onclick="fluidToggleDemo()" id="fluid-demo-btn" title="Demo mode" style="background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.3rem .7rem;cursor:pointer;font-size:.65rem;color:var(--muted);font-family:'Inter',sans-serif;transition:all .2s">Demo</button>
     </div>
   </div>
 
@@ -8336,6 +8337,9 @@ let fluidListening = false;
 let fluidDemoInterval = null;
 let fluidDemoIdx = 0;
 let fluidInited = false;
+let fluidSpeechRecognition = null;
+let fluidMicMode = 'demo'; // 'demo' | 'mic'
+let fluidInterimEl = null;  // element showing live interim text
 
 const FLUID_DEMO_PHRASES = [
   "The market is down almost 12% from the highs. My client is asking whether to stop the SIP.",
@@ -8404,27 +8408,165 @@ function fluidAnalyze() {
   input.value = '';
 }
 
+function fluidSetListeningUI(active) {
+  const btn  = document.getElementById('fluid-listen-btn');
+  const lbl  = document.getElementById('fluid-listen-label');
+  const dot  = document.getElementById('fluid-listen-dot');
+  const mode = document.getElementById('fluid-mode-badge');
+  const status = document.getElementById('fluid-status');
+  if (active) {
+    if (btn)  { btn.style.background='#1a2e20'; btn.style.borderColor='var(--green)'; btn.style.color='var(--green)'; }
+    if (lbl)  lbl.textContent = 'Listening…';
+    if (dot)  { dot.style.background='var(--green)'; dot.style.animation='pulse 1.4s ease-in-out infinite'; }
+    if (mode) { mode.className='mode-badge mode-live'; mode.textContent='Live Meeting'; }
+    if (status) status.textContent = 'Active';
+  } else {
+    if (btn)  { btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; }
+    if (lbl)  lbl.textContent = 'Start Listening';
+    if (dot)  { dot.style.background='var(--muted)'; dot.style.animation=''; }
+    if (mode) { mode.className='mode-badge mode-post'; mode.textContent='Post-meeting'; }
+    if (status) status.textContent = 'Idle';
+  }
+}
+
+function fluidStartMic() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    showToast('Speech recognition not supported in this browser. Use Chrome.');
+    return false;
+  }
+  fluidSpeechRecognition = new SpeechRecognition();
+  fluidSpeechRecognition.continuous      = true;
+  fluidSpeechRecognition.interimResults  = true;
+  fluidSpeechRecognition.lang            = 'en-IN';  // Indian English
+  fluidSpeechRecognition.maxAlternatives = 1;
+
+  // Show interim results live in transcript
+  fluidSpeechRecognition.onresult = (event) => {
+    let interim = '';
+    let final   = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const t = event.results[i][0].transcript;
+      if (event.results[i].isFinal) final += t;
+      else interim += t;
+    }
+    // Update live interim element
+    const el = document.getElementById('fluid-transcript');
+    if (interim) {
+      if (!fluidInterimEl) {
+        fluidInterimEl = document.createElement('div');
+        fluidInterimEl.className = 'fchunk';
+        fluidInterimEl.style.borderLeftColor = 'var(--muted)';
+        fluidInterimEl.style.color = 'var(--muted)';
+        fluidInterimEl.style.fontStyle = 'italic';
+        el?.appendChild(fluidInterimEl);
+      }
+      fluidInterimEl.textContent = interim;
+      el.scrollTop = el.scrollHeight;
+    }
+    // When a sentence is final, add to transcript and analyze
+    if (final.trim()) {
+      if (fluidInterimEl) { fluidInterimEl.remove(); fluidInterimEl = null; }
+      fluidAddTranscript(final.trim());
+    }
+  };
+
+  fluidSpeechRecognition.onerror = (e) => {
+    console.warn('Speech recognition error:', e.error);
+    if (e.error === 'not-allowed') {
+      showToast('Microphone access denied. Allow mic in browser settings.');
+      fluidStopMic();
+      fluidListening = false;
+      fluidSetListeningUI(false);
+    } else if (e.error === 'no-speech') {
+      // No speech detected — just continue
+    } else if (e.error !== 'aborted') {
+      // Try to restart on other errors
+      setTimeout(() => { if (fluidListening && fluidMicMode === 'mic') fluidStartMic(); }, 1000);
+    }
+  };
+
+  fluidSpeechRecognition.onend = () => {
+    // Auto-restart if still listening (Chrome stops after silence)
+    if (fluidListening && fluidMicMode === 'mic') {
+      setTimeout(() => fluidSpeechRecognition?.start(), 300);
+    }
+  };
+
+  try {
+    fluidSpeechRecognition.start();
+    return true;
+  } catch(e) {
+    console.warn('Speech start failed:', e);
+    return false;
+  }
+}
+
+function fluidStopMic() {
+  try { fluidSpeechRecognition?.stop(); } catch(e) {}
+  fluidSpeechRecognition = null;
+  if (fluidInterimEl) { fluidInterimEl.remove(); fluidInterimEl = null; }
+}
+
 function fluidToggleListening() {
   fluidListening = !fluidListening;
-  const btn = document.getElementById('fluid-listen-btn');
-  const lbl = document.getElementById('fluid-listen-label');
-  const dot = document.getElementById('fluid-listen-dot');
-  const mode = document.getElementById('fluid-mode-badge');
+
   if (fluidListening) {
-    if (btn) { btn.style.background='#1a2e20'; btn.style.borderColor='var(--green)'; btn.style.color='var(--green)'; }
-    if (lbl) lbl.textContent = 'Listening…';
-    if (dot) { dot.style.background='var(--green)'; dot.style.animation='pulse 1.4s ease-in-out infinite'; }
-    if (mode) { mode.className='mode-badge mode-live'; mode.textContent='Live Meeting'; }
+    // Try real mic first
+    const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (hasSpeech) {
+      fluidMicMode = 'mic';
+      const started = fluidStartMic();
+      if (started) {
+        fluidSetListeningUI(true);
+        showToast('🎤 Microphone active — speak naturally');
+        return;
+      }
+    }
+    // Fallback to demo mode
+    fluidMicMode = 'demo';
+    fluidSetListeningUI(true);
+    showToast('Demo mode — real mic not available');
     fluidDemoInterval = setInterval(() => {
       fluidAddTranscript(FLUID_DEMO_PHRASES[fluidDemoIdx % FLUID_DEMO_PHRASES.length]);
       fluidDemoIdx++;
     }, 7000);
   } else {
-    if (btn) { btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; }
-    if (lbl) lbl.textContent = 'Start Listening';
-    if (dot) { dot.style.background='var(--muted)'; dot.style.animation=''; }
-    if (mode) { mode.className='mode-badge mode-post'; mode.textContent='Post-meeting'; }
+    if (fluidMicMode === 'mic') {
+      fluidStopMic();
+    } else {
+      clearInterval(fluidDemoInterval);
+    }
+    fluidSetListeningUI(false);
+    showToast('Listening stopped');
+  }
+}
+
+function fluidToggleDemo() {
+  // Force demo mode regardless of mic availability
+  if (fluidListening && fluidMicMode === 'mic') {
+    fluidStopMic();
+    fluidMicMode = 'demo';
+    fluidDemoInterval = setInterval(() => {
+      fluidAddTranscript(FLUID_DEMO_PHRASES[fluidDemoIdx % FLUID_DEMO_PHRASES.length]);
+      fluidDemoIdx++;
+    }, 7000);
+    showToast('Switched to demo mode');
+    return;
+  }
+  if (!fluidListening) {
+    fluidListening = true;
+    fluidMicMode = 'demo';
+    fluidSetListeningUI(true);
+    fluidDemoInterval = setInterval(() => {
+      fluidAddTranscript(FLUID_DEMO_PHRASES[fluidDemoIdx % FLUID_DEMO_PHRASES.length]);
+      fluidDemoIdx++;
+    }, 7000);
+    showToast('Demo mode active');
+  } else {
+    fluidListening = false;
     clearInterval(fluidDemoInterval);
+    fluidSetListeningUI(false);
   }
 }
 
