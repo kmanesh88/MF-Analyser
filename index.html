@@ -343,7 +343,51 @@ body {
 .page { display: none; }
 .page.active { display: block; }
 
-.pg-header { margin-bottom: 2rem; }
+.pg-header { margin-bottom: 2rem; display:flex; justify-content:space-between; align-items:flex-start; }
+
+/* ── Fluid Dashboard ── */
+.mode-badge{font-size:.6rem;padding:.2rem .55rem;border-radius:20px;font-weight:500}
+.mode-pre{background:#1a2233;color:var(--blue);border:1px solid #2a3550}
+.mode-live{background:#1a2e20;color:var(--green);border:1px solid #2a4e30}
+.mode-post{background:#2e1a2e;color:#ce93d8;border:1px solid #4e2a4e}
+#page-fluid .fluid-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.9rem;animation:fluidIn .3s ease-out}
+@keyframes fluidIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+#page-fluid .fluid-card.pinned{border-color:var(--accent);background:#131620}
+#page-fluid .fluid-lbl{font-size:.56rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.2rem}
+#page-fluid .fluid-title{font-family:'Fraunces',serif;font-size:.9rem;font-weight:300;color:var(--text);line-height:1.3;margin-bottom:.65rem}
+#page-fluid .fluid-card-actions{float:right;display:flex;gap:.25rem;margin-left:.5rem}
+#page-fluid .fluid-cbtn{width:22px;height:22px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+#page-fluid .fluid-cbtn:hover{color:var(--text);border-color:var(--text2)}
+#page-fluid .fluid-cbtn.pinned{color:var(--accent);border-color:var(--accent)}
+#page-fluid .fdr{display:flex;justify-content:space-between;align-items:center;padding:.28rem 0;border-bottom:1px solid var(--border);font-size:.69rem}
+#page-fluid .fdr:last-child{border-bottom:none}
+#page-fluid .fdr .lbl{color:var(--text2)}
+#page-fluid .fdr .val{font-family:'IBM Plex Mono',monospace;font-size:.67rem}
+#page-fluid .ftp{margin-top:.65rem;padding:.45rem .6rem;background:#131b2e;border-left:2px solid var(--blue);border-radius:0 6px 6px 0;font-size:.65rem;color:var(--text2);line-height:1.5;font-style:italic}
+#page-fluid .ftp strong{color:var(--blue);font-style:normal}
+#page-fluid .ftl{display:flex;flex-direction:column;gap:.4rem}
+#page-fluid .ftl-row{display:grid;grid-template-columns:52px 1fr;gap:.35rem;align-items:start}
+#page-fluid .ftl-yr{font-family:'IBM Plex Mono',monospace;font-size:.6rem;color:var(--muted);padding-top:.1rem}
+#page-fluid .ftl-body{background:var(--bg3);border-radius:6px;padding:.38rem .52rem}
+#page-fluid .ftl-name{font-size:.64rem;font-weight:500;color:var(--text);margin-bottom:.16rem}
+#page-fluid .ftl-stats{display:flex;gap:.55rem;font-size:.59rem;margin-bottom:.16rem}
+#page-fluid .ftl-ins{font-size:.59rem;color:var(--text2);font-style:italic;line-height:1.4}
+#page-fluid .fbar-chart{display:flex;flex-direction:column;gap:.32rem}
+#page-fluid .fbar-row{display:grid;grid-template-columns:95px 1fr 40px;gap:.32rem;align-items:center}
+#page-fluid .fbar-lbl{font-size:.62rem;color:var(--text2)}
+#page-fluid .fbar-track{height:5px;background:var(--border);border-radius:3px}
+#page-fluid .fbar-fill{height:100%;border-radius:3px;transition:width .5s ease}
+#page-fluid .fbar-val{font-size:.59rem;font-family:'IBM Plex Mono',monospace;color:var(--text2);text-align:right}
+#page-fluid .fchunk{font-size:.67rem;line-height:1.55;color:var(--text2);padding:.42rem .58rem;background:var(--bg3);border-radius:6px;border-left:2px solid var(--border);transition:border-color .3s}
+#page-fluid .fchunk.fresh{border-left-color:var(--green);color:var(--text)}
+#page-fluid .fchunk .fts{font-size:.54rem;color:var(--muted);margin-bottom:.16rem;font-family:'IBM Plex Mono',monospace}
+#page-fluid .fintent{display:flex;align-items:center;gap:.32rem;font-size:.58rem;color:var(--amber);padding:.26rem .58rem;background:#2a2010;border:1px solid #3a3010;border-radius:6px}
+#page-fluid .fsect{display:flex;align-items:center;justify-content:space-between;padding:.26rem .42rem;background:var(--bg3);border-radius:6px;font-size:.64rem;margin-bottom:.22rem}
+#page-fluid .imp-pos{background:#1a3020;color:var(--green);font-size:.57rem;padding:.1rem .38rem;border-radius:10px;font-weight:500}
+#page-fluid .imp-neg{background:#2e1a1a;color:var(--red);font-size:.57rem;padding:.1rem .38rem;border-radius:10px;font-weight:500}
+#page-fluid .ftpt{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:.48rem .58rem;font-size:.63rem;line-height:1.5;color:var(--text2);cursor:pointer;transition:border-color .2s}
+#page-fluid .ftpt:hover{border-color:var(--accent);color:var(--text)}
+#page-fluid .ftpt .tptag{font-size:.5rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:.18rem}
 .pg-title {
   font-family: 'Fraunces', serif;
   font-size: 1.75rem; font-weight: 600;
@@ -1077,6 +1121,7 @@ body {
   <div class="nav-item" id="nav-alerts"           onclick="showPage('alerts')"><div class="ndot"></div>Alerts Dashboard</div>
   <div class="nav-item" id="nav-thresholds"       onclick="showPage('thresholds')"><div class="ndot"></div>Thresholds</div>
   <div class="nav-item" id="nav-monitor"          onclick="showPage('monitor')"><div class="ndot"></div>Market Monitor</div>
+  <div class="nav-item" id="nav-fluid"            onclick="showPage('fluid')" style="color:var(--green)"><div class="ndot"></div>Fluid ✦</div>
   <div class="nav-div"></div>
 
   <!-- Active portfolio switcher -->
@@ -1893,6 +1938,60 @@ body {
     <div id="watchlist-rows"></div><div id="impact-list"></div>
     <div id="announcements-list"></div>
     <button id="fetch-btn" onclick="fetchAllPrices()"></button>
+  </div>
+</div>
+
+
+<div class="page" id="page-fluid" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 56px);overflow:hidden">
+
+  <!-- Fluid top bar -->
+  <div style="height:48px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 1.25rem;gap:.75rem;flex-shrink:0">
+    <span style="font-family:'Fraunces',serif;font-size:1rem;font-weight:300;letter-spacing:-.02em">fluid<span style="color:var(--green)">.</span></span>
+    <div id="fluid-client-badge" onclick="fluidSelectClient()" style="display:flex;align-items:center;gap:.4rem;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:.25rem .6rem;cursor:pointer;font-size:.68rem;color:var(--text2)">
+      👤 <span id="fluid-client-name">Select Client</span> <span style="font-size:.6rem">▾</span>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:.6rem">
+      <span class="mode-badge mode-pre" id="fluid-mode-badge">Pre-meeting</span>
+      <button onclick="fluidToggleListening()" id="fluid-listen-btn" style="display:flex;align-items:center;gap:.4rem;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.3rem .8rem;cursor:pointer;font-size:.68rem;color:var(--text2);font-family:'Inter',sans-serif;transition:all .2s">
+        <div id="fluid-listen-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted)"></div>
+        <span id="fluid-listen-label">Start Listening</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Fluid main area -->
+  <div style="display:flex;flex:1;overflow:hidden">
+
+    <!-- Left — Transcript -->
+    <div style="width:270px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column">
+      <div style="padding:.6rem 1rem;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span>Conversation</span>
+        <span id="fluid-status" style="color:var(--muted);font-size:.58rem">Idle</span>
+      </div>
+      <div id="fluid-transcript" style="flex:1;overflow-y:auto;padding:.75rem;display:flex;flex-direction:column;gap:.4rem"></div>
+      <div style="padding:.65rem;border-top:1px solid var(--border)">
+        <textarea id="fluid-input" placeholder="Type conversation snippet… (Cmd+Enter to analyze)" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.68rem;font-family:'Inter',sans-serif;padding:.45rem .6rem;resize:none;height:58px;outline:none;line-height:1.5"></textarea>
+        <button onclick="fluidAnalyze()" style="width:100%;margin-top:.35rem;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:.4rem;font-size:.68rem;cursor:pointer;font-family:'Inter',sans-serif;font-weight:500">Analyze →</button>
+      </div>
+    </div>
+
+    <!-- Center — Canvas -->
+    <div id="fluid-canvas" style="flex:1;overflow-y:auto;padding:1rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.85rem;align-content:start">
+      <div id="fluid-empty" style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:55vh;color:var(--muted);text-align:center;gap:.65rem">
+        <div style="font-size:2rem;opacity:.25">◎</div>
+        <div style="font-family:'Fraunces',serif;font-size:1rem;font-weight:300;color:var(--text2)">Ready to listen</div>
+        <div style="font-size:.7rem;max-width:280px;line-height:1.6">Select a client, start listening or type a conversation snippet. Relevant data cards appear here in real time.</div>
+      </div>
+    </div>
+
+    <!-- Right — Talking Points -->
+    <div style="width:210px;flex-shrink:0;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column">
+      <div style="padding:.6rem 1rem;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border)">Talking Points</div>
+      <div id="fluid-talking" style="flex:1;overflow-y:auto;padding:.65rem;display:flex;flex-direction:column;gap:.4rem">
+        <div style="color:var(--muted);font-size:.65rem;text-align:center;padding:1rem;line-height:1.6">Points appear as conversation develops</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -2869,6 +2968,7 @@ function showPage(pg) {
     if (pg==='alerts')     try{buildAlertsPage();}catch(e){console.error('buildAlertsPage',e);}
     if (pg==='thresholds') try{buildThresholdsPage();}catch(e){console.error('buildThresholdsPage',e);}
     if (pg==='monitor')    { try{renderWatchlist();}catch(e){console.error('renderWatchlist',e);} if(!_monitorLoaded) loadMarketMonitor(); }
+    if (pg==='fluid')      { try{fluidInit();}catch(e){console.error('fluidInit',e);} }
     if (pg==='upload')     try{rebuildAmcPanels();buildAmcExcelLinks();initApiConfigBar();}catch(e){console.error('upload init',e);}
   } catch(e) {
     console.error('showPage error:', e);
@@ -8147,6 +8247,406 @@ window.addEventListener('load', async () => {
     document.getElementById('page-clients')?.classList.add('active');
   }
 });
+
+// ============================================================
+// FLUID DASHBOARD ENGINE
+// ============================================================
+
+const FLUID_STASH = {
+  market_corrections: {
+    episodes: [
+      {name:"Global Financial Crisis",year:"2008",drawdown_pct:-64.6,recovery_months:18,trigger:"US subprime crisis, Lehman collapse",sip_insight:"SIP investors earned 28% CAGR over next 5 years"},
+      {name:"European Debt Crisis",year:"2011",drawdown_pct:-28.5,recovery_months:14,trigger:"Greece/Portugal debt crisis, RBI rate hikes",sip_insight:"Nifty SIP during this period gave 19% CAGR over 3 years"},
+      {name:"China Slowdown + Oil Crash",year:"2015-16",drawdown_pct:-25.2,recovery_months:12,trigger:"China slowdown, crude crash to $27, FII outflows",sip_insight:"Mid cap SIPs gave 22% CAGR over 3 years"},
+      {name:"IL&FS + NBFC Crisis",year:"2018",drawdown_pct:-14.9,recovery_months:6,trigger:"IL&FS default, NBFC crisis, INR at 74",sip_insight:"Investors who increased SIP in Oct 2018 saw 35% gains by 2019"},
+      {name:"COVID Crash",year:"2020",drawdown_pct:-39.5,recovery_months:6,trigger:"COVID-19 pandemic, global lockdowns",sip_insight:"Fastest recovery ever — 6 months. SIP investors doubled money by 2021"},
+      {name:"US Rate Hike Cycle",year:"2022",drawdown_pct:-18.4,recovery_months:7,trigger:"US Fed hikes, FII outflows, Russia-Ukraine war",sip_insight:"SIP investors saw portfolio recover fully within 7 months"}
+    ],
+    talking_points:["Nifty has never failed to recover from any correction in its 30-year history","Average recovery time is under 11 months — shorter than most people think","COVID crash — worst in a generation — recovered in just 6 months","Every correction has been followed by a new all-time high","Stopping SIP during correction locks in losses and misses the entire recovery"]
+  },
+  geopolitical_events: {
+    episodes:[
+      {event:"Kargil War",year:"1999",nifty_during:-10.0,nifty_6m_after:28.0,gold_during:2.1},
+      {event:"9/11 Attack",year:"2001",nifty_during:-7.2,nifty_6m_after:12.0,gold_during:3.5},
+      {event:"Iraq War",year:"2003",nifty_during:-5.0,nifty_6m_after:45.0,gold_during:8.0},
+      {event:"GFC",year:"2008",nifty_during:-64.6,nifty_6m_after:70.0,gold_during:25.0},
+      {event:"COVID-19",year:"2020",nifty_during:-39.5,nifty_6m_after:65.0,gold_during:28.0},
+      {event:"Russia-Ukraine",year:"2022",nifty_during:-18.4,nifty_6m_after:14.0,gold_during:12.0}
+    ],
+    talking_points:["In every geopolitical crisis, Indian markets recovered within 6-18 months","Gold acts as a hedge but equity outperforms gold over the recovery period","Selling during geopolitical fear is historically the worst decision","India's domestic consumption story is resilient to most global conflicts","DII + SIP now provide a strong buffer against FII selling"]
+  },
+  inflation_context: {
+    asset_class_returns:[
+      {asset:"Nifty 50 Equity",cagr:13.2,real_return:7.1,beats:true},
+      {asset:"Gold",cagr:11.8,real_return:5.7,beats:true},
+      {asset:"Debt Funds",cagr:7.2,real_return:1.1,beats:true},
+      {asset:"Bank FD",cagr:6.8,real_return:0.7,beats:false,note:"After 30% tax, real return is negative"},
+      {asset:"Savings Account",cagr:3.5,real_return:-2.6,beats:false}
+    ],
+    talking_points:["Over 20 years, equity has given 7% real returns after inflation — FD gives near zero","Inflation is the biggest silent wealth destroyer — staying in FD is not safe","₹1 Cr in FD — after tax and inflation, real value halves in 10 years","Equity mutual funds are the best long-term inflation hedge for retail investors","In high inflation, avoid long duration debt — move to floating rate or short duration"]
+  },
+  oil_impact: {
+    sector_impact:[
+      {sector:"Oil & Gas (upstream)",impact:"Positive",reason:"Higher crude = higher revenue per barrel"},
+      {sector:"Aviation",impact:"Negative",reason:"ATF is 30-40% of operating cost"},
+      {sector:"OMCs (BPCL, HPCL, IOC)",impact:"Negative",reason:"Govt controls retail prices — OMCs absorb losses"},
+      {sector:"Paints (Asian, Berger)",impact:"Negative",reason:"Crude derivatives are key raw material"},
+      {sector:"Tyres (MRF, Apollo)",impact:"Negative",reason:"Synthetic rubber is crude-linked"},
+      {sector:"IT Services",impact:"Positive",reason:"USD revenue + INR weakness = higher rupee earnings"}
+    ],
+    talking_points:["India imports 85% of oil — every $10 rise costs India $15 billion more per year","IT sector in your portfolio is a natural hedge — they earn in USD","Rising oil → higher inflation → RBI holds rates → bad for long duration debt","Diversified portfolios with IT and pharma have natural oil hedge","India's Russian oil discount provides a buffer vs global crude prices"]
+  },
+  inr_depreciation: {
+    trend:[{year:2000,rate:45},{year:2010,rate:45.6},{year:2015,rate:65},{year:2020,rate:73},{year:2023,rate:83},{year:2025,rate:86.5}],
+    avg_annual_depreciation:3.8,
+    beneficiaries:[
+      {sector:"IT Services",reason:"Revenue in USD, costs in INR — 1% INR fall = ~0.5% margin boost"},
+      {sector:"Pharma Exports",reason:"US generic drug exports priced in USD"},
+      {sector:"Gold",reason:"Gold is USD-priced — INR fall = higher gold in rupees"}
+    ],
+    talking_points:["Rupee has depreciated from ₹45 to ₹86 in 25 years — 3.8% per year like clockwork","This is structural, not a crisis — driven by India-US inflation differential","IT sector in your portfolio is a natural currency hedge","International funds become more valuable when rupee falls","INR depreciation adds ~3-4% to international fund returns automatically"]
+  },
+  fii_outflows: {
+    episodes:[
+      {period:"2008",fii_net_crore:-53000,nifty_impact:-64.6,dii_net_crore:10000,outcome:"Market collapsed but recovered fully by 2010"},
+      {period:"Mar 2020",fii_net_crore:-65000,nifty_impact:-39.5,dii_net_crore:55000,outcome:"DII absorbed most. Market recovered in 6 months"},
+      {period:"2022 Full Year",fii_net_crore:-260000,nifty_impact:-18.4,dii_net_crore:280000,outcome:"DII exceeded FII selling. Market fell only 18%"},
+      {period:"Oct-Nov 2024",fii_net_crore:-150000,nifty_impact:-10.0,dii_net_crore:160000,outcome:"DII absorbed all FII selling. Market corrected only 10%"}
+    ],
+    sip_growth:[{year:2015,crore:3200},{year:2018,crore:7500},{year:2020,crore:8500},{year:2022,crore:14000},{year:2024,crore:23000},{year:2025,crore:26000}],
+    talking_points:["FIIs sold ₹2.6 lakh crore in 2022 — DIIs bought more. Market fell only 18%","Monthly SIP of ₹26,000 Cr is now India's most powerful market stabiliser","4.2 crore SIP accounts — 42 million Indians buying every month regardless","FII selling episodes historically last 3-6 months, then they return","Your own SIP is part of the DII wall absorbing FII selling right now"]
+  }
+};
+
+const FLUID_TRIGGERS = [
+  {patterns:["market down","correction","fall","crash","bear","volatile","volatility","drop","decline","fear","falling"],cards:["f_bear_market","f_market_valuation"],key:"market_corrections"},
+  {patterns:["stop sip","pause sip","should i stop","redeem","withdraw","pull out","worried","scared","nervous"],cards:["f_bear_market","f_sip_lumpsum"],key:"market_corrections"},
+  {patterns:["war","tension","geopolitical","conflict","ukraine","russia","china","israel","middle east","crisis","attack"],cards:["f_geopolitical","f_gold"],key:"geopolitical_events"},
+  {patterns:["inflation","prices rising","real return","purchasing power","fd","fixed deposit","erode","inflation high"],cards:["f_inflation","f_asset_class"],key:"inflation_context"},
+  {patterns:["oil","crude","petrol","brent","opec","energy price","oil price"],cards:["f_oil_sector","f_oil_macro"],key:"oil_impact"},
+  {patterns:["rupee","dollar","usd","currency","depreciat","forex","exchange rate","inr","rupee fall"],cards:["f_inr","f_it_benefit"],key:"inr_depreciation"},
+  {patterns:["fii","foreign investor","outflow","institutional selling","fiis are selling","foreign sell","fii selling"],cards:["f_fii","f_dii"],key:"fii_outflows"},
+  {patterns:["gold","gold bonds","sgb","safe haven","protect","hedge","preserve"],cards:["f_gold","f_geopolitical"],key:"geopolitical_events"},
+  {patterns:["interest rate","rbi","repo","rate cut","rate hike","monetary policy","yield","duration"],cards:["f_inflation","f_asset_class"],key:"inflation_context"}
+];
+
+let fluidCards = new Map();
+let fluidTranscript = [];
+let fluidListening = false;
+let fluidDemoInterval = null;
+let fluidDemoIdx = 0;
+let fluidInited = false;
+
+const FLUID_DEMO_PHRASES = [
+  "The market is down almost 12% from the highs. My client is asking whether to stop the SIP.",
+  "There's a lot of FII selling happening. Foreign investors are pulling out of Indian markets.",
+  "Oil prices are at $88 a barrel. How does this affect the portfolio?",
+  "The rupee has fallen to 87 against the dollar. Should we add more international funds?",
+  "With the geopolitical tension in the Middle East, what should we do with the portfolio?",
+  "Inflation is still high at 5.4%. Are my real returns actually positive after inflation?"
+];
+
+function fluidInit() {
+  if (fluidInited) return;
+  fluidInited = true;
+  document.getElementById('fluid-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) fluidAnalyze();
+  });
+}
+
+function fluidDetectIntent(text) {
+  const lower = text.toLowerCase();
+  const matched = [];
+  FLUID_TRIGGERS.forEach(t => {
+    const hits = t.patterns.filter(p => lower.includes(p));
+    if (hits.length) matched.push({...t, confidence: hits.length, hits});
+  });
+  matched.sort((a,b) => b.confidence - a.confidence);
+  if (!matched.length) return null;
+  return {
+    cards: [...new Set(matched.flatMap(m => m.cards))].slice(0, 4),
+    key: matched[0].key,
+    phrases: matched.flatMap(m => m.hits).slice(0, 4)
+  };
+}
+
+function fluidAddTranscript(text) {
+  const el = document.getElementById('fluid-transcript');
+  if (!el) return;
+  const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const chunk = document.createElement('div');
+  chunk.className = 'fchunk fresh';
+  chunk.innerHTML = '<div class="fts">' + now + '</div>' + text;
+  el.appendChild(chunk);
+  el.scrollTop = el.scrollHeight;
+  setTimeout(() => chunk.classList.remove('fresh'), 2000);
+  fluidTranscript.push(text);
+
+  const context = fluidTranscript.slice(-3).join(' ');
+  const intent = fluidDetectIntent(context);
+  if (intent) {
+    const badge = document.createElement('div');
+    badge.className = 'fintent';
+    badge.textContent = '⚡ ' + intent.phrases.join(', ');
+    el.appendChild(badge);
+    el.scrollTop = el.scrollHeight;
+    fluidShowCards(intent.cards);
+    fluidUpdateTalkingPoints(intent.key);
+    const status = document.getElementById('fluid-status');
+    if (status) status.textContent = intent.key.replace(/_/g,' ');
+  }
+}
+
+function fluidAnalyze() {
+  const input = document.getElementById('fluid-input');
+  if (!input?.value.trim()) return;
+  fluidAddTranscript(input.value.trim());
+  input.value = '';
+}
+
+function fluidToggleListening() {
+  fluidListening = !fluidListening;
+  const btn = document.getElementById('fluid-listen-btn');
+  const lbl = document.getElementById('fluid-listen-label');
+  const dot = document.getElementById('fluid-listen-dot');
+  const mode = document.getElementById('fluid-mode-badge');
+  if (fluidListening) {
+    if (btn) { btn.style.background='#1a2e20'; btn.style.borderColor='var(--green)'; btn.style.color='var(--green)'; }
+    if (lbl) lbl.textContent = 'Listening…';
+    if (dot) { dot.style.background='var(--green)'; dot.style.animation='pulse 1.4s ease-in-out infinite'; }
+    if (mode) { mode.className='mode-badge mode-live'; mode.textContent='Live Meeting'; }
+    fluidDemoInterval = setInterval(() => {
+      fluidAddTranscript(FLUID_DEMO_PHRASES[fluidDemoIdx % FLUID_DEMO_PHRASES.length]);
+      fluidDemoIdx++;
+    }, 7000);
+  } else {
+    if (btn) { btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; }
+    if (lbl) lbl.textContent = 'Start Listening';
+    if (dot) { dot.style.background='var(--muted)'; dot.style.animation=''; }
+    if (mode) { mode.className='mode-badge mode-post'; mode.textContent='Post-meeting'; }
+    clearInterval(fluidDemoInterval);
+  }
+}
+
+function fluidSelectClient() {
+  const opts = portfolios.map(p => p.name).join('\n');
+  const name = prompt('Select client:\n' + opts);
+  if (name) document.getElementById('fluid-client-name').textContent = name;
+}
+
+// Card renderers
+function fCard(id, label, title, body) {
+  const pinned = fluidCards.get(id)?.pinned || false;
+  return `<div class="fluid-card ${pinned?'pinned':''}" id="fc-${id}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.55rem">
+      <div style="flex:1"><div class="fluid-lbl">${label}</div><div class="fluid-title">${title}</div></div>
+      <div class="fluid-card-actions">
+        <button class="fluid-cbtn ${pinned?'pinned':''}" onclick="fluidPin('${id}')">📌</button>
+        <button class="fluid-cbtn" onclick="fluidDismiss('${id}')">✕</button>
+      </div>
+    </div>${body}</div>`;
+}
+
+function fRender(type) {
+  const S = FLUID_STASH;
+  switch(type) {
+    case 'f_bear_market': {
+      const ep = S.market_corrections.episodes;
+      const tp = S.market_corrections.talking_points[0];
+      return fCard(type,'Market Intelligence','Every Correction Has Recovered',
+        '<div class="ftl">' + ep.slice(0,4).map(e =>
+          '<div class="ftl-row"><div class="ftl-yr">' + e.year + '</div>' +
+          '<div class="ftl-body"><div class="ftl-name">' + e.name + '</div>' +
+          '<div class="ftl-stats"><span style="color:var(--red)">▼' + Math.abs(e.drawdown_pct) + '%</span>' +
+          '<span style="color:var(--muted)">→</span>' +
+          '<span style="color:var(--green)">Recovery: ' + e.recovery_months + 'mo</span></div>' +
+          '<div class="ftl-ins">' + e.sip_insight + '</div></div></div>').join('') + '</div>' +
+        '<div class="ftp"><strong>Key:</strong> ' + tp + '</div>');
+    }
+    case 'f_geopolitical': {
+      const ep = S.geopolitical_events.episodes;
+      return fCard(type,'Historical Context','Markets After Geopolitical Crises',
+        '<div class="fbar-chart">' + ep.map(e =>
+          '<div class="fbar-row"><div class="fbar-lbl">' + e.event + ' \'' + e.year.slice(2) + '</div>' +
+          '<div class="fbar-track"><div class="fbar-fill" style="width:' + Math.min(100,e.nifty_6m_after) + '%;background:var(--green)"></div></div>' +
+          '<div class="fbar-val" style="color:var(--green)">+' + e.nifty_6m_after + '%</div></div>').join('') + '</div>' +
+        '<div style="font-size:.58rem;color:var(--muted);margin:.4rem 0">Nifty return 6 months after crisis</div>' +
+        '<div class="ftp"><strong>Pattern:</strong> ' + S.geopolitical_events.talking_points[0] + '</div>');
+    }
+    case 'f_inflation': {
+      const d = S.inflation_context.asset_class_returns;
+      return fCard(type,'Inflation Context','Real Returns After Inflation (20Y)',
+        '<div class="fbar-chart">' + d.map(a =>
+          '<div class="fbar-row"><div class="fbar-lbl">' + a.asset.split('(')[0].trim() + '</div>' +
+          '<div class="fbar-track"><div class="fbar-fill" style="width:' + Math.min(100,a.cagr*6) + '%;background:' + (a.beats?'var(--green)':'var(--red)') + '"></div></div>' +
+          '<div class="fbar-val" style="color:' + (a.real_return>2?'var(--green)':a.real_return>0?'var(--amber)':'var(--red)') + '">' + a.cagr + '%</div></div>').join('') + '</div>' +
+        '<div style="font-size:.57rem;color:var(--muted);margin:.35rem 0">20Y CAGR | Inflation avg 6.1%</div>' +
+        '<div class="ftp"><strong>Reality:</strong> ' + S.inflation_context.talking_points[0] + '</div>');
+    }
+    case 'f_asset_class': {
+      const d = S.inflation_context.asset_class_returns;
+      return fCard(type,'Inflation Context','Which Assets Beat Inflation?',
+        d.map(a => '<div class="fdr"><span class="lbl">' + a.asset.split('(')[0].trim() + '</span>' +
+          '<div style="display:flex;gap:.4rem;align-items:center">' +
+          '<span class="val" style="color:' + (a.real_return>2?'var(--green)':a.real_return>0?'var(--amber)':'var(--red)') + '">' + (a.real_return>0?'+':'') + a.real_return.toFixed(1) + '% real</span>' +
+          '<span style="font-size:.58rem;color:' + (a.beats?'var(--green)':'var(--red)') + '">' + (a.beats?'✓':'✗') + '</span></div></div>').join('') +
+        '<div class="ftp"><strong>FD trap:</strong> ' + S.inflation_context.talking_points[1] + '</div>');
+    }
+    case 'f_oil_sector': {
+      const s = S.oil_impact.sector_impact;
+      return fCard(type,'Oil Impact','Sector Winners & Losers — Rising Oil',
+        s.map(x => '<div class="fsect"><span style="color:var(--text2)">' + x.sector + '</span>' +
+          '<span class="' + (x.impact==='Positive'?'imp-pos':'imp-neg') + '">' + x.impact + '</span></div>').join('') +
+        '<div class="ftp"><strong>Key:</strong> ' + S.oil_impact.talking_points[0] + '</div>');
+    }
+    case 'f_oil_macro': {
+      return fCard(type,'Oil Impact','Oil Price Thresholds for India',
+        '<div class="fdr"><span class="lbl">Below $75</span><span class="val" style="color:var(--green)">Comfortable</span></div>' +
+        '<div class="fdr"><span class="lbl">$75 – $90</span><span class="val" style="color:var(--amber)">Concerning — inflation risk</span></div>' +
+        '<div class="fdr"><span class="lbl">$90 – $100</span><span class="val" style="color:var(--red)">Significant headwind</span></div>' +
+        '<div class="fdr"><span class="lbl">Above $100</span><span class="val" style="color:var(--red)">Crisis — RBI action likely</span></div>' +
+        '<div class="ftp"><strong>India\'s edge:</strong> ' + S.oil_impact.talking_points[4] + '</div>');
+    }
+    case 'f_inr': {
+      const t = S.inr_depreciation;
+      return fCard(type,'Currency Context','INR vs USD — 25 Year Trend',
+        t.trend.map(x => '<div class="fdr"><span class="lbl">' + x.year + '</span><span class="val" style="color:var(--muted)">₹' + x.rate + ' / USD</span></div>').join('') +
+        '<div style="font-size:.63rem;color:var(--amber);padding:.3rem 0">Avg depreciation: ' + t.avg_annual_depreciation + '% per year</div>' +
+        '<div class="ftp"><strong>Perspective:</strong> ' + t.talking_points[0] + '</div>');
+    }
+    case 'f_it_benefit': {
+      const b = S.inr_depreciation.beneficiaries;
+      return fCard(type,'Currency Context','INR Fall Beneficiaries',
+        b.map(x => '<div style="background:var(--bg3);border-radius:6px;padding:.38rem .52rem;margin-bottom:.3rem">' +
+          '<div style="font-size:.65rem;font-weight:500;color:var(--green);margin-bottom:.15rem">' + x.sector + '</div>' +
+          '<div style="font-size:.6rem;color:var(--text2)">' + x.reason + '</div></div>').join('') +
+        '<div class="ftp"><strong>Your portfolio:</strong> ' + S.inr_depreciation.talking_points[2] + '</div>');
+    }
+    case 'f_fii': {
+      const ep = S.fii_outflows.episodes;
+      return fCard(type,'FII Context','FII Selling Episodes & Outcome',
+        '<div class="ftl">' + ep.map(e =>
+          '<div class="ftl-row"><div class="ftl-yr" style="font-size:.58rem">' + e.period + '</div>' +
+          '<div class="ftl-body"><div class="ftl-stats">' +
+          '<span style="color:var(--red)">₹' + Math.abs(e.fii_net_crore/1000).toFixed(0) + 'K Cr sold</span>' +
+          '<span style="color:var(--green)">Nifty: ' + e.nifty_impact + '%</span></div>' +
+          '<div class="ftl-ins">' + e.outcome + '</div></div></div>').join('') + '</div>' +
+        '<div class="ftp"><strong>Pattern:</strong> ' + S.fii_outflows.talking_points[0] + '</div>');
+    }
+    case 'f_dii': {
+      const s = S.fii_outflows.sip_growth;
+      return fCard(type,'FII Context','SIP Book — India\'s Shock Absorber',
+        '<div class="fbar-chart">' + s.map(x =>
+          '<div class="fbar-row"><div class="fbar-lbl">' + x.year + '</div>' +
+          '<div class="fbar-track"><div class="fbar-fill" style="width:' + (x.crore/26000*100) + '%;background:var(--blue)"></div></div>' +
+          '<div class="fbar-val" style="color:var(--blue)">₹' + (x.crore/1000).toFixed(0) + 'K Cr</div></div>').join('') + '</div>' +
+        '<div class="ftp"><strong>Today:</strong> ' + S.fii_outflows.talking_points[1] + '</div>');
+    }
+    case 'f_gold': {
+      return fCard(type,'Safe Haven','Gold as Portfolio Hedge',
+        '<div class="fdr"><span class="lbl">During GFC 2008</span><span class="val" style="color:var(--green)">+25%</span></div>' +
+        '<div class="fdr"><span class="lbl">During COVID 2020</span><span class="val" style="color:var(--green)">+28%</span></div>' +
+        '<div class="fdr"><span class="lbl">Russia-Ukraine 2022</span><span class="val" style="color:var(--green)">+12%</span></div>' +
+        '<div class="fdr"><span class="lbl">20Y CAGR (INR)</span><span class="val" style="color:var(--amber)">11.8%</span></div>' +
+        '<div class="fdr"><span class="lbl">Ideal allocation</span><span class="val" style="color:var(--blue)">5–15%</span></div>' +
+        '<div class="ftp"><strong>But:</strong> Equity consistently outperforms gold over the recovery period — gold is a hedge, not a core holding</div>');
+    }
+    case 'f_sip_lumpsum': {
+      return fCard(type,'SIP Intelligence','Continue SIP During Corrections?',
+        '<div class="fdr"><span class="lbl">SIP during 2008 crash</span><span class="val" style="color:var(--green)">28% CAGR next 5Y</span></div>' +
+        '<div class="fdr"><span class="lbl">SIP during COVID crash</span><span class="val" style="color:var(--green)">Portfolio doubled by 2021</span></div>' +
+        '<div class="fdr"><span class="lbl">SIP during 2022 fall</span><span class="val" style="color:var(--green)">Recovered in 7 months</span></div>' +
+        '<div class="fdr"><span class="lbl">SIP vs lumpsum at peak</span><span class="val" style="color:var(--amber)">SIP wins in 4/6 corrections</span></div>' +
+        '<div class="fdr"><span class="lbl">Stopping SIP at bottom</span><span class="val" style="color:var(--red)">Misses entire recovery rally</span></div>' +
+        '<div class="ftp"><strong>The math:</strong> SIP buys more units at lower prices. Stopping is the worst thing you can do at the bottom.</div>');
+    }
+    case 'f_market_valuation': {
+      return fCard(type,'Market Valuation','Is the Market Cheap or Expensive?',
+        '<div class="fdr"><span class="lbl">Historical PE range</span><span class="val" style="color:var(--muted)">12x – 40x</span></div>' +
+        '<div class="fdr"><span class="lbl">Long-term avg PE</span><span class="val" style="color:var(--blue)">~20x</span></div>' +
+        '<div class="fdr"><span class="lbl">Cheap zone</span><span class="val" style="color:var(--green)">Below 18x → Buy aggressively</span></div>' +
+        '<div class="fdr"><span class="lbl">Fair value</span><span class="val" style="color:var(--amber)">18x – 24x → Continue SIP</span></div>' +
+        '<div class="fdr"><span class="lbl">Expensive</span><span class="val" style="color:var(--red)">Above 24x → Be selective</span></div>' +
+        '<div class="ftp"><strong>Corrections are opportunities:</strong> Market falls make PE cheaper — same fund buys more quality at lower price</div>');
+    }
+    default: return null;
+  }
+}
+
+function fluidShowCards(cardIds) {
+  const canvas = document.getElementById('fluid-canvas');
+  const empty  = document.getElementById('fluid-empty');
+  if (empty) empty.style.display = 'none';
+
+  cardIds.forEach(id => {
+    if (fluidCards.has(id)) return;
+    const html = fRender(id);
+    if (!html) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    const el = tmp.firstElementChild;
+    canvas.insertBefore(el, canvas.firstChild);
+    fluidCards.set(id, {pinned: false, el});
+  });
+
+  // Prune unpinned if too many
+  if (fluidCards.size > 6) {
+    for (const [id, data] of fluidCards) {
+      if (!data.pinned && !cardIds.includes(id)) {
+        data.el.remove();
+        fluidCards.delete(id);
+        if (fluidCards.size <= 6) break;
+      }
+    }
+  }
+}
+
+function fluidDismiss(id) {
+  const data = fluidCards.get(id);
+  if (!data) return;
+  data.el.style.opacity = '0';
+  data.el.style.transform = 'translateY(-6px)';
+  data.el.style.transition = 'all .2s';
+  setTimeout(() => {
+    data.el.remove();
+    fluidCards.delete(id);
+    if (fluidCards.size === 0 && document.getElementById('fluid-empty'))
+      document.getElementById('fluid-empty').style.display = 'flex';
+  }, 200);
+}
+
+function fluidPin(id) {
+  const data = fluidCards.get(id);
+  if (!data) return;
+  data.pinned = !data.pinned;
+  data.el.classList.toggle('pinned', data.pinned);
+  const btn = data.el.querySelector('.fluid-cbtn');
+  if (btn) btn.classList.toggle('pinned', data.pinned);
+}
+
+function fluidUpdateTalkingPoints(key) {
+  const panel = document.getElementById('fluid-talking');
+  if (!panel) return;
+  let points = [];
+  for (const [k, v] of Object.entries(FLUID_STASH)) {
+    if (k.includes(key.split('_')[0]) && v.talking_points) {
+      points = v.talking_points; break;
+    }
+  }
+  if (!points.length) return;
+  panel.innerHTML = points.map((p, i) =>
+    '<div class="ftpt" onclick="fluidCopyTp(this)">' +
+    '<div class="tptag">Point ' + (i+1) + '</div>' + p + '</div>').join('');
+}
+
+function fluidCopyTp(el) {
+  const text = el.textContent.replace(/^Point \d+/, '').trim();
+  navigator.clipboard?.writeText(text);
+  el.style.borderColor = 'var(--green)';
+  setTimeout(() => el.style.borderColor = '', 1000);
+}
+// END FLUID ENGINE
+
 </script>
 <script type="module">
 import { getFirestore, collection, doc, setDoc, addDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
