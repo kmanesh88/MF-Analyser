@@ -421,6 +421,36 @@ body {
   color: var(--tile-color);
 }
 
+/* ── Home quick-glance stat tiles (clickable) ── */
+.home-stat-tile {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 1.1rem 1.25rem;
+  cursor: pointer;
+  transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+.home-stat-tile:hover {
+  border-color: var(--stat-color);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -8px rgba(0,0,0,.12);
+}
+.home-stat-label {
+  font-size: .6rem; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-family: 'IBM Plex Mono', monospace;
+  margin-bottom: .4rem;
+}
+.home-stat-value {
+  font-size: 1.7rem; font-weight: 700;
+  font-family: 'IBM Plex Mono', monospace;
+  margin-bottom: .5rem;
+}
+.home-stat-link {
+  font-size: .64rem; font-weight: 600; color: var(--stat-color);
+  opacity: 0; transition: opacity .15s;
+}
+.home-stat-tile:hover .home-stat-link { opacity: 1; }
+
 .pg-header { margin-bottom: 2rem; display:flex; justify-content:space-between; align-items:flex-start; }
 
 /* ══════════════════════════════════════════════════════════
@@ -1416,22 +1446,25 @@ body {
     </div>
   </div>
 
-  <!-- Quick-glance strip -->
+  <!-- Quick-glance strip — first three tiles are clickable shortcuts -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2rem">
-    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r-md);padding:1.1rem 1.25rem">
-      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.4rem">Active Portfolios</div>
-      <div id="home-stat-portfolios" style="font-size:1.7rem;font-weight:700;color:var(--mod-clients);font-family:'IBM Plex Mono',monospace">0</div>
+    <div class="home-stat-tile" onclick="showPage('clients')" style="--stat-color:var(--mod-clients)" title="Go to Portfolios">
+      <div class="home-stat-label">Active Portfolios</div>
+      <div id="home-stat-portfolios" class="home-stat-value" style="color:var(--mod-clients)">0</div>
+      <div class="home-stat-link">View all →</div>
+    </div>
+    <div class="home-stat-tile" onclick="showPage('upload')" style="--stat-color:var(--mod-analyser)" title="Go to Add Factsheets">
+      <div class="home-stat-label">AMCs Loaded</div>
+      <div id="home-stat-amcs" class="home-stat-value" style="color:var(--mod-analyser)">0</div>
+      <div class="home-stat-link">Manage →</div>
+    </div>
+    <div class="home-stat-tile" onclick="fluidGoToAccountSettings()" style="--stat-color:var(--mod-monitor)" title="Manage cloud sync">
+      <div class="home-stat-label">Cloud Sync</div>
+      <div id="home-stat-sync" style="font-size:.95rem;font-weight:600;color:var(--muted);padding-top:.3rem;margin-bottom:.5rem">Not signed in</div>
+      <div class="home-stat-link" id="home-stat-sync-link">Sign in →</div>
     </div>
     <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r-md);padding:1.1rem 1.25rem">
-      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.4rem">AMCs Loaded</div>
-      <div id="home-stat-amcs" style="font-size:1.7rem;font-weight:700;color:var(--mod-analyser);font-family:'IBM Plex Mono',monospace">0</div>
-    </div>
-    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r-md);padding:1.1rem 1.25rem">
-      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.4rem">Cloud Sync</div>
-      <div id="home-stat-sync" style="font-size:.95rem;font-weight:600;color:var(--muted);padding-top:.3rem">Not signed in</div>
-    </div>
-    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r-md);padding:1.1rem 1.25rem">
-      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.4rem">Today</div>
+      <div class="home-stat-label">Today</div>
       <div id="home-stat-date" style="font-size:.95rem;font-weight:600;color:var(--text);padding-top:.3rem">—</div>
     </div>
   </div>
@@ -3274,6 +3307,7 @@ function buildHomePage() {
   const portCount = document.getElementById('home-stat-portfolios');
   const amcCount  = document.getElementById('home-stat-amcs');
   const syncStat  = document.getElementById('home-stat-sync');
+  const syncLink  = document.getElementById('home-stat-sync-link');
   const dateStat  = document.getElementById('home-stat-date');
   if (portCount) portCount.textContent = (portfolios||[]).length;
   if (amcCount)  amcCount.textContent  = (amcs||[]).filter(a=>a.name!=='__server__').length;
@@ -3282,9 +3316,22 @@ function buildHomePage() {
     syncStat.textContent = signedIn ? '☁ Synced' : 'Not signed in';
     syncStat.style.color = signedIn ? 'var(--mod-monitor)' : 'var(--muted)';
   }
+  if (syncLink) {
+    syncLink.textContent = window._fb?.currentUser ? 'Manage →' : 'Sign in →';
+  }
   if (dateStat) {
     dateStat.textContent = new Date().toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'});
   }
+}
+
+function fluidGoToAccountSettings() {
+  // If not signed in, trigger the Google sign-in flow directly
+  if (!window._fb?.currentUser) {
+    document.getElementById('fb-login-btn')?.click();
+    return;
+  }
+  // If already signed in, just trigger a manual save/sync as the most useful action
+  showToast('☁ Already signed in — hover the sidebar to manage your account');
 }
 
 function switchMetric(v) {
