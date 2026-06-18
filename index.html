@@ -5,7 +5,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MF Portfolio Analyser v119</title>
+<title>Vantage — Advisory Workstation</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -219,8 +219,19 @@ window._fbSaveCloud = async () => {
   --r-md: 10px;
   --r-lg: 14px;
 
-  /* Sidebar width */
-  --sb: 256px;
+  /* Toolbar width */
+  --sb: 64px;
+  --sb-expanded: 232px;
+
+  /* Vantage module colors — bright, saturated, for data tiles & toolbar icons */
+  --mod-analyser: #2563eb;   /* indigo/blue */
+  --mod-builder:  #d97706;   /* amber */
+  --mod-fluid:    #c9a55c;   /* gold — carries over from Fluid's own palette */
+  --mod-monitor:  #0d9488;   /* teal */
+  --mod-alerts:   #dc2626;   /* coral/red */
+  --mod-clients:  #7c3aed;   /* violet */
+
+  --ink: #14181f;            /* toolbar background — deep, anchors the light canvas */
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -238,67 +249,82 @@ body {
 /* ═══════════════════════════════════════════════
    SIDEBAR
 ═══════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   VANTAGE — icon toolbar (collapsed rail, expands on hover)
+   ══════════════════════════════════════════════════════════ */
 .sidebar {
   width: var(--sb); flex-shrink: 0;
-  background: var(--s1);
-  border-right: 1px solid var(--border);
+  background: var(--ink);
   display: flex; flex-direction: column;
   position: sticky; top: 0; height: 100vh;
-  overflow-y: auto;
-  scrollbar-width: none;
+  overflow: hidden;
+  z-index: 100;
+  transition: width .18s cubic-bezier(.2,.8,.2,1);
 }
-.sidebar::-webkit-scrollbar { display: none; }
+.sidebar:hover { width: var(--sb-expanded); overflow-y: auto; }
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
 
 .logo {
-  padding: 1.5rem 1.25rem 1.25rem;
-  border-bottom: 1px solid var(--border);
+  padding: 1.1rem 0; height: 56px;
+  display: flex; align-items: center;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  flex-shrink: 0; white-space: nowrap; overflow: hidden;
 }
-.logo h1 {
-  font-family: 'Fraunces', serif;
-  font-size: 1.15rem; font-weight: 700;
-  color: var(--accent); letter-spacing: -.02em;
-  margin-bottom: .18rem;
+.logo .logo-mark {
+  width: var(--sb); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Fraunces', serif; font-size: 1.3rem; font-weight: 500;
+  color: var(--mod-fluid);
 }
-.logo p {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: .58rem; color: var(--muted);
-  letter-spacing: .1em; text-transform: uppercase;
+.logo .logo-text {
+  font-family: 'Fraunces', serif; font-size: 1.05rem; font-weight: 400;
+  color: #fff; letter-spacing: -.01em;
+}
+.logo .logo-sub {
+  font-family: 'IBM Plex Mono', monospace; font-size: .56rem;
+  color: rgba(255,255,255,.4); letter-spacing: .08em; text-transform: uppercase;
+  margin-top: .1rem;
 }
 
 .nav-sect {
-  padding: 1rem 1.25rem .35rem;
-  font-size: .6rem; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--muted);
+  padding: .9rem 0 .3rem var(--sb);
+  font-size: .56rem; letter-spacing: .1em;
+  text-transform: uppercase; color: rgba(255,255,255,.32);
   font-family: 'IBM Plex Mono', monospace;
+  white-space: nowrap; overflow: hidden;
 }
 
 .nav-item {
-  display: flex; align-items: center; gap: .6rem;
-  padding: .6rem 1.25rem;
-  font-size: .78rem; font-weight: 400;
-  color: var(--muted2); cursor: pointer;
+  display: flex; align-items: center; gap: .75rem;
+  height: 44px; padding: 0;
+  font-size: .76rem; font-weight: 400;
+  color: rgba(255,255,255,.55); cursor: pointer;
   transition: all .15s;
   border-left: 2px solid transparent;
   position: relative;
+  white-space: nowrap; overflow: hidden;
 }
-.nav-item:hover { color: var(--text); background: var(--s2); }
+.nav-item .nav-icon {
+  width: var(--sb); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem;
+}
+.nav-item .nav-label { opacity: 0; transition: opacity .12s; }
+.sidebar:hover .nav-item .nav-label { opacity: 1; }
+.nav-item:hover { color: #fff; background: rgba(255,255,255,.05); }
 .nav-item.active {
-  color: var(--accent);
-  border-left-color: var(--accent);
-  background: var(--accent-dim);
+  color: #fff;
+  border-left-color: var(--nav-accent, var(--mod-analyser));
+  background: rgba(255,255,255,.07);
   font-weight: 500;
 }
+.nav-item.active .nav-icon { color: var(--nav-accent, var(--mod-analyser)); }
 .nav-item.done { color: var(--green); }
-.ndot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--s4); flex-shrink: 0;
-  border: 1px solid var(--border2);
-  transition: all .15s;
-}
-.nav-item.active .ndot { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 5px rgba(196,127,16,.3); }
-.nav-item.done .ndot { background: var(--green); border-color: var(--green); }
+.ndot { display: none; }
 
-.nav-div { height: 1px; background: var(--border); margin: .5rem 1.25rem; }
+.nav-div { height: 1px; background: rgba(255,255,255,.08); margin: .5rem var(--sb) .5rem var(--sb); }
+.sidebar:hover .nav-div { margin: .5rem 1rem .5rem 1rem; }
 
 .amc-tab {
   display: flex; align-items: center; justify-content: space-between;
@@ -327,10 +353,16 @@ body {
 .add-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
 
 .sb-foot {
-  margin-top: auto; padding: 1rem 1.25rem;
-  border-top: 1px solid var(--border);
-  font-size: .62rem; color: var(--muted); line-height: 1.7;
+  margin-top: auto; padding: 1rem 1rem;
+  border-top: 1px solid rgba(255,255,255,.08);
+  font-size: .62rem; color: rgba(255,255,255,.45); line-height: 1.7;
+  min-width: var(--sb-expanded);
 }
+.sidebar:hover #sb-foot-content { opacity: 1; }
+.sb-foot .btn { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); color: rgba(255,255,255,.85); }
+.sb-foot .btn:hover { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.22); color: #fff; }
+.sb-foot .btn.danger { color: var(--red); }
+.sb-foot .btn.danger:hover { background: rgba(220,38,38,.15); border-color: rgba(220,38,38,.3); }
 
 /* ═══════════════════════════════════════════════
    MAIN CONTENT
@@ -338,10 +370,56 @@ body {
 .main {
   flex: 1; padding: 2rem 2.5rem 3rem;
   min-width: 0; max-width: calc(100% - var(--sb));
+  background: var(--bg);
 }
 
 .page { display: none; }
 .page.active { display: block; }
+
+/* ── Home landing tiles ── */
+.home-tile {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 1.4rem 1.5rem;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+.home-tile::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--tile-color);
+}
+.home-tile:hover {
+  border-color: var(--tile-color);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -8px rgba(0,0,0,.12);
+}
+.home-tile-icon {
+  width: 42px; height: 42px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--tile-color) 12%, transparent);
+  color: var(--tile-color);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.3rem;
+  margin-bottom: .9rem;
+}
+.home-tile-title {
+  font-family: 'Fraunces', serif;
+  font-size: 1.1rem; font-weight: 500;
+  color: var(--text); margin-bottom: .45rem;
+  letter-spacing: -.01em;
+}
+.home-tile-desc {
+  font-size: .76rem; color: var(--muted2);
+  line-height: 1.55; margin-bottom: 1rem;
+}
+.home-tile-arrow {
+  font-size: .72rem; font-weight: 600;
+  color: var(--tile-color);
+}
 
 .pg-header { margin-bottom: 2rem; display:flex; justify-content:space-between; align-items:flex-start; }
 
@@ -1229,68 +1307,98 @@ body {
 <!-- ════════════ SIDEBAR ════════════ -->
 <div class="sidebar">
   <div class="logo">
-    <h1>MF Analyser</h1>
-    <p>Portfolio X-Ray · v4</p>
+    <div class="logo-mark">◆</div>
+    <div>
+      <div class="logo-text">Vantage</div>
+      <div class="logo-sub">Advisory workstation</div>
+    </div>
   </div>
 
-  <div class="nav-sect">Pages</div>
-  <div class="nav-item active" id="nav-clients"   onclick="showPage('clients')"><div class="ndot"></div>Portfolios</div>
-  <div class="nav-item" id="nav-alerts"           onclick="showPage('alerts')"><div class="ndot"></div>Alerts Dashboard</div>
-  <div class="nav-item" id="nav-thresholds"       onclick="showPage('thresholds')"><div class="ndot"></div>Thresholds</div>
-  <div class="nav-item" id="nav-monitor"          onclick="showPage('monitor')"><div class="ndot"></div>Market Monitor</div>
-  <div class="nav-item" id="nav-fluid"            onclick="showPage('fluid')" style="color:var(--green)"><div class="ndot"></div>Fluid ✦</div>
+  <div class="nav-sect">Home</div>
+  <div class="nav-item active" id="nav-home" onclick="showPage('home')" style="--nav-accent:var(--mod-fluid)">
+    <div class="nav-icon">⌂</div><div class="nav-label">Home</div>
+  </div>
+
+  <div class="nav-div"></div>
+  <div class="nav-sect">Modules</div>
+  <div class="nav-item" id="nav-clients" onclick="showPage('clients')" style="--nav-accent:var(--mod-clients)">
+    <div class="nav-icon">▣</div><div class="nav-label">Portfolio Analyser</div>
+  </div>
+  <div class="nav-item" id="nav-fluid" onclick="showPage('fluid')" style="--nav-accent:var(--mod-fluid)">
+    <div class="nav-icon">◈</div><div class="nav-label">Fluid</div>
+  </div>
+  <div class="nav-item" id="nav-monitor" onclick="showPage('monitor')" style="--nav-accent:var(--mod-monitor)">
+    <div class="nav-icon">◷</div><div class="nav-label">Market Monitor</div>
+  </div>
+  <div class="nav-item" id="nav-alerts" onclick="showPage('alerts')" style="--nav-accent:var(--mod-alerts)">
+    <div class="nav-icon">▲</div><div class="nav-label">Alerts</div>
+  </div>
+  <div class="nav-item" id="nav-thresholds" onclick="showPage('thresholds')" style="--nav-accent:var(--mod-builder)">
+    <div class="nav-icon">≡</div><div class="nav-label">Thresholds</div>
+  </div>
+
   <div class="nav-div"></div>
 
   <!-- Active portfolio switcher -->
   <div id="active-port-section" style="display:none">
-    <div style="padding:.5rem 1.25rem .2rem;font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-family:'IBM Plex Mono',monospace">Active Portfolio</div>
+    <div style="padding:.5rem 0 .2rem var(--sb);font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.32);font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden">Active Portfolio</div>
     <div id="active-port-name"
       onclick="showPage('clients')"
-      style="padding:.4rem 1.25rem .35rem;font-size:.75rem;font-weight:600;color:var(--accent);cursor:pointer;display:flex;align-items:center;gap:.4rem;transition:opacity .15s"
+      style="padding:.3rem 1rem .35rem var(--sb);margin-left:calc(-1 * var(--sb));font-size:.75rem;font-weight:600;color:var(--mod-fluid);cursor:pointer;display:flex;align-items:center;gap:.4rem;transition:opacity .15s;white-space:nowrap;overflow:hidden"
       title="Click to go to Portfolios page"
       onmouseenter="this.style.opacity='.7'" onmouseleave="this.style.opacity='1'">
       <span id="active-port-name-text">—</span>
-      <span style="font-size:.6rem;color:var(--muted)">↗</span>
+      <span style="font-size:.6rem;color:rgba(255,255,255,.4)">↗</span>
     </div>
     <!-- Quick portfolio switcher -->
-    <div style="padding:0 1.25rem .5rem;position:relative">
+    <div style="padding:0 1rem .5rem 1rem;position:relative;display:none" id="port-switcher-wrap">
       <select id="port-switcher"
         onchange="loadPortfolio(this.value)"
-        style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.32rem .5rem;font-size:.65rem;color:var(--text2);outline:none;cursor:pointer;font-family:'Inter',sans-serif">
+        style="width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:var(--r-sm);padding:.32rem .5rem;font-size:.65rem;color:#fff;outline:none;cursor:pointer;font-family:'Inter',sans-serif">
       </select>
     </div>
   </div>
 
   <div class="nav-div"></div>
   <div class="nav-sect">Analysis</div>
-  <div class="nav-item" id="nav-upload"  onclick="showPage('upload')"><div class="ndot"></div>Add Factsheets</div>
-  <div class="nav-item" id="nav-alloc"   onclick="showPage('alloc')"><div class="ndot"></div>Set Allocation</div>
-  <div class="nav-item" id="nav-summary" onclick="showPage('summary')"><div class="ndot"></div>Portfolio Summary</div>
-  <div class="nav-item" id="nav-res"     onclick="showPage('res')"><div class="ndot"></div>Cap / Debt Detail</div>
-  <div class="nav-item" id="nav-metrics" onclick="showPage('metrics')"><div class="ndot"></div>Deeper Metrics</div>
+  <div class="nav-item" id="nav-upload" onclick="showPage('upload')" style="--nav-accent:var(--mod-analyser)">
+    <div class="nav-icon">⬆</div><div class="nav-label">Add Factsheets</div>
+  </div>
+  <div class="nav-item" id="nav-alloc" onclick="showPage('alloc')" style="--nav-accent:var(--mod-analyser)">
+    <div class="nav-icon">◐</div><div class="nav-label">Set Allocation</div>
+  </div>
+  <div class="nav-item" id="nav-summary" onclick="showPage('summary')" style="--nav-accent:var(--mod-analyser)">
+    <div class="nav-icon">▦</div><div class="nav-label">Portfolio Summary</div>
+  </div>
+  <div class="nav-item" id="nav-res" onclick="showPage('res')" style="--nav-accent:var(--mod-analyser)">
+    <div class="nav-icon">◫</div><div class="nav-label">Cap / Debt Detail</div>
+  </div>
+  <div class="nav-item" id="nav-metrics" onclick="showPage('metrics')" style="--nav-accent:var(--mod-analyser)">
+    <div class="nav-icon">⊞</div><div class="nav-label">Deeper Metrics</div>
+  </div>
 
-  <div class="sb-foot">
+  <div class="sb-foot" style="white-space:nowrap;overflow:hidden;opacity:0;transition:opacity .12s" id="sb-foot-content">
     <!-- Firebase Auth -->
-    <div style="margin-bottom:.85rem;padding-bottom:.85rem;border-bottom:1px solid var(--border)">
+    <div style="margin-bottom:.85rem;padding-bottom:.85rem;border-bottom:1px solid rgba(255,255,255,.08)">
       <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem">
         <img id="fb-avatar" style="display:none;width:22px;height:22px;border-radius:50%" src="">
-        <div id="fb-user-info" style="font-size:.6rem;color:var(--muted);flex:1;line-height:1.4">Not signed in — data saved locally only</div>
+        <div id="fb-user-info" style="font-size:.6rem;color:rgba(255,255,255,.45);flex:1;line-height:1.4">Not signed in — data saved locally only</div>
       </div>
       <button id="fb-login-btn" class="btn sm" style="width:100%;margin-bottom:.35rem">🔐 Sign in with Google</button>
-      <div id="fb-sync-status" style="font-size:.55rem;color:var(--muted);text-align:center"></div>
+      <div id="fb-sync-status" style="font-size:.55rem;color:rgba(255,255,255,.45);text-align:center"></div>
     </div>
 
-    <div id="storage-status" style="margin-bottom:.75rem;line-height:1.7">
-      <span style="color:var(--muted)">●</span> No saved data
+    <div id="storage-status" style="margin-bottom:.75rem;line-height:1.7;color:rgba(255,255,255,.45)">
+      <span style="color:rgba(255,255,255,.3)">●</span> No saved data
     </div>
     <button class="btn sm" style="width:100%;margin-bottom:.5rem" onclick="saveToStorage();if(window._fb?.currentUser)window._fbSaveCloud()">💾 Save Now</button>
     <button class="btn sm danger" style="width:100%;font-size:.56rem" onclick="clearStorage()">✕ Clear All Data</button>
-    <div style="margin-top:.75rem;color:var(--muted);font-size:.54rem;line-height:1.6">
+    <div style="margin-top:.75rem;color:rgba(255,255,255,.35);font-size:.54rem;line-height:1.6">
       SEBI Cap List · Jan 2025<br>
       Top 100 = Large · 101–250 = Mid<br>
       251+ = Small · Debt: G-Sec · SDL · AAA
     </div>
-    <div id="amfi-status" style="margin-top:.6rem;font-size:.54rem;color:var(--muted);line-height:1.6">
+    <div id="amfi-status" style="margin-top:.6rem;font-size:.54rem;color:rgba(255,255,255,.35);line-height:1.6">
       AMFI live data: not loaded
     </div>
   </div>
@@ -1300,7 +1408,70 @@ body {
 <div class="main">
 
 <!-- ── Portfolios ── -->
-<div class="page active" id="page-clients">
+<div class="page active" id="page-home">
+  <div class="pg-header">
+    <div>
+      <div class="pg-title">Welcome back</div>
+      <div class="pg-sub">Your advisory workstation — pick up where you left off</div>
+    </div>
+  </div>
+
+  <!-- Quick-glance strip -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2rem">
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r-md);padding:1.1rem 1.25rem">
+      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.4rem">Active Portfolios</div>
+      <div id="home-stat-portfolios" style="font-size:1.7rem;font-weight:700;color:var(--mod-clients);font-family:'IBM Plex Mono',monospace">0</div>
+    </div>
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r-md);padding:1.1rem 1.25rem">
+      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.4rem">AMCs Loaded</div>
+      <div id="home-stat-amcs" style="font-size:1.7rem;font-weight:700;color:var(--mod-analyser);font-family:'IBM Plex Mono',monospace">0</div>
+    </div>
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r-md);padding:1.1rem 1.25rem">
+      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.4rem">Cloud Sync</div>
+      <div id="home-stat-sync" style="font-size:.95rem;font-weight:600;color:var(--muted);padding-top:.3rem">Not signed in</div>
+    </div>
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r-md);padding:1.1rem 1.25rem">
+      <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.4rem">Today</div>
+      <div id="home-stat-date" style="font-size:.95rem;font-weight:600;color:var(--text);padding-top:.3rem">—</div>
+    </div>
+  </div>
+
+  <!-- Module tiles -->
+  <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:.9rem">Modules</div>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:1.1rem;margin-bottom:2rem">
+
+    <div class="home-tile" onclick="showPage('clients')" style="--tile-color:var(--mod-clients)">
+      <div class="home-tile-icon">▣</div>
+      <div class="home-tile-title">Portfolio Analyser</div>
+      <div class="home-tile-desc">Import CAS files, analyse stock-level holdings, sector exposure, and cap allocation across client portfolios</div>
+      <div class="home-tile-arrow">Open →</div>
+    </div>
+
+    <div class="home-tile" onclick="showPage('fluid')" style="--tile-color:var(--mod-fluid)">
+      <div class="home-tile-icon">◈</div>
+      <div class="home-tile-title">Fluid</div>
+      <div class="home-tile-desc">Real-time conversation co-pilot — surfaces market context and talking points during client meetings</div>
+      <div class="home-tile-arrow">Open →</div>
+    </div>
+
+    <div class="home-tile" onclick="showPage('monitor')" style="--tile-color:var(--mod-monitor)">
+      <div class="home-tile-icon">◷</div>
+      <div class="home-tile-title">Market Monitor</div>
+      <div class="home-tile-desc">Live indices, FII/DII flows, fixed income markers, and curated market news</div>
+      <div class="home-tile-arrow">Open →</div>
+    </div>
+
+    <div class="home-tile" onclick="showPage('alerts')" style="--tile-color:var(--mod-alerts)">
+      <div class="home-tile-icon">▲</div>
+      <div class="home-tile-title">Alerts Dashboard</div>
+      <div class="home-tile-desc">Threshold breaches and portfolio drift flags across all active client portfolios</div>
+      <div class="home-tile-arrow">Open →</div>
+    </div>
+
+  </div>
+</div>
+
+<div class="page" id="page-clients">
   <div class="pg-header"><div class="pg-title">Portfolios</div>
   <div class="pg-sub">Manage and monitor all portfolios</div></div>
 
@@ -3093,8 +3264,26 @@ function showPage(pg) {
     if (pg==='monitor')    { try{renderWatchlist();}catch(e){console.error('renderWatchlist',e);} if(!_monitorLoaded) loadMarketMonitor(); }
     if (pg==='fluid')      { try{fluidInit();}catch(e){console.error('fluidInit',e);} }
     if (pg==='upload')     try{rebuildAmcPanels();buildAmcExcelLinks();initApiConfigBar();}catch(e){console.error('upload init',e);}
+    if (pg==='home')       try{buildHomePage();}catch(e){console.error('buildHomePage',e);}
   } catch(e) {
     console.error('showPage error:', e);
+  }
+}
+
+function buildHomePage() {
+  const portCount = document.getElementById('home-stat-portfolios');
+  const amcCount  = document.getElementById('home-stat-amcs');
+  const syncStat  = document.getElementById('home-stat-sync');
+  const dateStat  = document.getElementById('home-stat-date');
+  if (portCount) portCount.textContent = (portfolios||[]).length;
+  if (amcCount)  amcCount.textContent  = (amcs||[]).filter(a=>a.name!=='__server__').length;
+  if (syncStat) {
+    const signedIn = !!window._fb?.currentUser;
+    syncStat.textContent = signedIn ? '☁ Synced' : 'Not signed in';
+    syncStat.style.color = signedIn ? 'var(--mod-monitor)' : 'var(--muted)';
+  }
+  if (dateStat) {
+    dateStat.textContent = new Date().toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'});
   }
 }
 
@@ -8360,14 +8549,14 @@ window.addEventListener('load', async () => {
 
   try { fetchAmfiCapData(); } catch(e) { console.error('fetchAmfiCapData:', e); }
 
-  // Show starting page
+  // Show starting page — Home is the landing page now
   try {
-    showPage(portfolios.length ? 'clients' : 'upload');
+    showPage('home');
   } catch(e) {
     console.error('showPage:', e);
-    // Last resort — manually show clients page
+    // Last resort — manually show home page
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-    document.getElementById('page-clients')?.classList.add('active');
+    document.getElementById('page-home')?.classList.add('active');
   }
 });
 
