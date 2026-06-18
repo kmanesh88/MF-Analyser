@@ -8316,6 +8316,80 @@ const FLUID_STASH = {
     ],
     sip_growth:[{year:2015,crore:3200},{year:2018,crore:7500},{year:2020,crore:8500},{year:2022,crore:14000},{year:2024,crore:23000},{year:2025,crore:26000}],
     talking_points:["FIIs sold ₹2.6 lakh crore in 2022 — DIIs bought more. Market fell only 18%","Monthly SIP of ₹26,000 Cr is now India's most powerful market stabiliser","4.2 crore SIP accounts — 42 million Indians buying every month regardless","FII selling episodes historically last 3-6 months, then they return","Your own SIP is part of the DII wall absorbing FII selling right now"]
+  },
+
+  fed_policy_cycle: {
+    episodes:[
+      {cycle:"2008-15 Zero Rate Era",start_rate:5.25,end_rate:0.25,trigger:"GFC — emergency cuts to near zero",india_impact:"Cheap global money flowed to EMs including India — huge FII inflows",nifty_during:280.0},
+      {cycle:"2015-18 Hiking",start_rate:0.25,end_rate:2.5,hikes:9,india_impact:"Gradual outflow pressure, but India absorbed it with strong domestic flows",nifty_during:35.0},
+      {cycle:"2020 COVID Cuts",start_rate:1.75,end_rate:0.25,trigger:"Pandemic emergency cuts",india_impact:"Massive global liquidity — Nifty rallied 90% off COVID lows",nifty_during:90.0},
+      {cycle:"2022-23 Inflation Fight",start_rate:0.25,end_rate:5.5,hikes:11,trigger:"Fastest hiking cycle in 40 years",india_impact:"FII sold ₹2.6L Cr in 2022, DII absorbed it. Nifty fell only 18%",nifty_during:-18.0},
+      {cycle:"2024-25 Cutting Cycle",start_rate:5.5,end_rate:4.0,trigger:"Inflation cooling, soft landing achieved",india_impact:"FII flows turned positive as rate differential favored EM carry trades",nifty_during:15.0}
+    ],
+    talking_points:["Fed hiking cycles have historically caused FII outflows from India, but DII flows have grown strong enough to absorb most of the impact","Fed cutting cycles are typically bullish for Indian equities as global liquidity seeks growth markets","The fastest Fed hiking cycle in 40 years (2022-23) only caused an 18% Nifty correction — far milder than past cycles due to strong domestic flows","Rate differential between US and India is a key driver of FII carry trade flows"]
+  },
+
+  us_market_correlation: {
+    correlation_10y: 0.62,
+    decoupling_episodes:[
+      {period:"2013 Taper Tantrum",sp500_move:8.0,nifty_move:-15.0,reason:"India-specific CAD crisis, rupee crashed to 68, decoupled from US strength"},
+      {period:"2020 Post-COVID Recovery",sp500_move:70.0,nifty_move:90.0,reason:"India recovered faster than US — domestic consumption story outperformed"},
+      {period:"2022 Fed Hiking",sp500_move:-19.0,nifty_move:-18.0,reason:"Highly correlated — both markets fell together on rate fears"}
+    ],
+    high_correlation_sectors:["IT Services (US tech spending)","Pharma (US generic market)"],
+    low_correlation_sectors:["Banks (domestic credit cycle)","FMCG (domestic consumption)","Infrastructure (domestic capex)"],
+    talking_points:["Indian and US markets are correlated about 60% of the time — not a perfect mirror","India has decoupled from US weakness during domestic growth phases like 2020-21","IT sector is most correlated to US markets — directly linked to US tech spending cycles","Banking and FMCG sectors are more domestically driven and provide diversification from US volatility","A US market correction doesn't automatically mean an equal Indian correction — India has its own growth drivers"]
+  },
+
+  china_impact: {
+    episodes:[
+      {period:"2015-16 China Slowdown",china_gdp:6.7,nifty_impact:-25.2,note:"Crude crashed to $27, base metals fell 40%. FII pulled money from all EMs"},
+      {period:"2020 China COVID Recovery",china_gdp:2.3,nifty_impact:-39.5,note:"Global synchronized crash, India recovered alongside global reflation"},
+      {period:"2024 China Stimulus",china_gdp:4.8,nifty_impact:8.0,note:"Metals rallied on stimulus hopes, brief FII rotation from India to China"}
+    ],
+    sector_links:[
+      {sector:"Metals & Mining",link:"High — China is largest metals consumer globally"},
+      {sector:"IT Services",link:"Low — minimal direct China revenue exposure"},
+      {sector:"Auto",link:"Medium — China affects global auto component pricing"},
+      {sector:"Pharma",link:"Medium — API (raw material) imports from China"}
+    ],
+    talking_points:["China slowing down is a double-edged sword for India — cheaper commodities but less FII risk appetite for emerging markets","China stimulus often triggers a short-term FII rotation away from India towards China — this typically reverses","India's metals and mining sector is most directly affected by Chinese demand cycles","Indian pharma companies are exposed to China through API raw material imports","Long-term, India and China compete for the same FII emerging market allocation"]
+  },
+
+  dxy_strength: {
+    episodes:[
+      {period:"2014-16 Strong Dollar",dxy_move:25.0,inr_impact:-12.0,gold_impact:-15.0,note:"Strong dollar pressured all EM currencies, FII outflows from EM bonds"},
+      {period:"2022 Dollar Surge",dxy_move:18.0,inr_impact:-10.0,gold_impact:-3.0,note:"Fed hiking cycle drove dollar strength, INR weakened to 83"},
+      {period:"2024-25 Dollar Softening",dxy_move:-8.0,inr_impact:2.0,gold_impact:15.0,note:"Dollar weakness gave INR breathing room, gold rallied strongly"}
+    ],
+    talking_points:["A strong US Dollar Index typically pressures the Indian rupee and most emerging market currencies simultaneously","Gold has an inverse relationship with the dollar — dollar weakness is usually bullish for gold prices","Dollar strength often coincides with FII outflows from emerging market bonds and equities as US yields become more attractive","When DXY weakens, it typically provides relief for Indian import costs and inflation"]
+  },
+
+  us_treasury_impact: {
+    episodes:[
+      {period:"2013 Taper Tantrum",us_10y_bps:140,india_10y_bps:180,inr_impact:-18.0,note:"Massive EM bond outflow, India's CAD crisis worsened"},
+      {period:"2018 Yield Spike",us_10y_bps:70,india_10y_bps:90,inr_impact:-8.0,note:"FII outflow from Indian debt as US yields became competitive"},
+      {period:"2022-23 Hike Cycle",us_10y_bps:250,india_10y_bps:130,inr_impact:-7.0,note:"Significant FII debt outflow, but India's yield rise was more muted"}
+    ],
+    talking_points:["Rising US Treasury yields are one of the strongest signals for FII outflows from Indian debt markets","The Indian 10-year yield typically moves with US yields but with India-specific factors layered on top","When the US-India yield spread narrows, foreign investors have less incentive to hold riskier Indian debt for the extra yield","Sharp US yield spikes have historically coincided with rupee weakness due to FII bond outflows"]
+  },
+
+  trade_war_impact: {
+    episodes:[
+      {period:"2018-19 US-China Trade War",nifty_impact:-10.0,note:"Global trade slowdown began, but manufacturing started shifting to India — China+1 strategy begins",beneficiaries:["Textiles","Chemicals"]},
+      {period:"2025 Tariff Escalation",nifty_impact:-5.0,note:"India positioned as alternative manufacturing hub — pharma and electronics exports gained",beneficiaries:["Electronics Manufacturing","Pharma","Specialty Chemicals"]}
+    ],
+    china_plus_one:["Electronics Manufacturing (PLI scheme)","Textiles","Specialty Chemicals","Pharma API"],
+    talking_points:["Trade wars create short-term market volatility but have structurally benefited India's manufacturing sector through the China+1 diversification theme","India's PLI scheme has positioned the country to capture manufacturing that's exiting China","Electronics, textiles, and specialty chemicals sectors have been direct beneficiaries of supply chain diversification away from China","Tariff escalations typically cause near-term risk-off sentiment globally, affecting all markets including India temporarily"]
+  },
+
+  global_recession_risk: {
+    episodes:[
+      {period:"2008 Global Recession",us_gdp:-2.5,india_gdp:3.1,nifty_impact:-64.6,note:"India avoided outright recession — domestic consumption held up"},
+      {period:"2020 COVID Global Recession",us_gdp:-3.4,india_gdp:-7.3,nifty_impact:-39.5,note:"India contracted deeper than 2008 due to lockdowns, but recovery was V-shaped"}
+    ],
+    resilience_factors:["Large domestic consumption base reduces dependence on global trade","Lower export-to-GDP ratio compared to other Asian economies","Growing services sector less affected by global manufacturing slowdowns","Strong domestic SIP/retail flows provide market stability independent of global sentiment"],
+    talking_points:["India has historically been more resilient to global recessions than other emerging markets due to its large domestic consumption base","India avoided an outright recession in 2008 even as the developed world contracted sharply","A global recession typically causes a temporary equity correction in India, but the domestic growth story tends to reassert itself","Key recession indicators to watch include US yield curve inversions and global manufacturing PMI readings"]
   }
 };
 
@@ -8328,7 +8402,16 @@ const FLUID_TRIGGERS = [
   {patterns:["rupee","dollar","usd","currency","depreciat","forex","exchange rate","inr","rupee fall"],cards:["f_inr","f_it_benefit"],key:"inr_depreciation"},
   {patterns:["fii","foreign investor","outflow","institutional selling","fiis are selling","foreign sell","fii selling"],cards:["f_fii","f_dii"],key:"fii_outflows"},
   {patterns:["gold","gold bonds","sgb","safe haven","protect","hedge","preserve"],cards:["f_gold","f_geopolitical"],key:"geopolitical_events"},
-  {patterns:["interest rate","rbi","repo","rate cut","rate hike","monetary policy","yield","duration"],cards:["f_inflation","f_asset_class"],key:"inflation_context"}
+  {patterns:["interest rate","rbi","repo","rate cut","rate hike","monetary policy","yield","duration"],cards:["f_inflation","f_asset_class"],key:"inflation_context"},
+
+  // ── Global market triggers (cross-link to Indian consequence cards) ──
+  {patterns:["fed","federal reserve","fomc","us rate","us interest rate","powell"],cards:["f_fed_cycle","f_fii","f_inr"],key:"fed_policy_cycle"},
+  {patterns:["us market","s&p","s&p 500","nasdaq","wall street","dow jones"],cards:["f_us_correlation"],key:"us_market_correlation"},
+  {patterns:["china economy","china slowdown","china stimulus","chinese economy","china growth"],cards:["f_china","f_oil_sector"],key:"china_impact"},
+  {patterns:["dollar index","dxy","dollar strength","strong dollar","weak dollar"],cards:["f_dxy","f_gold","f_inr"],key:"dxy_strength"},
+  {patterns:["us treasury","us yield","10 year yield","10y yield","treasury yield","bond yield"],cards:["f_us_treasury","f_fii"],key:"us_treasury_impact"},
+  {patterns:["trade war","tariff","tariffs","china plus one","china+1","supply chain shift"],cards:["f_trade_war"],key:"trade_war_impact"},
+  {patterns:["global recession","recession risk","global slowdown","world economy slowing"],cards:["f_global_recession"],key:"global_recession_risk"}
 ];
 
 let fluidCards = new Map();
@@ -8347,7 +8430,13 @@ const FLUID_DEMO_PHRASES = [
   "Oil prices are at $88 a barrel. How does this affect the portfolio?",
   "The rupee has fallen to 87 against the dollar. Should we add more international funds?",
   "With the geopolitical tension in the Middle East, what should we do with the portfolio?",
-  "Inflation is still high at 5.4%. Are my real returns actually positive after inflation?"
+  "Inflation is still high at 5.4%. Are my real returns actually positive after inflation?",
+  "The Fed just signalled more rate hikes are coming. What does this mean for my India portfolio?",
+  "China announced a big stimulus package. Should I worry about money moving away from India?",
+  "The dollar index has been very strong lately. Is that a concern for my gold holdings?",
+  "US treasury yields have spiked sharply. Will this hurt Indian debt funds?",
+  "There's talk of new tariffs between the US and China. Does this affect my portfolio?",
+  "Some analysts are warning about a global recession next year. Should I be worried?"
 ];
 
 function fluidInit() {
@@ -8711,6 +8800,72 @@ function fRender(type) {
         '<div class="fdr"><span class="lbl">Expensive</span><span class="val" style="color:var(--red)">Above 24x → Be selective</span></div>' +
         '<div class="ftp"><strong>Corrections are opportunities:</strong> Market falls make PE cheaper — same fund buys more quality at lower price</div>');
     }
+
+    case 'f_fed_cycle': {
+      const ep = S.fed_policy_cycle.episodes;
+      return fCard(type,'Global · US Fed','Fed Policy Cycles & India Impact',
+        '<div class="ftl">' + ep.slice(0,4).map(e =>
+          '<div class="ftl-row"><div class="ftl-yr" style="font-size:.56rem">' + e.cycle.split(' ')[0] + '</div>' +
+          '<div class="ftl-body"><div class="ftl-name">' + e.cycle + '</div>' +
+          '<div class="ftl-stats"><span style="color:var(--muted)">' + e.start_rate + '%→' + e.end_rate + '%</span>' +
+          '<span style="color:' + (e.nifty_during>0?'var(--green)':'var(--red)') + '">Nifty: ' + (e.nifty_during>0?'+':'') + e.nifty_during + '%</span></div>' +
+          '<div class="ftl-ins">' + e.india_impact + '</div></div></div>').join('') + '</div>' +
+        '<div class="ftp"><strong>Pattern:</strong> ' + S.fed_policy_cycle.talking_points[0] + '</div>');
+    }
+    case 'f_us_correlation': {
+      const d = S.us_market_correlation;
+      return fCard(type,'Global · Correlation','India-US Market Correlation',
+        '<div class="fdr"><span class="lbl">10-Year Correlation</span><span class="val" style="color:var(--blue)">' + d.correlation_10y + '</span></div>' +
+        d.decoupling_episodes.map(e =>
+          '<div class="fdr"><span class="lbl">' + e.period + '</span>' +
+          '<span class="val" style="color:var(--muted)">S&P ' + (e.sp500_move>0?'+':'') + e.sp500_move + '% / Nifty ' + (e.nifty_move>0?'+':'') + e.nifty_move + '%</span></div>').join('') +
+        '<div class="ftp"><strong>Key:</strong> ' + d.talking_points[0] + '</div>');
+    }
+    case 'f_china': {
+      const d = S.china_impact;
+      return fCard(type,'Global · China','China Impact on Indian Markets',
+        '<div class="ftl">' + d.episodes.map(e =>
+          '<div class="ftl-row"><div class="ftl-yr" style="font-size:.56rem">' + e.period.split(' ')[0] + '</div>' +
+          '<div class="ftl-body"><div class="ftl-stats"><span style="color:var(--muted)">China GDP: ' + e.china_gdp + '%</span>' +
+          '<span style="color:' + (e.nifty_impact>0?'var(--green)':'var(--red)') + '">Nifty: ' + (e.nifty_impact>0?'+':'') + e.nifty_impact + '%</span></div>' +
+          '<div class="ftl-ins">' + e.note + '</div></div></div>').join('') + '</div>' +
+        '<div class="ftp"><strong>Dynamic:</strong> ' + d.talking_points[0] + '</div>');
+    }
+    case 'f_dxy': {
+      const d = S.dxy_strength;
+      return fCard(type,'Global · Currency','Dollar Index (DXY) Impact',
+        d.episodes.map(e =>
+          '<div class="fdr"><span class="lbl">' + e.period + '</span>' +
+          '<span class="val" style="color:' + (e.inr_impact<0?'var(--red)':'var(--green)') + '">INR ' + e.inr_impact + '% · Gold ' + (e.gold_impact>0?'+':'') + e.gold_impact + '%</span></div>').join('') +
+        '<div class="ftp"><strong>Relationship:</strong> ' + d.talking_points[0] + '</div>');
+    }
+    case 'f_us_treasury': {
+      const d = S.us_treasury_impact;
+      return fCard(type,'Global · Bonds','US Treasury Yield Impact',
+        d.episodes.map(e =>
+          '<div class="fdr"><span class="lbl">' + e.period + '</span>' +
+          '<span class="val" style="color:var(--red)">US +' + e.us_10y_bps + 'bps · INR ' + e.inr_impact + '%</span></div>').join('') +
+        '<div class="ftp"><strong>Why it matters:</strong> ' + d.talking_points[0] + '</div>');
+    }
+    case 'f_trade_war': {
+      const d = S.trade_war_impact;
+      return fCard(type,'Global · Trade','Trade War & China+1 Opportunity',
+        '<div class="ftl">' + d.episodes.map(e =>
+          '<div class="ftl-row"><div class="ftl-yr" style="font-size:.56rem">' + e.period.split(' ')[0] + '</div>' +
+          '<div class="ftl-body"><div class="ftl-ins">' + e.note + '</div>' +
+          '<div style="font-size:.58rem;color:var(--green);margin-top:.2rem">Beneficiaries: ' + e.beneficiaries.join(', ') + '</div></div></div>').join('') + '</div>' +
+        '<div class="ftp"><strong>Theme:</strong> ' + d.talking_points[0] + '</div>');
+    }
+    case 'f_global_recession': {
+      const d = S.global_recession_risk;
+      return fCard(type,'Global · Macro',"India's Resilience to Global Recession",
+        '<div class="ftl">' + d.episodes.map(e =>
+          '<div class="ftl-row"><div class="ftl-yr" style="font-size:.56rem">' + e.period.split(' ')[0] + '</div>' +
+          '<div class="ftl-body"><div class="ftl-stats"><span style="color:var(--red)">US GDP: ' + e.us_gdp + '%</span>' +
+          '<span style="color:var(--amber)">India GDP: ' + e.india_gdp + '%</span></div>' +
+          '<div class="ftl-ins">' + e.note + '</div></div></div>').join('') + '</div>' +
+        '<div class="ftp"><strong>Resilience:</strong> ' + d.talking_points[0] + '</div>');
+    }
     default: return null;
   }
 }
@@ -8769,10 +8924,12 @@ function fluidPin(id) {
 function fluidUpdateTalkingPoints(key) {
   const panel = document.getElementById('fluid-talking');
   if (!panel) return;
-  let points = [];
-  for (const [k, v] of Object.entries(FLUID_STASH)) {
-    if (k.includes(key.split('_')[0]) && v.talking_points) {
-      points = v.talking_points; break;
+  // Direct match first (trigger map keys now equal FLUID_STASH keys exactly)
+  let points = FLUID_STASH[key]?.talking_points || [];
+  // Fallback fuzzy match for any legacy keys
+  if (!points.length) {
+    for (const [k, v] of Object.entries(FLUID_STASH)) {
+      if (k.includes(key.split('_')[0]) && v.talking_points) { points = v.talking_points; break; }
     }
   }
   if (!points.length) return;
