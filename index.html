@@ -57,6 +57,10 @@ onAuthStateChanged(auth, user => {
     if (info)   info.textContent = 'Not signed in — data saved locally only';
     if (avatar) avatar.style.display = 'none';
   }
+  // Refresh Home page tiles if currently visible (or whenever it's next shown)
+  if (typeof buildHomePage === 'function') {
+    try { buildHomePage(); } catch(e) {}
+  }
 });
 
 // ── Save to Firestore ──
