@@ -466,24 +466,27 @@ body {
    for being given visual weight as the signature element.
    ══════════════════════════════════════════════════════════ */
 #page-fluid {
-  --f-ink:        #14181f;
-  --f-ink-2:      #191e26;
-  --f-surface:    #1d222c;
-  --f-surface-hi: #262c38;
-  --f-rule:       #2b313d;
-  --f-rule-soft:  #232936;
-  --f-paper:      #eceef0;
-  --f-paper-dim:  #9aa1ad;
-  --f-paper-faint:#6b7280;
-  --f-gold:       #c9a55c;
-  --f-gold-dim:   #8a7142;
-  --f-gold-wash:  #2a2415;
-  --f-gain:       #5fb88a;
-  --f-gain-wash:  #16261f;
-  --f-loss:       #d2715f;
-  --f-loss-wash:  #2a1c19;
-  --f-info:       #6f9bc9;
-  --f-info-wash:  #16202a;
+  /* Light canvas, matching the rest of Vantage — warm off-white, not stark white */
+  --f-ink:        #f4f5f7;
+  --f-ink-2:      #ffffff;
+  --f-surface:    #ffffff;
+  --f-surface-hi: #f0f2f5;
+  --f-rule:       rgba(0,0,0,.1);
+  --f-rule-soft:  rgba(0,0,0,.07);
+  --f-paper:      #15181d;
+  --f-paper-dim:  #5b6270;
+  --f-paper-faint:#94999f;
+  /* Gold stays the signature accent, deepened slightly for contrast on light */
+  --f-gold:       #b8862e;
+  --f-gold-dim:   #c9a55c;
+  --f-gold-wash:  #fbf3e3;
+  /* Bright, saturated data colors — pop against the light surface */
+  --f-gain:       #0f9d63;
+  --f-gain-wash:  #e3f7ec;
+  --f-loss:       #e0392b;
+  --f-loss-wash:  #fdeae8;
+  --f-info:       #2563eb;
+  --f-info-wash:  #e8f0fe;
   --f-r:          7px;
   --f-r-lg:       11px;
   font-family: 'Inter', -apple-system, sans-serif;
@@ -502,11 +505,13 @@ body {
   padding:1.05rem 1.1rem;
   animation:fluidIn .35s cubic-bezier(.2,.8,.2,1);
   position:relative;
+  box-shadow:0 1px 3px rgba(0,0,0,.04), 0 6px 16px -10px rgba(0,0,0,.08);
 }
 @keyframes fluidIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 #page-fluid .fluid-card.pinned{
-  border-color:var(--f-gold-dim);
-  background:linear-gradient(180deg, rgba(201,165,92,.05), transparent 40%), var(--f-surface);
+  border-color:var(--f-gold);
+  background:linear-gradient(180deg, var(--f-gold-wash), transparent 45%), var(--f-surface);
+  box-shadow:0 1px 3px rgba(184,134,46,.08), 0 8px 18px -10px rgba(184,134,46,.18);
 }
 #page-fluid .fluid-card.pinned::before{
   content:'';position:absolute;top:0;left:0;width:3px;height:100%;
@@ -2267,7 +2272,7 @@ body {
 </div>
 
 
-<div class="page" id="page-fluid" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 56px);overflow:hidden;background:var(--f-ink, #14181f)">
+<div class="page" id="page-fluid" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 56px);overflow:hidden;background:var(--f-ink, #f4f5f7)">
 
   <!-- Fluid top bar — ledger header -->
   <div style="height:52px;background:var(--f-ink-2);border-bottom:1px solid var(--f-rule);display:flex;align-items:center;padding:0 1.35rem;gap:.9rem;flex-shrink:0">
@@ -2300,7 +2305,7 @@ body {
       <div id="fluid-transcript" style="flex:1;overflow-y:auto;padding:.85rem;display:flex;flex-direction:column;gap:.5rem"></div>
       <div style="padding:.75rem;border-top:1px solid var(--f-rule)">
         <textarea id="fluid-input" placeholder="Type a conversation snippet…" style="width:100%;background:var(--f-surface);border:1px solid var(--f-rule);border-radius:6px;color:var(--f-paper);font-size:.69rem;font-family:'Inter',sans-serif;padding:.5rem .65rem;resize:none;height:60px;outline:none;line-height:1.55;transition:border-color .15s"></textarea>
-        <button onclick="fluidAnalyze()" style="width:100%;margin-top:.4rem;background:var(--f-gold);color:var(--f-ink);border:none;border-radius:6px;padding:.46rem;font-size:.69rem;cursor:pointer;font-family:'Inter',sans-serif;font-weight:600;letter-spacing:.01em;transition:opacity .15s">Analyze →</button>
+        <button onclick="fluidAnalyze()" style="width:100%;margin-top:.4rem;background:var(--f-gold);color:#ffffff;border:none;border-radius:6px;padding:.46rem;font-size:.69rem;cursor:pointer;font-family:'Inter',sans-serif;font-weight:600;letter-spacing:.01em;transition:opacity .15s">Analyze →</button>
       </div>
     </div>
 
@@ -3334,8 +3339,11 @@ function fluidGoToAccountSettings() {
     document.getElementById('fb-login-btn')?.click();
     return;
   }
-  // If already signed in, just trigger a manual save/sync as the most useful action
-  showToast('☁ Already signed in — hover the sidebar to manage your account');
+  // If already signed in, offer to sign out
+  const name = window._fb.currentUser.displayName || window._fb.currentUser.email || 'this account';
+  if (confirm('Signed in as ' + name + '.\n\nSign out?')) {
+    document.getElementById('fb-login-btn')?.click(); // button is wired to signOut when signed in
+  }
 }
 
 function switchMetric(v) {
