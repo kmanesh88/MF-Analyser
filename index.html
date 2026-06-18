@@ -345,49 +345,166 @@ body {
 
 .pg-header { margin-bottom: 2rem; display:flex; justify-content:space-between; align-items:flex-start; }
 
-/* ── Fluid Dashboard ── */
-.mode-badge{font-size:.6rem;padding:.2rem .55rem;border-radius:20px;font-weight:500}
-.mode-pre{background:#1a2233;color:var(--blue);border:1px solid #2a3550}
-.mode-live{background:#1a2e20;color:var(--green);border:1px solid #2a4e30}
-.mode-post{background:#2e1a2e;color:#ce93d8;border:1px solid #4e2a4e}
-#page-fluid .fluid-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.9rem;animation:fluidIn .3s ease-out}
-@keyframes fluidIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-#page-fluid .fluid-card.pinned{border-color:var(--accent);background:#131620}
-#page-fluid .fluid-lbl{font-size:.56rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.2rem}
-#page-fluid .fluid-title{font-family:'Fraunces',serif;font-size:.9rem;font-weight:300;color:var(--text);line-height:1.3;margin-bottom:.65rem}
-#page-fluid .fluid-card-actions{float:right;display:flex;gap:.25rem;margin-left:.5rem}
-#page-fluid .fluid-cbtn{width:22px;height:22px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
-#page-fluid .fluid-cbtn:hover{color:var(--text);border-color:var(--text2)}
-#page-fluid .fluid-cbtn.pinned{color:var(--accent);border-color:var(--accent)}
-#page-fluid .fdr{display:flex;justify-content:space-between;align-items:center;padding:.28rem 0;border-bottom:1px solid var(--border);font-size:.69rem}
+/* ══════════════════════════════════════════════════════════
+   FLUID — Advisor Co-pilot
+   Design language: "ledger" — warm ink navy, paper-white text,
+   restrained gold accent (echoes the gold asset-class itself,
+   evokes the gravitas of a trusted record). Historical episode
+   rows are styled as ledger entries — the product's reason
+   for being given visual weight as the signature element.
+   ══════════════════════════════════════════════════════════ */
+#page-fluid {
+  --f-ink:        #14181f;
+  --f-ink-2:      #191e26;
+  --f-surface:    #1d222c;
+  --f-surface-hi: #262c38;
+  --f-rule:       #2b313d;
+  --f-rule-soft:  #232936;
+  --f-paper:      #eceef0;
+  --f-paper-dim:  #9aa1ad;
+  --f-paper-faint:#6b7280;
+  --f-gold:       #c9a55c;
+  --f-gold-dim:   #8a7142;
+  --f-gold-wash:  #2a2415;
+  --f-gain:       #5fb88a;
+  --f-gain-wash:  #16261f;
+  --f-loss:       #d2715f;
+  --f-loss-wash:  #2a1c19;
+  --f-info:       #6f9bc9;
+  --f-info-wash:  #16202a;
+  --f-r:          7px;
+  --f-r-lg:       11px;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+
+#page-fluid .mode-badge{font-size:.6rem;padding:.22rem .65rem;border-radius:3px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;font-size:.56rem}
+#page-fluid .mode-pre{background:var(--f-info-wash);color:var(--f-info);border:1px solid var(--f-rule)}
+#page-fluid .mode-live{background:var(--f-gain-wash);color:var(--f-gain);border:1px solid var(--f-rule)}
+#page-fluid .mode-post{background:var(--f-surface-hi);color:var(--f-paper-dim);border:1px solid var(--f-rule)}
+
+/* Cards — ledger sheet aesthetic: flat, hairline rule, no heavy shadow */
+#page-fluid .fluid-card{
+  background:var(--f-surface);
+  border:1px solid var(--f-rule);
+  border-radius:var(--f-r-lg);
+  padding:1.05rem 1.1rem;
+  animation:fluidIn .35s cubic-bezier(.2,.8,.2,1);
+  position:relative;
+}
+@keyframes fluidIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+#page-fluid .fluid-card.pinned{
+  border-color:var(--f-gold-dim);
+  background:linear-gradient(180deg, rgba(201,165,92,.05), transparent 40%), var(--f-surface);
+}
+#page-fluid .fluid-card.pinned::before{
+  content:'';position:absolute;top:0;left:0;width:3px;height:100%;
+  background:var(--f-gold);border-radius:var(--f-r-lg) 0 0 var(--f-r-lg);
+}
+#page-fluid .fluid-lbl{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:.56rem;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--f-gold-dim);margin-bottom:.25rem;font-weight:600;
+}
+#page-fluid .fluid-title{
+  font-family:'Fraunces',serif;font-size:1.02rem;font-weight:400;
+  color:var(--f-paper);line-height:1.32;margin-bottom:.8rem;
+  letter-spacing:-.01em;
+}
+#page-fluid .fluid-card-actions{float:right;display:flex;gap:.3rem;margin-left:.5rem}
+#page-fluid .fluid-cbtn{
+  width:24px;height:24px;background:var(--f-ink-2);border:1px solid var(--f-rule);
+  border-radius:5px;color:var(--f-paper-faint);font-size:.62rem;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:all .15s;
+}
+#page-fluid .fluid-cbtn:hover{color:var(--f-paper);border-color:var(--f-paper-dim)}
+#page-fluid .fluid-cbtn.pinned{color:var(--f-gold);border-color:var(--f-gold-dim);background:var(--f-gold-wash)}
+
+/* Data rows — aligned numerals, monospace, like a statement line item */
+#page-fluid .fdr{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:.4rem 0;border-bottom:1px solid var(--f-rule-soft);font-size:.72rem;
+}
 #page-fluid .fdr:last-child{border-bottom:none}
-#page-fluid .fdr .lbl{color:var(--text2)}
-#page-fluid .fdr .val{font-family:'IBM Plex Mono',monospace;font-size:.67rem}
-#page-fluid .ftp{margin-top:.65rem;padding:.45rem .6rem;background:#131b2e;border-left:2px solid var(--blue);border-radius:0 6px 6px 0;font-size:.65rem;color:var(--text2);line-height:1.5;font-style:italic}
-#page-fluid .ftp strong{color:var(--blue);font-style:normal}
-#page-fluid .ftl{display:flex;flex-direction:column;gap:.4rem}
-#page-fluid .ftl-row{display:grid;grid-template-columns:52px 1fr;gap:.35rem;align-items:start}
-#page-fluid .ftl-yr{font-family:'IBM Plex Mono',monospace;font-size:.6rem;color:var(--muted);padding-top:.1rem}
-#page-fluid .ftl-body{background:var(--bg3);border-radius:6px;padding:.38rem .52rem}
-#page-fluid .ftl-name{font-size:.64rem;font-weight:500;color:var(--text);margin-bottom:.16rem}
-#page-fluid .ftl-stats{display:flex;gap:.55rem;font-size:.59rem;margin-bottom:.16rem}
-#page-fluid .ftl-ins{font-size:.59rem;color:var(--text2);font-style:italic;line-height:1.4}
-#page-fluid .fbar-chart{display:flex;flex-direction:column;gap:.32rem}
-#page-fluid .fbar-row{display:grid;grid-template-columns:95px 1fr 40px;gap:.32rem;align-items:center}
-#page-fluid .fbar-lbl{font-size:.62rem;color:var(--text2)}
-#page-fluid .fbar-track{height:5px;background:var(--border);border-radius:3px}
-#page-fluid .fbar-fill{height:100%;border-radius:3px;transition:width .5s ease}
-#page-fluid .fbar-val{font-size:.59rem;font-family:'IBM Plex Mono',monospace;color:var(--text2);text-align:right}
-#page-fluid .fchunk{font-size:.67rem;line-height:1.55;color:var(--text2);padding:.42rem .58rem;background:var(--bg3);border-radius:6px;border-left:2px solid var(--border);transition:border-color .3s}
-#page-fluid .fchunk.fresh{border-left-color:var(--green);color:var(--text)}
-#page-fluid .fchunk .fts{font-size:.54rem;color:var(--muted);margin-bottom:.16rem;font-family:'IBM Plex Mono',monospace}
-#page-fluid .fintent{display:flex;align-items:center;gap:.32rem;font-size:.58rem;color:var(--amber);padding:.26rem .58rem;background:#2a2010;border:1px solid #3a3010;border-radius:6px}
-#page-fluid .fsect{display:flex;align-items:center;justify-content:space-between;padding:.26rem .42rem;background:var(--bg3);border-radius:6px;font-size:.64rem;margin-bottom:.22rem}
-#page-fluid .imp-pos{background:#1a3020;color:var(--green);font-size:.57rem;padding:.1rem .38rem;border-radius:10px;font-weight:500}
-#page-fluid .imp-neg{background:#2e1a1a;color:var(--red);font-size:.57rem;padding:.1rem .38rem;border-radius:10px;font-weight:500}
-#page-fluid .ftpt{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:.48rem .58rem;font-size:.63rem;line-height:1.5;color:var(--text2);cursor:pointer;transition:border-color .2s}
-#page-fluid .ftpt:hover{border-color:var(--accent);color:var(--text)}
-#page-fluid .ftpt .tptag{font-size:.5rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:.18rem}
+#page-fluid .fdr .lbl{color:var(--f-paper-dim)}
+#page-fluid .fdr .val{font-family:'IBM Plex Mono',monospace;font-size:.7rem;font-weight:500;letter-spacing:-.01em}
+
+/* Talking point callout — quiet, editorial, gold rule not blue */
+#page-fluid .ftp{
+  margin-top:.85rem;padding:.6rem .75rem;
+  background:var(--f-gold-wash);
+  border-left:2px solid var(--f-gold);
+  border-radius:0 6px 6px 0;
+  font-size:.68rem;color:var(--f-paper-dim);line-height:1.55;
+}
+#page-fluid .ftp strong{color:var(--f-gold);font-weight:600;letter-spacing:.01em}
+
+/* ── Ledger timeline — the signature element ──
+   Each historical episode reads like a dated ledger entry:
+   a thin connecting rule down the left, year set in mono,
+   the entry itself in a quiet panel. */
+#page-fluid .ftl{display:flex;flex-direction:column;position:relative}
+#page-fluid .ftl-row{
+  display:grid;grid-template-columns:54px 1fr;gap:.5rem;
+  align-items:start;position:relative;padding-bottom:.55rem;
+}
+#page-fluid .ftl-row:not(:last-child)::after{
+  content:'';position:absolute;left:26px;top:1.1rem;bottom:0;
+  width:1px;background:var(--f-rule);
+}
+#page-fluid .ftl-row:not(:last-child){margin-bottom:.1rem}
+#page-fluid .ftl-yr{
+  font-family:'IBM Plex Mono',monospace;font-size:.62rem;color:var(--f-paper-faint);
+  padding-top:.18rem;text-align:right;padding-right:.4rem;font-weight:500;
+}
+#page-fluid .ftl-body{
+  background:var(--f-ink-2);border:1px solid var(--f-rule-soft);border-radius:6px;
+  padding:.5rem .65rem;
+}
+#page-fluid .ftl-name{font-size:.68rem;font-weight:600;color:var(--f-paper);margin-bottom:.22rem;letter-spacing:-.005em}
+#page-fluid .ftl-stats{display:flex;gap:.65rem;font-size:.61rem;margin-bottom:.22rem;font-family:'IBM Plex Mono',monospace}
+#page-fluid .ftl-ins{font-size:.62rem;color:var(--f-paper-dim);line-height:1.45;font-style:normal}
+
+/* Bar charts — thin, precise, no rounded gimmicks */
+#page-fluid .fbar-chart{display:flex;flex-direction:column;gap:.4rem}
+#page-fluid .fbar-row{display:grid;grid-template-columns:104px 1fr 46px;gap:.4rem;align-items:center}
+#page-fluid .fbar-lbl{font-size:.65rem;color:var(--f-paper-dim)}
+#page-fluid .fbar-track{height:4px;background:var(--f-rule-soft);border-radius:2px}
+#page-fluid .fbar-fill{height:100%;border-radius:2px;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+#page-fluid .fbar-val{font-size:.62rem;font-family:'IBM Plex Mono',monospace;color:var(--f-paper-dim);text-align:right;font-weight:500}
+
+/* Transcript chunks */
+#page-fluid .fchunk{
+  font-size:.7rem;line-height:1.6;color:var(--f-paper-dim);
+  padding:.5rem .65rem;background:var(--f-ink-2);border-radius:6px;
+  border-left:2px solid var(--f-rule);transition:border-color .4s, color .4s;
+}
+#page-fluid .fchunk.fresh{border-left-color:var(--f-gold);color:var(--f-paper)}
+#page-fluid .fchunk .fts{font-size:.56rem;color:var(--f-paper-faint);margin-bottom:.2rem;font-family:'IBM Plex Mono',monospace;letter-spacing:.02em}
+
+/* Intent badge — quiet signal, not alarm */
+#page-fluid .fintent{
+  display:flex;align-items:center;gap:.4rem;font-size:.6rem;color:var(--f-gold);
+  padding:.32rem .65rem;background:var(--f-gold-wash);border:1px solid rgba(201,165,92,.18);
+  border-radius:6px;font-family:'IBM Plex Mono',monospace;
+}
+
+/* Sector impact rows */
+#page-fluid .fsect{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.38rem .55rem;background:var(--f-ink-2);border-radius:6px;
+  font-size:.68rem;margin-bottom:.3rem;border:1px solid var(--f-rule-soft);
+}
+#page-fluid .imp-pos{background:var(--f-gain-wash);color:var(--f-gain);font-size:.58rem;padding:.14rem .45rem;border-radius:3px;font-weight:600;letter-spacing:.02em}
+#page-fluid .imp-neg{background:var(--f-loss-wash);color:var(--f-loss);font-size:.58rem;padding:.14rem .45rem;border-radius:3px;font-weight:600;letter-spacing:.02em}
+
+/* Talking point list items */
+#page-fluid .ftpt{
+  background:var(--f-ink-2);border:1px solid var(--f-rule-soft);border-radius:6px;
+  padding:.55rem .65rem;font-size:.66rem;line-height:1.55;color:var(--f-paper-dim);
+  cursor:pointer;transition:border-color .2s, background .2s;
+}
+#page-fluid .ftpt:hover{border-color:var(--f-gold-dim);background:var(--f-ink-2);color:var(--f-paper)}
+#page-fluid .ftpt .tptag{font-family:'IBM Plex Mono',monospace;font-size:.52rem;text-transform:uppercase;letter-spacing:.08em;color:var(--f-gold-dim);margin-bottom:.22rem;font-weight:600}
 .pg-title {
   font-family: 'Fraunces', serif;
   font-size: 1.75rem; font-weight: 600;
@@ -1942,21 +2059,24 @@ body {
 </div>
 
 
-<div class="page" id="page-fluid" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 56px);overflow:hidden">
+<div class="page" id="page-fluid" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 56px);overflow:hidden;background:var(--f-ink, #14181f)">
 
-  <!-- Fluid top bar -->
-  <div style="height:48px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 1.25rem;gap:.75rem;flex-shrink:0">
-    <span style="font-family:'Fraunces',serif;font-size:1rem;font-weight:300;letter-spacing:-.02em">fluid<span style="color:var(--green)">.</span></span>
-    <div id="fluid-client-badge" onclick="fluidSelectClient()" style="display:flex;align-items:center;gap:.4rem;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:.25rem .6rem;cursor:pointer;font-size:.68rem;color:var(--text2)">
-      👤 <span id="fluid-client-name">Select Client</span> <span style="font-size:.6rem">▾</span>
+  <!-- Fluid top bar — ledger header -->
+  <div style="height:52px;background:var(--f-ink-2);border-bottom:1px solid var(--f-rule);display:flex;align-items:center;padding:0 1.35rem;gap:.9rem;flex-shrink:0">
+    <span style="font-family:'Fraunces',serif;font-size:1.05rem;font-weight:400;letter-spacing:-.01em;color:var(--f-paper)">Fluid<span style="color:var(--f-gold)">·</span></span>
+    <div style="width:1px;height:18px;background:var(--f-rule)"></div>
+    <div id="fluid-client-badge" onclick="fluidSelectClient()" style="display:flex;align-items:center;gap:.45rem;background:var(--f-surface);border:1px solid var(--f-rule);border-radius:6px;padding:.32rem .7rem;cursor:pointer;font-size:.69rem;color:var(--f-paper-dim);transition:border-color .15s">
+      <span style="font-size:.62rem;color:var(--f-gold-dim)">◆</span>
+      <span id="fluid-client-name">Select client</span>
+      <span style="font-size:.55rem;color:var(--f-paper-faint)">▾</span>
     </div>
-    <div style="margin-left:auto;display:flex;align-items:center;gap:.6rem">
+    <div style="margin-left:auto;display:flex;align-items:center;gap:.7rem">
       <span class="mode-badge mode-pre" id="fluid-mode-badge">Pre-meeting</span>
-      <button onclick="fluidToggleListening()" id="fluid-listen-btn" style="display:flex;align-items:center;gap:.4rem;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.3rem .8rem;cursor:pointer;font-size:.68rem;color:var(--text2);font-family:'Inter',sans-serif;transition:all .2s">
-        <div id="fluid-listen-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted)"></div>
-        <span id="fluid-listen-label">🎤 Start Listening</span>
+      <button onclick="fluidToggleListening()" id="fluid-listen-btn" style="display:flex;align-items:center;gap:.45rem;background:var(--f-surface);border:1px solid var(--f-rule);border-radius:20px;padding:.34rem .85rem;cursor:pointer;font-size:.69rem;color:var(--f-paper-dim);font-family:'Inter',sans-serif;transition:all .2s">
+        <div id="fluid-listen-dot" style="width:6px;height:6px;border-radius:50%;background:var(--f-paper-faint)"></div>
+        <span id="fluid-listen-label">Start listening</span>
       </button>
-      <button onclick="fluidToggleDemo()" id="fluid-demo-btn" title="Demo mode" style="background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.3rem .7rem;cursor:pointer;font-size:.65rem;color:var(--muted);font-family:'Inter',sans-serif;transition:all .2s">Demo</button>
+      <button onclick="fluidToggleDemo()" id="fluid-demo-btn" title="Demo mode" style="background:none;border:1px solid var(--f-rule);border-radius:20px;padding:.34rem .75rem;cursor:pointer;font-size:.65rem;color:var(--f-paper-faint);font-family:'Inter',sans-serif;transition:all .2s">Demo</button>
     </div>
   </div>
 
@@ -1964,32 +2084,34 @@ body {
   <div style="display:flex;flex:1;overflow:hidden">
 
     <!-- Left — Transcript -->
-    <div style="width:270px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column">
-      <div style="padding:.6rem 1rem;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+    <div style="width:280px;flex-shrink:0;background:var(--f-ink-2);border-right:1px solid var(--f-rule);display:flex;flex-direction:column">
+      <div style="padding:.7rem 1.1rem;font-family:'IBM Plex Mono',monospace;font-size:.58rem;color:var(--f-paper-faint);text-transform:uppercase;letter-spacing:.1em;border-bottom:1px solid var(--f-rule);display:flex;justify-content:space-between;align-items:center">
         <span>Conversation</span>
-        <span id="fluid-status" style="color:var(--muted);font-size:.58rem">Idle</span>
+        <span id="fluid-status" style="color:var(--f-paper-faint)">Idle</span>
       </div>
-      <div id="fluid-transcript" style="flex:1;overflow-y:auto;padding:.75rem;display:flex;flex-direction:column;gap:.4rem"></div>
-      <div style="padding:.65rem;border-top:1px solid var(--border)">
-        <textarea id="fluid-input" placeholder="Type conversation snippet… (Cmd+Enter to analyze)" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.68rem;font-family:'Inter',sans-serif;padding:.45rem .6rem;resize:none;height:58px;outline:none;line-height:1.5"></textarea>
-        <button onclick="fluidAnalyze()" style="width:100%;margin-top:.35rem;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:.4rem;font-size:.68rem;cursor:pointer;font-family:'Inter',sans-serif;font-weight:500">Analyze →</button>
+      <div id="fluid-transcript" style="flex:1;overflow-y:auto;padding:.85rem;display:flex;flex-direction:column;gap:.5rem"></div>
+      <div style="padding:.75rem;border-top:1px solid var(--f-rule)">
+        <textarea id="fluid-input" placeholder="Type a conversation snippet…" style="width:100%;background:var(--f-surface);border:1px solid var(--f-rule);border-radius:6px;color:var(--f-paper);font-size:.69rem;font-family:'Inter',sans-serif;padding:.5rem .65rem;resize:none;height:60px;outline:none;line-height:1.55;transition:border-color .15s"></textarea>
+        <button onclick="fluidAnalyze()" style="width:100%;margin-top:.4rem;background:var(--f-gold);color:var(--f-ink);border:none;border-radius:6px;padding:.46rem;font-size:.69rem;cursor:pointer;font-family:'Inter',sans-serif;font-weight:600;letter-spacing:.01em;transition:opacity .15s">Analyze →</button>
       </div>
     </div>
 
     <!-- Center — Canvas -->
-    <div id="fluid-canvas" style="flex:1;overflow-y:auto;padding:1rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.85rem;align-content:start">
-      <div id="fluid-empty" style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:55vh;color:var(--muted);text-align:center;gap:.65rem">
-        <div style="font-size:2rem;opacity:.25">◎</div>
-        <div style="font-family:'Fraunces',serif;font-size:1rem;font-weight:300;color:var(--text2)">Ready to listen</div>
-        <div style="font-size:.7rem;max-width:280px;line-height:1.6">Select a client, start listening or type a conversation snippet. Relevant data cards appear here in real time.</div>
+    <div id="fluid-canvas" style="flex:1;overflow-y:auto;padding:1.1rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:.9rem;align-content:start;background:var(--f-ink)">
+      <div id="fluid-empty" style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:58vh;color:var(--f-paper-faint);text-align:center;gap:.85rem">
+        <div style="width:46px;height:46px;border:1px solid var(--f-rule);border-radius:50%;display:flex;align-items:center;justify-content:center">
+          <span style="font-size:1.1rem;color:var(--f-gold-dim)">◆</span>
+        </div>
+        <div style="font-family:'Fraunces',serif;font-size:1.15rem;font-weight:400;color:var(--f-paper-dim);letter-spacing:-.01em">Ready when you are</div>
+        <div style="font-size:.72rem;max-width:300px;line-height:1.65;color:var(--f-paper-faint)">Select a client, start listening, or type a conversation snippet. Relevant market context appears here as the conversation unfolds.</div>
       </div>
     </div>
 
     <!-- Right — Talking Points -->
-    <div style="width:210px;flex-shrink:0;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column">
-      <div style="padding:.6rem 1rem;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border)">Talking Points</div>
-      <div id="fluid-talking" style="flex:1;overflow-y:auto;padding:.65rem;display:flex;flex-direction:column;gap:.4rem">
-        <div style="color:var(--muted);font-size:.65rem;text-align:center;padding:1rem;line-height:1.6">Points appear as conversation develops</div>
+    <div style="width:225px;flex-shrink:0;background:var(--f-ink-2);border-left:1px solid var(--f-rule);display:flex;flex-direction:column">
+      <div style="padding:.7rem 1.1rem;font-family:'IBM Plex Mono',monospace;font-size:.58rem;color:var(--f-paper-faint);text-transform:uppercase;letter-spacing:.1em;border-bottom:1px solid var(--f-rule)">Talking points</div>
+      <div id="fluid-talking" style="flex:1;overflow-y:auto;padding:.75rem;display:flex;flex-direction:column;gap:.5rem">
+        <div style="color:var(--f-paper-faint);font-size:.68rem;text-align:center;padding:1.2rem .5rem;line-height:1.65">Key points surface here as the conversation develops</div>
       </div>
     </div>
 
@@ -8504,15 +8626,15 @@ function fluidSetListeningUI(active) {
   const mode = document.getElementById('fluid-mode-badge');
   const status = document.getElementById('fluid-status');
   if (active) {
-    if (btn)  { btn.style.background='#1a2e20'; btn.style.borderColor='var(--green)'; btn.style.color='var(--green)'; }
+    if (btn)  { btn.style.background='var(--f-gain-wash)'; btn.style.borderColor='var(--f-gain)'; btn.style.color='var(--f-gain)'; }
     if (lbl)  lbl.textContent = 'Listening…';
-    if (dot)  { dot.style.background='var(--green)'; dot.style.animation='pulse 1.4s ease-in-out infinite'; }
-    if (mode) { mode.className='mode-badge mode-live'; mode.textContent='Live Meeting'; }
+    if (dot)  { dot.style.background='var(--f-gain)'; dot.style.animation='pulse 1.4s ease-in-out infinite'; }
+    if (mode) { mode.className='mode-badge mode-live'; mode.textContent='Live meeting'; }
     if (status) status.textContent = 'Active';
   } else {
-    if (btn)  { btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; }
-    if (lbl)  lbl.textContent = 'Start Listening';
-    if (dot)  { dot.style.background='var(--muted)'; dot.style.animation=''; }
+    if (btn)  { btn.style.background='var(--f-surface)'; btn.style.borderColor='var(--f-rule)'; btn.style.color='var(--f-paper-dim)'; }
+    if (lbl)  lbl.textContent = 'Start listening';
+    if (dot)  { dot.style.background='var(--f-paper-faint)'; dot.style.animation=''; }
     if (mode) { mode.className='mode-badge mode-post'; mode.textContent='Post-meeting'; }
     if (status) status.textContent = 'Idle';
   }
@@ -8545,8 +8667,8 @@ function fluidStartMic() {
       if (!fluidInterimEl) {
         fluidInterimEl = document.createElement('div');
         fluidInterimEl.className = 'fchunk';
-        fluidInterimEl.style.borderLeftColor = 'var(--muted)';
-        fluidInterimEl.style.color = 'var(--muted)';
+        fluidInterimEl.style.borderLeftColor = 'var(--f-rule)';
+        fluidInterimEl.style.color = 'var(--f-paper-faint)';
         fluidInterimEl.style.fontStyle = 'italic';
         el?.appendChild(fluidInterimEl);
       }
@@ -8688,9 +8810,9 @@ function fRender(type) {
         '<div class="ftl">' + ep.slice(0,4).map(e =>
           '<div class="ftl-row"><div class="ftl-yr">' + e.year + '</div>' +
           '<div class="ftl-body"><div class="ftl-name">' + e.name + '</div>' +
-          '<div class="ftl-stats"><span style="color:var(--red)">▼' + Math.abs(e.drawdown_pct) + '%</span>' +
-          '<span style="color:var(--muted)">→</span>' +
-          '<span style="color:var(--green)">Recovery: ' + e.recovery_months + 'mo</span></div>' +
+          '<div class="ftl-stats"><span style="color:var(--f-loss)">▼' + Math.abs(e.drawdown_pct) + '%</span>' +
+          '<span style="color:var(--f-paper-faint)">→</span>' +
+          '<span style="color:var(--f-gain)">Recovery: ' + e.recovery_months + 'mo</span></div>' +
           '<div class="ftl-ins">' + e.sip_insight + '</div></div></div>').join('') + '</div>' +
         '<div class="ftp"><strong>Key:</strong> ' + tp + '</div>');
     }
@@ -8699,9 +8821,9 @@ function fRender(type) {
       return fCard(type,'Historical Context','Markets After Geopolitical Crises',
         '<div class="fbar-chart">' + ep.map(e =>
           '<div class="fbar-row"><div class="fbar-lbl">' + e.event + ' \'' + e.year.slice(2) + '</div>' +
-          '<div class="fbar-track"><div class="fbar-fill" style="width:' + Math.min(100,e.nifty_6m_after) + '%;background:var(--green)"></div></div>' +
-          '<div class="fbar-val" style="color:var(--green)">+' + e.nifty_6m_after + '%</div></div>').join('') + '</div>' +
-        '<div style="font-size:.58rem;color:var(--muted);margin:.4rem 0">Nifty return 6 months after crisis</div>' +
+          '<div class="fbar-track"><div class="fbar-fill" style="width:' + Math.min(100,e.nifty_6m_after) + '%;background:var(--f-gain)"></div></div>' +
+          '<div class="fbar-val" style="color:var(--f-gain)">+' + e.nifty_6m_after + '%</div></div>').join('') + '</div>' +
+        '<div style="font-size:.58rem;color:var(--f-paper-faint);margin:.4rem 0">Nifty return 6 months after crisis</div>' +
         '<div class="ftp"><strong>Pattern:</strong> ' + S.geopolitical_events.talking_points[0] + '</div>');
     }
     case 'f_inflation': {
@@ -8709,9 +8831,9 @@ function fRender(type) {
       return fCard(type,'Inflation Context','Real Returns After Inflation (20Y)',
         '<div class="fbar-chart">' + d.map(a =>
           '<div class="fbar-row"><div class="fbar-lbl">' + a.asset.split('(')[0].trim() + '</div>' +
-          '<div class="fbar-track"><div class="fbar-fill" style="width:' + Math.min(100,a.cagr*6) + '%;background:' + (a.beats?'var(--green)':'var(--red)') + '"></div></div>' +
-          '<div class="fbar-val" style="color:' + (a.real_return>2?'var(--green)':a.real_return>0?'var(--amber)':'var(--red)') + '">' + a.cagr + '%</div></div>').join('') + '</div>' +
-        '<div style="font-size:.57rem;color:var(--muted);margin:.35rem 0">20Y CAGR | Inflation avg 6.1%</div>' +
+          '<div class="fbar-track"><div class="fbar-fill" style="width:' + Math.min(100,a.cagr*6) + '%;background:' + (a.beats?'var(--f-gain)':'var(--f-loss)') + '"></div></div>' +
+          '<div class="fbar-val" style="color:' + (a.real_return>2?'var(--f-gain)':a.real_return>0?'var(--f-gold)':'var(--f-loss)') + '">' + a.cagr + '%</div></div>').join('') + '</div>' +
+        '<div style="font-size:.57rem;color:var(--f-paper-faint);margin:.35rem 0">20Y CAGR | Inflation avg 6.1%</div>' +
         '<div class="ftp"><strong>Reality:</strong> ' + S.inflation_context.talking_points[0] + '</div>');
     }
     case 'f_asset_class': {
@@ -8719,8 +8841,8 @@ function fRender(type) {
       return fCard(type,'Inflation Context','Which Assets Beat Inflation?',
         d.map(a => '<div class="fdr"><span class="lbl">' + a.asset.split('(')[0].trim() + '</span>' +
           '<div style="display:flex;gap:.4rem;align-items:center">' +
-          '<span class="val" style="color:' + (a.real_return>2?'var(--green)':a.real_return>0?'var(--amber)':'var(--red)') + '">' + (a.real_return>0?'+':'') + a.real_return.toFixed(1) + '% real</span>' +
-          '<span style="font-size:.58rem;color:' + (a.beats?'var(--green)':'var(--red)') + '">' + (a.beats?'✓':'✗') + '</span></div></div>').join('') +
+          '<span class="val" style="color:' + (a.real_return>2?'var(--f-gain)':a.real_return>0?'var(--f-gold)':'var(--f-loss)') + '">' + (a.real_return>0?'+':'') + a.real_return.toFixed(1) + '% real</span>' +
+          '<span style="font-size:.58rem;color:' + (a.beats?'var(--f-gain)':'var(--f-loss)') + '">' + (a.beats?'✓':'✗') + '</span></div></div>').join('') +
         '<div class="ftp"><strong>FD trap:</strong> ' + S.inflation_context.talking_points[1] + '</div>');
     }
     case 'f_oil_sector': {
@@ -8732,24 +8854,24 @@ function fRender(type) {
     }
     case 'f_oil_macro': {
       return fCard(type,'Oil Impact','Oil Price Thresholds for India',
-        '<div class="fdr"><span class="lbl">Below $75</span><span class="val" style="color:var(--green)">Comfortable</span></div>' +
-        '<div class="fdr"><span class="lbl">$75 – $90</span><span class="val" style="color:var(--amber)">Concerning — inflation risk</span></div>' +
-        '<div class="fdr"><span class="lbl">$90 – $100</span><span class="val" style="color:var(--red)">Significant headwind</span></div>' +
-        '<div class="fdr"><span class="lbl">Above $100</span><span class="val" style="color:var(--red)">Crisis — RBI action likely</span></div>' +
+        '<div class="fdr"><span class="lbl">Below $75</span><span class="val" style="color:var(--f-gain)">Comfortable</span></div>' +
+        '<div class="fdr"><span class="lbl">$75 – $90</span><span class="val" style="color:var(--f-gold)">Concerning — inflation risk</span></div>' +
+        '<div class="fdr"><span class="lbl">$90 – $100</span><span class="val" style="color:var(--f-loss)">Significant headwind</span></div>' +
+        '<div class="fdr"><span class="lbl">Above $100</span><span class="val" style="color:var(--f-loss)">Crisis — RBI action likely</span></div>' +
         '<div class="ftp"><strong>India\'s edge:</strong> ' + S.oil_impact.talking_points[4] + '</div>');
     }
     case 'f_inr': {
       const t = S.inr_depreciation;
       return fCard(type,'Currency Context','INR vs USD — 25 Year Trend',
-        t.trend.map(x => '<div class="fdr"><span class="lbl">' + x.year + '</span><span class="val" style="color:var(--muted)">₹' + x.rate + ' / USD</span></div>').join('') +
-        '<div style="font-size:.63rem;color:var(--amber);padding:.3rem 0">Avg depreciation: ' + t.avg_annual_depreciation + '% per year</div>' +
+        t.trend.map(x => '<div class="fdr"><span class="lbl">' + x.year + '</span><span class="val" style="color:var(--f-paper-faint)">₹' + x.rate + ' / USD</span></div>').join('') +
+        '<div style="font-size:.63rem;color:var(--f-gold);padding:.3rem 0">Avg depreciation: ' + t.avg_annual_depreciation + '% per year</div>' +
         '<div class="ftp"><strong>Perspective:</strong> ' + t.talking_points[0] + '</div>');
     }
     case 'f_it_benefit': {
       const b = S.inr_depreciation.beneficiaries;
       return fCard(type,'Currency Context','INR Fall Beneficiaries',
         b.map(x => '<div style="background:var(--bg3);border-radius:6px;padding:.38rem .52rem;margin-bottom:.3rem">' +
-          '<div style="font-size:.65rem;font-weight:500;color:var(--green);margin-bottom:.15rem">' + x.sector + '</div>' +
+          '<div style="font-size:.65rem;font-weight:500;color:var(--f-gain);margin-bottom:.15rem">' + x.sector + '</div>' +
           '<div style="font-size:.6rem;color:var(--text2)">' + x.reason + '</div></div>').join('') +
         '<div class="ftp"><strong>Your portfolio:</strong> ' + S.inr_depreciation.talking_points[2] + '</div>');
     }
@@ -8759,8 +8881,8 @@ function fRender(type) {
         '<div class="ftl">' + ep.map(e =>
           '<div class="ftl-row"><div class="ftl-yr" style="font-size:.58rem">' + e.period + '</div>' +
           '<div class="ftl-body"><div class="ftl-stats">' +
-          '<span style="color:var(--red)">₹' + Math.abs(e.fii_net_crore/1000).toFixed(0) + 'K Cr sold</span>' +
-          '<span style="color:var(--green)">Nifty: ' + e.nifty_impact + '%</span></div>' +
+          '<span style="color:var(--f-loss)">₹' + Math.abs(e.fii_net_crore/1000).toFixed(0) + 'K Cr sold</span>' +
+          '<span style="color:var(--f-gain)">Nifty: ' + e.nifty_impact + '%</span></div>' +
           '<div class="ftl-ins">' + e.outcome + '</div></div></div>').join('') + '</div>' +
         '<div class="ftp"><strong>Pattern:</strong> ' + S.fii_outflows.talking_points[0] + '</div>');
     }
@@ -8769,35 +8891,35 @@ function fRender(type) {
       return fCard(type,'FII Context','SIP Book — India\'s Shock Absorber',
         '<div class="fbar-chart">' + s.map(x =>
           '<div class="fbar-row"><div class="fbar-lbl">' + x.year + '</div>' +
-          '<div class="fbar-track"><div class="fbar-fill" style="width:' + (x.crore/26000*100) + '%;background:var(--blue)"></div></div>' +
-          '<div class="fbar-val" style="color:var(--blue)">₹' + (x.crore/1000).toFixed(0) + 'K Cr</div></div>').join('') + '</div>' +
+          '<div class="fbar-track"><div class="fbar-fill" style="width:' + (x.crore/26000*100) + '%;background:var(--f-info)"></div></div>' +
+          '<div class="fbar-val" style="color:var(--f-info)">₹' + (x.crore/1000).toFixed(0) + 'K Cr</div></div>').join('') + '</div>' +
         '<div class="ftp"><strong>Today:</strong> ' + S.fii_outflows.talking_points[1] + '</div>');
     }
     case 'f_gold': {
       return fCard(type,'Safe Haven','Gold as Portfolio Hedge',
-        '<div class="fdr"><span class="lbl">During GFC 2008</span><span class="val" style="color:var(--green)">+25%</span></div>' +
-        '<div class="fdr"><span class="lbl">During COVID 2020</span><span class="val" style="color:var(--green)">+28%</span></div>' +
-        '<div class="fdr"><span class="lbl">Russia-Ukraine 2022</span><span class="val" style="color:var(--green)">+12%</span></div>' +
-        '<div class="fdr"><span class="lbl">20Y CAGR (INR)</span><span class="val" style="color:var(--amber)">11.8%</span></div>' +
-        '<div class="fdr"><span class="lbl">Ideal allocation</span><span class="val" style="color:var(--blue)">5–15%</span></div>' +
+        '<div class="fdr"><span class="lbl">During GFC 2008</span><span class="val" style="color:var(--f-gain)">+25%</span></div>' +
+        '<div class="fdr"><span class="lbl">During COVID 2020</span><span class="val" style="color:var(--f-gain)">+28%</span></div>' +
+        '<div class="fdr"><span class="lbl">Russia-Ukraine 2022</span><span class="val" style="color:var(--f-gain)">+12%</span></div>' +
+        '<div class="fdr"><span class="lbl">20Y CAGR (INR)</span><span class="val" style="color:var(--f-gold)">11.8%</span></div>' +
+        '<div class="fdr"><span class="lbl">Ideal allocation</span><span class="val" style="color:var(--f-info)">5–15%</span></div>' +
         '<div class="ftp"><strong>But:</strong> Equity consistently outperforms gold over the recovery period — gold is a hedge, not a core holding</div>');
     }
     case 'f_sip_lumpsum': {
       return fCard(type,'SIP Intelligence','Continue SIP During Corrections?',
-        '<div class="fdr"><span class="lbl">SIP during 2008 crash</span><span class="val" style="color:var(--green)">28% CAGR next 5Y</span></div>' +
-        '<div class="fdr"><span class="lbl">SIP during COVID crash</span><span class="val" style="color:var(--green)">Portfolio doubled by 2021</span></div>' +
-        '<div class="fdr"><span class="lbl">SIP during 2022 fall</span><span class="val" style="color:var(--green)">Recovered in 7 months</span></div>' +
-        '<div class="fdr"><span class="lbl">SIP vs lumpsum at peak</span><span class="val" style="color:var(--amber)">SIP wins in 4/6 corrections</span></div>' +
-        '<div class="fdr"><span class="lbl">Stopping SIP at bottom</span><span class="val" style="color:var(--red)">Misses entire recovery rally</span></div>' +
+        '<div class="fdr"><span class="lbl">SIP during 2008 crash</span><span class="val" style="color:var(--f-gain)">28% CAGR next 5Y</span></div>' +
+        '<div class="fdr"><span class="lbl">SIP during COVID crash</span><span class="val" style="color:var(--f-gain)">Portfolio doubled by 2021</span></div>' +
+        '<div class="fdr"><span class="lbl">SIP during 2022 fall</span><span class="val" style="color:var(--f-gain)">Recovered in 7 months</span></div>' +
+        '<div class="fdr"><span class="lbl">SIP vs lumpsum at peak</span><span class="val" style="color:var(--f-gold)">SIP wins in 4/6 corrections</span></div>' +
+        '<div class="fdr"><span class="lbl">Stopping SIP at bottom</span><span class="val" style="color:var(--f-loss)">Misses entire recovery rally</span></div>' +
         '<div class="ftp"><strong>The math:</strong> SIP buys more units at lower prices. Stopping is the worst thing you can do at the bottom.</div>');
     }
     case 'f_market_valuation': {
       return fCard(type,'Market Valuation','Is the Market Cheap or Expensive?',
-        '<div class="fdr"><span class="lbl">Historical PE range</span><span class="val" style="color:var(--muted)">12x – 40x</span></div>' +
-        '<div class="fdr"><span class="lbl">Long-term avg PE</span><span class="val" style="color:var(--blue)">~20x</span></div>' +
-        '<div class="fdr"><span class="lbl">Cheap zone</span><span class="val" style="color:var(--green)">Below 18x → Buy aggressively</span></div>' +
-        '<div class="fdr"><span class="lbl">Fair value</span><span class="val" style="color:var(--amber)">18x – 24x → Continue SIP</span></div>' +
-        '<div class="fdr"><span class="lbl">Expensive</span><span class="val" style="color:var(--red)">Above 24x → Be selective</span></div>' +
+        '<div class="fdr"><span class="lbl">Historical PE range</span><span class="val" style="color:var(--f-paper-faint)">12x – 40x</span></div>' +
+        '<div class="fdr"><span class="lbl">Long-term avg PE</span><span class="val" style="color:var(--f-info)">~20x</span></div>' +
+        '<div class="fdr"><span class="lbl">Cheap zone</span><span class="val" style="color:var(--f-gain)">Below 18x → Buy aggressively</span></div>' +
+        '<div class="fdr"><span class="lbl">Fair value</span><span class="val" style="color:var(--f-gold)">18x – 24x → Continue SIP</span></div>' +
+        '<div class="fdr"><span class="lbl">Expensive</span><span class="val" style="color:var(--f-loss)">Above 24x → Be selective</span></div>' +
         '<div class="ftp"><strong>Corrections are opportunities:</strong> Market falls make PE cheaper — same fund buys more quality at lower price</div>');
     }
 
@@ -8807,18 +8929,18 @@ function fRender(type) {
         '<div class="ftl">' + ep.slice(0,4).map(e =>
           '<div class="ftl-row"><div class="ftl-yr" style="font-size:.56rem">' + e.cycle.split(' ')[0] + '</div>' +
           '<div class="ftl-body"><div class="ftl-name">' + e.cycle + '</div>' +
-          '<div class="ftl-stats"><span style="color:var(--muted)">' + e.start_rate + '%→' + e.end_rate + '%</span>' +
-          '<span style="color:' + (e.nifty_during>0?'var(--green)':'var(--red)') + '">Nifty: ' + (e.nifty_during>0?'+':'') + e.nifty_during + '%</span></div>' +
+          '<div class="ftl-stats"><span style="color:var(--f-paper-faint)">' + e.start_rate + '%→' + e.end_rate + '%</span>' +
+          '<span style="color:' + (e.nifty_during>0?'var(--f-gain)':'var(--f-loss)') + '">Nifty: ' + (e.nifty_during>0?'+':'') + e.nifty_during + '%</span></div>' +
           '<div class="ftl-ins">' + e.india_impact + '</div></div></div>').join('') + '</div>' +
         '<div class="ftp"><strong>Pattern:</strong> ' + S.fed_policy_cycle.talking_points[0] + '</div>');
     }
     case 'f_us_correlation': {
       const d = S.us_market_correlation;
       return fCard(type,'Global · Correlation','India-US Market Correlation',
-        '<div class="fdr"><span class="lbl">10-Year Correlation</span><span class="val" style="color:var(--blue)">' + d.correlation_10y + '</span></div>' +
+        '<div class="fdr"><span class="lbl">10-Year Correlation</span><span class="val" style="color:var(--f-info)">' + d.correlation_10y + '</span></div>' +
         d.decoupling_episodes.map(e =>
           '<div class="fdr"><span class="lbl">' + e.period + '</span>' +
-          '<span class="val" style="color:var(--muted)">S&P ' + (e.sp500_move>0?'+':'') + e.sp500_move + '% / Nifty ' + (e.nifty_move>0?'+':'') + e.nifty_move + '%</span></div>').join('') +
+          '<span class="val" style="color:var(--f-paper-faint)">S&P ' + (e.sp500_move>0?'+':'') + e.sp500_move + '% / Nifty ' + (e.nifty_move>0?'+':'') + e.nifty_move + '%</span></div>').join('') +
         '<div class="ftp"><strong>Key:</strong> ' + d.talking_points[0] + '</div>');
     }
     case 'f_china': {
@@ -8826,8 +8948,8 @@ function fRender(type) {
       return fCard(type,'Global · China','China Impact on Indian Markets',
         '<div class="ftl">' + d.episodes.map(e =>
           '<div class="ftl-row"><div class="ftl-yr" style="font-size:.56rem">' + e.period.split(' ')[0] + '</div>' +
-          '<div class="ftl-body"><div class="ftl-stats"><span style="color:var(--muted)">China GDP: ' + e.china_gdp + '%</span>' +
-          '<span style="color:' + (e.nifty_impact>0?'var(--green)':'var(--red)') + '">Nifty: ' + (e.nifty_impact>0?'+':'') + e.nifty_impact + '%</span></div>' +
+          '<div class="ftl-body"><div class="ftl-stats"><span style="color:var(--f-paper-faint)">China GDP: ' + e.china_gdp + '%</span>' +
+          '<span style="color:' + (e.nifty_impact>0?'var(--f-gain)':'var(--f-loss)') + '">Nifty: ' + (e.nifty_impact>0?'+':'') + e.nifty_impact + '%</span></div>' +
           '<div class="ftl-ins">' + e.note + '</div></div></div>').join('') + '</div>' +
         '<div class="ftp"><strong>Dynamic:</strong> ' + d.talking_points[0] + '</div>');
     }
@@ -8836,7 +8958,7 @@ function fRender(type) {
       return fCard(type,'Global · Currency','Dollar Index (DXY) Impact',
         d.episodes.map(e =>
           '<div class="fdr"><span class="lbl">' + e.period + '</span>' +
-          '<span class="val" style="color:' + (e.inr_impact<0?'var(--red)':'var(--green)') + '">INR ' + e.inr_impact + '% · Gold ' + (e.gold_impact>0?'+':'') + e.gold_impact + '%</span></div>').join('') +
+          '<span class="val" style="color:' + (e.inr_impact<0?'var(--f-loss)':'var(--f-gain)') + '">INR ' + e.inr_impact + '% · Gold ' + (e.gold_impact>0?'+':'') + e.gold_impact + '%</span></div>').join('') +
         '<div class="ftp"><strong>Relationship:</strong> ' + d.talking_points[0] + '</div>');
     }
     case 'f_us_treasury': {
@@ -8844,7 +8966,7 @@ function fRender(type) {
       return fCard(type,'Global · Bonds','US Treasury Yield Impact',
         d.episodes.map(e =>
           '<div class="fdr"><span class="lbl">' + e.period + '</span>' +
-          '<span class="val" style="color:var(--red)">US +' + e.us_10y_bps + 'bps · INR ' + e.inr_impact + '%</span></div>').join('') +
+          '<span class="val" style="color:var(--f-loss)">US +' + e.us_10y_bps + 'bps · INR ' + e.inr_impact + '%</span></div>').join('') +
         '<div class="ftp"><strong>Why it matters:</strong> ' + d.talking_points[0] + '</div>');
     }
     case 'f_trade_war': {
@@ -8853,7 +8975,7 @@ function fRender(type) {
         '<div class="ftl">' + d.episodes.map(e =>
           '<div class="ftl-row"><div class="ftl-yr" style="font-size:.56rem">' + e.period.split(' ')[0] + '</div>' +
           '<div class="ftl-body"><div class="ftl-ins">' + e.note + '</div>' +
-          '<div style="font-size:.58rem;color:var(--green);margin-top:.2rem">Beneficiaries: ' + e.beneficiaries.join(', ') + '</div></div></div>').join('') + '</div>' +
+          '<div style="font-size:.58rem;color:var(--f-gain);margin-top:.2rem">Beneficiaries: ' + e.beneficiaries.join(', ') + '</div></div></div>').join('') + '</div>' +
         '<div class="ftp"><strong>Theme:</strong> ' + d.talking_points[0] + '</div>');
     }
     case 'f_global_recession': {
@@ -8861,8 +8983,8 @@ function fRender(type) {
       return fCard(type,'Global · Macro',"India's Resilience to Global Recession",
         '<div class="ftl">' + d.episodes.map(e =>
           '<div class="ftl-row"><div class="ftl-yr" style="font-size:.56rem">' + e.period.split(' ')[0] + '</div>' +
-          '<div class="ftl-body"><div class="ftl-stats"><span style="color:var(--red)">US GDP: ' + e.us_gdp + '%</span>' +
-          '<span style="color:var(--amber)">India GDP: ' + e.india_gdp + '%</span></div>' +
+          '<div class="ftl-body"><div class="ftl-stats"><span style="color:var(--f-loss)">US GDP: ' + e.us_gdp + '%</span>' +
+          '<span style="color:var(--f-gold)">India GDP: ' + e.india_gdp + '%</span></div>' +
           '<div class="ftl-ins">' + e.note + '</div></div></div>').join('') + '</div>' +
         '<div class="ftp"><strong>Resilience:</strong> ' + d.talking_points[0] + '</div>');
     }
