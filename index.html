@@ -7287,6 +7287,15 @@ function renderIndices(indices) {
   }).join('');
 }
 
+// Fallback defaults — used only when the live fetch returns null for a field.
+// These are reasonable recent approximations and are visually flagged as estimates
+// in the UI (dimmed + asterisk) so the advisor knows they aren't live data.
+const FIXED_INCOME_FALLBACKS = {
+  gsec_10y: 6.85, gsec_1y: 6.45, repo_rate: 5.25, rbi_stance: 'Neutral',
+  cpi_inflation: 3.2, aaa_spread_10y: 55,
+  debt_market_view: 'Estimated values shown for unavailable fields — refresh later for live data.'
+};
+
 function renderFixedIncome(d) {
   const el = document.getElementById('fixed-income-content');
   if (!el) return;
@@ -7294,8 +7303,28 @@ function renderFixedIncome(d) {
     el.innerHTML = '<div style="color:var(--muted);font-size:.7rem">Fixed income data not available</div>';
     return;
   }
-  const fmt = (v, dec=2) => (v != null && v !== 0) ? Number(v).toFixed(dec) + '%' : '—';
-  const fmtBps = v => (v != null && v !== 0) ? Number(v).toFixed(0) + ' bps' : '—';
+  // Apply fallback for any field that came back null/undefined, tracking which were estimated
+  const estimated = {};
+  const dd = {...d};
+  Object.keys(FIXED_INCOME_FALLBACKS).forEach(k => {
+    if (dd[k] == null && k !== 'debt_market_view') {
+      dd[k] = FIXED_INCOME_FALLBACKS[k];
+      estimated[k] = true;
+    }
+  });
+  if (!dd.debt_market_view) dd.debt_market_view = '';
+  d = dd;
+
+  const fmt = (v, dec=2, key=null) => {
+    if (v == null) return '—';
+    const star = (key && estimated[key]) ? '<span style="color:var(--muted);font-size:.6em" title="Estimated — live data unavailable">*</span>' : '';
+    return Number(v).toFixed(dec) + '%' + star;
+  };
+  const fmtBps = (v, key=null) => {
+    if (v == null) return '—';
+    const star = (key && estimated[key]) ? '<span style="color:var(--muted);font-size:.6em" title="Estimated — live data unavailable">*</span>' : '';
+    return Number(v).toFixed(0) + ' bps' + star;
+  };
   const yldColor = v => v > 7 ? 'var(--red)' : v > 6.5 ? 'var(--accent)' : 'var(--green)';
   const stanceColor = s => {
     if (!s) return 'var(--muted)';
@@ -7317,10 +7346,10 @@ function renderFixedIncome(d) {
     '<div>' +
       '<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem">G-Sec Yields</div>' +
       '<div style="display:flex;flex-direction:column;gap:.4rem">' +
-        _fiRow('10Y G-Sec', fmt(d.gsec_10y), yldColor(d.gsec_10y)) +
-        _fiRow('5Y G-Sec',  fmt(d.gsec_5y),  yldColor(d.gsec_5y)) +
-        _fiRow('1Y G-Sec',  fmt(d.gsec_1y),  yldColor(d.gsec_1y)) +
-        _fiRow('MIBOR Overnight', fmt(d.mibor_overnight), 'var(--muted2)') +
+        _fiRow('10Y G-Sec', fmt(d.gsec_10y, 2, 'gsec_10y'), yldColor(d.gsec_10y)) +
+        _fiRow('5Y G-Sec',  fmt(d.gsec_5y, 2, 'gsec_5y'),  yldColor(d.gsec_5y)) +
+        _fiRow('1Y G-Sec',  fmt(d.gsec_1y, 2, 'gsec_1y'),  yldColor(d.gsec_1y)) +
+        _fiRow('MIBOR Overnight', fmt(d.mibor_overnight, 2, 'mibor_overnight'), 'var(--muted2)') +
       '</div>' +
       '<div style="margin-top:.75rem;font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem">Yield Curve</div>' +
       '<div style="font-size:.68rem;color:' + slopeColor + '">' + fmtBps(slope) + ' <span style="color:var(--muted)">' + slopeLabel + '</span></div>' +
@@ -7330,12 +7359,12 @@ function renderFixedIncome(d) {
     '<div>' +
       '<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem">Policy & Credit</div>' +
       '<div style="display:flex;flex-direction:column;gap:.4rem">' +
-        _fiRow('Repo Rate', fmt(d.repo_rate), 'var(--blue)') +
-        _fiRow('CPI Inflation', fmt(d.cpi_inflation), d.cpi_inflation > 5 ? 'var(--red)' : 'var(--green)') +
-        _fiRow('AAA Spread (10Y)', fmtBps(d.aaa_spread_10y), d.aaa_spread_10y > 80 ? 'var(--green)' : 'var(--muted2)') +
+        _fiRow('Repo Rate', fmt(d.repo_rate, 2, 'repo_rate'), 'var(--blue)') +
+        _fiRow('CPI Inflation', fmt(d.cpi_inflation, 2, 'cpi_inflation'), d.cpi_inflation > 5 ? 'var(--red)' : 'var(--green)') +
+        _fiRow('AAA Spread (10Y)', fmtBps(d.aaa_spread_10y, 'aaa_spread_10y'), d.aaa_spread_10y > 80 ? 'var(--green)' : 'var(--muted2)') +
       '</div>' +
       '<div style="margin-top:.75rem;font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem">RBI Stance</div>' +
-      '<div style="font-size:.68rem;font-weight:600;color:' + stanceColor(d.rbi_stance) + '">' + (d.rbi_stance || '—') + '</div>' +
+      '<div style="font-size:.68rem;font-weight:600;color:' + stanceColor(d.rbi_stance) + '">' + (d.rbi_stance || '—') + (estimated.rbi_stance ? ' <span style="color:var(--muted);font-size:.7em" title="Estimated">*</span>' : '') + '</div>' +
     '</div>' +
 
   '</div>' +
@@ -7344,7 +7373,10 @@ function renderFixedIncome(d) {
   (d.debt_market_view ? '<div style="margin-top:.85rem;padding:.6rem .75rem;background:var(--s2);border-radius:var(--r-sm);border-left:3px solid var(--blue)">' +
     '<div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.2rem">Duration View</div>' +
     '<div style="font-size:.7rem;color:var(--text);line-height:1.5">' + d.debt_market_view + '</div>' +
-  '</div>' : '');
+  '</div>' : '') +
+
+  // Estimate disclaimer — only shown if any field used a fallback value
+  (Object.keys(estimated).length ? '<div style="margin-top:.5rem;font-size:.58rem;color:var(--muted)">* Estimated — live data unavailable this refresh, will retry automatically</div>' : '');
 }
 
 function _fiRow(label, value, color) {
