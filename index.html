@@ -1514,8 +1514,24 @@ body {
 </div>
 
 <div class="page" id="page-clients">
-  <div class="pg-header"><div class="pg-title">Portfolios</div>
-  <div class="pg-sub">Manage and monitor all portfolios</div></div>
+  <div class="pg-header">
+    <div>
+      <div class="pg-title">Portfolios</div>
+      <div class="pg-sub">Manage and monitor all portfolios</div>
+    </div>
+    <div style="display:flex;gap:.6rem">
+      <div id="health-agent-badge" onclick="openHealthAgentModal()"
+        style="display:none;align-items:center;gap:.45rem;cursor:pointer;background:var(--s1);border:1px solid var(--border);border-radius:20px;padding:.35rem .8rem;font-size:.68rem;color:var(--muted2);transition:border-color .15s">
+        <div id="health-agent-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green)"></div>
+        <span id="health-agent-text">Checking portfolios…</span>
+      </div>
+      <div id="drift-agent-badge" onclick="openDriftAgentModal()"
+        style="display:none;align-items:center;gap:.45rem;cursor:pointer;background:var(--s1);border:1px solid var(--border);border-radius:20px;padding:.35rem .8rem;font-size:.68rem;color:var(--muted2);transition:border-color .15s">
+        <div id="drift-agent-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green)"></div>
+        <span id="drift-agent-text">Checking drift…</span>
+      </div>
+    </div>
+  </div>
 
   <!-- Active portfolio banner -->
   <div id="active-port-banner" style="display:none;background:var(--accent-dim);border:1px solid rgba(196,127,16,.2);border-radius:var(--r-md);padding:.75rem 1.1rem;margin-bottom:1.25rem;display:none;align-items:center;gap:.85rem">
@@ -3309,7 +3325,7 @@ function showPage(pg) {
     if (pg==='alloc')      try{buildAllocTable();}catch(e){console.error('buildAllocTable',e);}
     if (pg==='metrics')    try{buildMetrics();}catch(e){console.error('buildMetrics',e);}
     if (pg==='summary')    try{buildSummary();}catch(e){console.error('buildSummary',e);}
-    if (pg==='clients')    try{renderPortfolioGrid();}catch(e){console.error('renderPortfolioGrid',e);}
+    if (pg==='clients')    try{renderPortfolioGrid();refreshHealthAndDriftBadges();}catch(e){console.error('renderPortfolioGrid',e);}
     if (pg==='alerts')     try{buildAlertsPage();}catch(e){console.error('buildAlertsPage',e);}
     if (pg==='thresholds') try{buildThresholdsPage();}catch(e){console.error('buildThresholdsPage',e);}
     if (pg==='monitor')    { try{renderWatchlist();}catch(e){console.error('renderWatchlist',e);} if(!_monitorLoaded) loadMarketMonitor(); }
@@ -3319,6 +3335,402 @@ function showPage(pg) {
   } catch(e) {
     console.error('showPage error:', e);
   }
+}
+
+// ════════════════════════════════════════════════════════════════
+// PORTFOLIO HEALTH-CHECK AGENT — Plan, Act, Verify, Repair, Report
+//
+// Runs across all active portfolios (not just the one currently open)
+// and catches the exact class of bugs chased manually this session:
+// unlinked funds, allocation totals that don't reconcile, and stock
+// data that silently failed to load.
+//   1. PLAN   -- every fund in every portfolio should resolve real
+//                factsheet data (equityStocks/debtItems non-empty
+//                unless it's a debt/passive fund), and per-portfolio
+//                weights should sum close to 100%
+//   2. ACT    -- read getActiveItems()-equivalent data for EVERY
+//                portfolio (not just the active one)
+//   3. VERIFY -- flag funds with zero holdings, weight totals that
+//                don't reconcile, and funds present in allocation
+//                but missing from uploaded AMC data entirely
+//   4. REPAIR -- for "missing from uploaded AMC data" cases, attempt
+//                a fuzzy re-match against allFunds() with a looser
+//                threshold before giving up (catches near-miss name
+//                variations the strict matcher rejected)
+//   5. REPORT -- a per-portfolio health summary, surfaced as a badge
+//                on the Portfolios page
+// ════════════════════════════════════════════════════════════════
+
+let _portfolioHealthCache = null; // { portfolioId: {...report} }
+
+function _phaVerifyPortfolio(port) {
+  const issues = [];
+  const unlinkedFunds = [];
+  let totalWeight = 0;
+
+  (port.allocations ? Object.entries(port.allocations) : []).forEach(([fundName, pct]) => {
+    const wt = parseFloat(pct) || 0;
+    if (wt <= 0) return;
+    totalWeight += wt;
+  });
+
+  // Re-derive items the same way getActiveItems() would, for THIS portfolio
+  // (not necessarily the currently active one)
+  const savedActiveId = activePortId;
+  let items = [];
+  try {
+    activePortId = port.id; // temporarily switch context
+    // allocRows is keyed to the active portfolio in this app's design —
+    // for other portfolios we read directly from port.allocations instead
+    if (port.id === savedActiveId) {
+      items = getActiveItems();
+    } else {
+      const uploadedMap = {};
+      allFunds().forEach(({name, amc, data}) => { uploadedMap[name] = {amc, data}; });
+      Object.entries(port.allocations || {}).forEach(([fundName, pct]) => {
+        const wt = parseFloat(pct) || 0;
+        if (wt <= 0) return;
+        const uploaded = uploadedMap[fundName];
+        if (uploaded) {
+          items.push({name: fundName, wt, ...uploaded.data});
+        } else {
+          unlinkedFunds.push(fundName);
+          items.push({name: fundName, wt, equityStocks: [], debtItems: []});
+        }
+      });
+    }
+  } finally {
+    activePortId = savedActiveId;
+  }
+
+  // Flag funds with zero stock/debt data that aren't genuinely empty
+  // (gold/silver/commodity funds and arbitrage funds legitimately have
+  // sparse equityStocks, so we don't flag those)
+  items.forEach(it => {
+    const nm = (it.name || '').toLowerCase();
+    const isExpectedSparse = /\bgold\b|\bsilver\b|\bcommodi|\bgilt\b|\bliquid\b|\bovernight\b/.test(nm);
+    const hasNoData = (it.equityStocks?.length || 0) === 0 && (it.debtItems?.length || 0) === 0
+                       && !(it.large || it.mid || it.small || it.debtTotal);
+    if (hasNoData && !isExpectedSparse && !unlinkedFunds.includes(it.name)) {
+      issues.push(`"${it.name}" has no stock/debt data loaded`);
+    }
+  });
+
+  if (unlinkedFunds.length) {
+    issues.push(`${unlinkedFunds.length} fund(s) not matched to any uploaded AMC data: ${unlinkedFunds.join(', ')}`);
+  }
+
+  if (totalWeight > 0 && Math.abs(totalWeight - 100) > 2) {
+    issues.push(`Allocation totals ${totalWeight.toFixed(1)}% — should be ~100%`);
+  }
+
+  return { ok: issues.length === 0, issues, unlinkedFunds, fundCount: items.length };
+}
+
+function _phaRepairUnlinked(port, unlinkedFunds) {
+  // REPAIR — retry matching with a looser fuzzy threshold than getActiveItems()
+  // uses by default. Catches near-miss name variations (extra spaces, minor
+  // AMC naming differences) without needing any AI call — this is a pure
+  // local heuristic repair, free and instant.
+  const repaired = [];
+  const all = allFunds();
+  unlinkedFunds.forEach(fundName => {
+    const target = fundName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const match = all.find(({name}) => {
+      const candidate = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return candidate === target ||
+             (candidate.length > 10 && target.length > 10 &&
+              (candidate.includes(target.slice(0, 15)) || target.includes(candidate.slice(0, 15))));
+    });
+    if (match) repaired.push({ original: fundName, matchedTo: match.name });
+  });
+  return repaired;
+}
+
+function runPortfolioHealthAgent() {
+  _portfolioHealthCache = {};
+  let totalIssues = 0;
+  let totalRepaired = 0;
+
+  portfolios.forEach(port => {
+    const verdict = _phaVerifyPortfolio(port);
+    let repaired = [];
+    if (verdict.unlinkedFunds.length) {
+      repaired = _phaRepairUnlinked(port, verdict.unlinkedFunds);
+      totalRepaired += repaired.length;
+    }
+    const remainingIssues = verdict.issues.length - (repaired.length > 0 ? 1 : 0); // rough adjustment
+    totalIssues += Math.max(0, verdict.issues.length);
+
+    _portfolioHealthCache[port.id] = {
+      portfolioName: port.name,
+      ok: verdict.ok,
+      issues: verdict.issues,
+      fundCount: verdict.fundCount,
+      repaired,
+      checkedAt: new Date().toISOString(),
+    };
+  });
+
+  return { totalIssues, totalRepaired, portfolios: _portfolioHealthCache };
+}
+
+function getPortfolioHealthSummary() {
+  if (!_portfolioHealthCache) runPortfolioHealthAgent();
+  const reports = Object.values(_portfolioHealthCache || {});
+  const withIssues = reports.filter(r => !r.ok);
+  return {
+    clean: reports.length - withIssues.length,
+    flagged: withIssues.length,
+    reports,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════
+// DRIFT MONITORING AGENT — Plan, Act, Verify, Repair, Report
+//
+// Proactively checks every portfolio's current allocation against its
+// target (either the client's risk-profile-based recommended split from
+// Portfolio Builder, or the threshold bands as a generic fallback) and
+// surfaces drift beyond what the advisor would normally catch only by
+// opening the Alerts page.
+//   1. PLAN   -- every portfolio should be within its target equity/
+//                debt/gold/silver split, within the configured cap_move
+//                tolerance band
+//   2. ACT    -- pull current actual split from the latest snapshot,
+//                pull target split from linked client_portfolios doc
+//                (if linked) or threshold defaults (if not)
+//   3. VERIFY -- compute drift per asset class, flag anything beyond
+//                tolerance
+//   4. REPAIR -- N/A for drift itself (it's a real signal, not a data
+//                gap) -- but if a portfolio has NO snapshot yet, that's
+//                a data gap: trigger takeSnapshot() to repair it before
+//                giving up and reporting "no data"
+//   5. REPORT -- per-portfolio drift report, with the worst offenders
+//                surfaced first
+// ════════════════════════════════════════════════════════════════
+
+let _driftCache = null;
+
+async function _driftGetTarget(port) {
+  // Try linked client's recommended allocation first — only possible if
+  // window._fbGetClientPortfolio has been exposed by a module script
+  // (getFirestore/doc/getDoc are module-scoped imports, not available
+  // here in the main script, so we go through a window-exposed bridge)
+  if (port.clientId && window._fb?.currentUser && typeof window._fbGetClientPortfolio === 'function') {
+    try {
+      const data = await window._fbGetClientPortfolio(port.clientId);
+      if (data?.finalAllocation) {
+        return {
+          source: 'client_recommended',
+          equity: data.finalAllocation.equity || 0,
+          debt: data.finalAllocation.debt || 0,
+          gold: data.finalAllocation.gold || 0,
+          silver: data.finalAllocation.silver || 0,
+        };
+      }
+    } catch(e) { /* fall through to generic */ }
+  }
+  // Fallback — generic mid-band target derived from threshold settings
+  return {
+    source: 'generic_threshold',
+    equity: (thresholds.large_min + thresholds.large_max) / 2 +
+            (thresholds.mid_min + thresholds.mid_max) / 2 * 0.3, // rough blended estimate
+    debt: 100 - ((thresholds.large_min + thresholds.large_max) / 2),
+    gold: 0, silver: 0,
+  };
+}
+
+function _driftVerify(actual, target, tolerance) {
+  const drifts = [];
+  ['equity', 'debt', 'gold', 'silver'].forEach(key => {
+    const a = actual[key] || 0;
+    const t = target[key] || 0;
+    const d = a - t;
+    if (Math.abs(d) > tolerance) {
+      drifts.push({ asset: key, actual: a, target: t, drift: d });
+    }
+  });
+  return drifts;
+}
+
+async function runDriftAgent() {
+  _driftCache = {};
+  const tolerance = thresholds.cap_move || 5;
+
+  for (const port of portfolios) {
+    // REPAIR — if no snapshot exists yet, take one now rather than
+    // reporting a false "no drift data" gap
+    if (!port.snapshots?.length) {
+      const savedActiveId = activePortId;
+      try {
+        activePortId = port.id;
+        takeSnapshot();
+      } catch(e) {} finally {
+        activePortId = savedActiveId;
+      }
+    }
+
+    if (!port.snapshots?.length) {
+      _driftCache[port.id] = { portfolioName: port.name, ok: true, noData: true, drifts: [] };
+      continue;
+    }
+
+    const snap = port.snapshots[port.snapshots.length - 1].summary;
+    const actual = {
+      equity: (snap.large || 0) + (snap.mid || 0) + (snap.small || 0) + (snap.eqOther || 0),
+      debt: snap.debtTotal || 0,
+      gold: (snap.commodityTypes || []).filter(c => c.type === 'Gold').reduce((s, c) => s + c.wt, 0),
+      silver: (snap.commodityTypes || []).filter(c => c.type === 'Silver').reduce((s, c) => s + c.wt, 0),
+    };
+
+    const target = await _driftGetTarget(port);
+    const drifts = _driftVerify(actual, target, tolerance);
+
+    _driftCache[port.id] = {
+      portfolioName: port.name,
+      ok: drifts.length === 0,
+      targetSource: target.source,
+      actual, target, drifts,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  const flagged = Object.values(_driftCache).filter(r => !r.ok && !r.noData);
+  return { flaggedCount: flagged.length, portfolios: _driftCache };
+}
+
+function getDriftSummary() {
+  const reports = Object.values(_driftCache || {});
+  const flagged = reports.filter(r => !r.ok && !r.noData);
+  return {
+    clean: reports.length - flagged.length,
+    flagged: flagged.length,
+    reports: reports.sort((a, b) => {
+      const aMax = Math.max(0, ...(a.drifts || []).map(d => Math.abs(d.drift)));
+      const bMax = Math.max(0, ...(b.drifts || []).map(d => Math.abs(d.drift)));
+      return bMax - aMax; // worst drift first
+    }),
+  };
+}
+
+// ============================================================
+// HEALTH + DRIFT AGENT BADGES — Portfolios page
+// ============================================================
+async function refreshHealthAndDriftBadges() {
+  if (!portfolios.length) return;
+
+  // Health badge
+  const hBadge = document.getElementById('health-agent-badge');
+  if (hBadge) {
+    hBadge.style.display = 'flex';
+    runPortfolioHealthAgent();
+    const hSummary = getPortfolioHealthSummary();
+    const hDot = document.getElementById('health-agent-dot');
+    const hText = document.getElementById('health-agent-text');
+    if (hSummary.flagged > 0) {
+      hDot.style.background = 'var(--amber)';
+      hText.textContent = `${hSummary.flagged} portfolio${hSummary.flagged===1?'':'s'} need review`;
+    } else {
+      hDot.style.background = 'var(--green)';
+      hText.textContent = 'All portfolios healthy';
+    }
+  }
+
+  // Drift badge
+  const dBadge = document.getElementById('drift-agent-badge');
+  if (dBadge) {
+    dBadge.style.display = 'flex';
+    await runDriftAgent();
+    const dSummary = getDriftSummary();
+    const dDot = document.getElementById('drift-agent-dot');
+    const dText = document.getElementById('drift-agent-text');
+    if (dSummary.flagged > 0) {
+      dDot.style.background = 'var(--amber)';
+      dText.textContent = `${dSummary.flagged} portfolio${dSummary.flagged===1?'':'s'} drifted`;
+    } else {
+      dDot.style.background = 'var(--green)';
+      dText.textContent = 'No drift detected';
+    }
+  }
+}
+
+function openHealthAgentModal() {
+  const summary = getPortfolioHealthSummary();
+  const rows = summary.reports.map(r => {
+    const statusColor = r.ok ? 'var(--green)' : 'var(--amber)';
+    const issuesHtml = (r.issues || []).map(i => `<div style="font-size:.66rem;color:var(--muted2);padding:.2rem 0">• ${i}</div>`).join('');
+    const repairedHtml = (r.repaired || []).length
+      ? `<div style="font-size:.62rem;color:var(--green);margin-top:.3rem">✓ Auto-matched: ${r.repaired.map(x=>`${x.original} → ${x.matchedTo}`).join(', ')}</div>` : '';
+    return `<div style="border:1px solid var(--border);border-radius:var(--r-md);padding:.75rem .9rem;margin-bottom:.6rem">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:600;font-size:.8rem">${r.portfolioName}</div>
+        <div style="width:8px;height:8px;border-radius:50%;background:${statusColor}"></div>
+      </div>
+      <div style="font-size:.64rem;color:var(--muted);margin-top:.2rem">${r.fundCount} funds checked</div>
+      ${issuesHtml}${repairedHtml}
+      ${r.ok ? '<div style="font-size:.66rem;color:var(--green);margin-top:.2rem">No issues found</div>' : ''}
+    </div>`;
+  }).join('');
+
+  showAgentModal('Portfolio Health Check', `
+    <div style="font-size:.68rem;color:var(--muted2);margin-bottom:1rem">
+      ${summary.clean} clean · ${summary.flagged} flagged — checks every fund resolves real factsheet data and allocation totals reconcile.
+    </div>
+    ${rows}`);
+}
+
+function openDriftAgentModal() {
+  const summary = getDriftSummary();
+  const rows = summary.reports.map(r => {
+    if (r.noData) {
+      return `<div style="border:1px solid var(--border);border-radius:var(--r-md);padding:.75rem .9rem;margin-bottom:.6rem">
+        <div style="font-weight:600;font-size:.8rem">${r.portfolioName}</div>
+        <div style="font-size:.64rem;color:var(--muted);margin-top:.2rem">No snapshot data yet</div>
+      </div>`;
+    }
+    const statusColor = r.ok ? 'var(--green)' : 'var(--amber)';
+    const driftRows = (r.drifts || []).map(d => `
+      <div style="display:flex;justify-content:space-between;font-size:.66rem;padding:.2rem 0">
+        <span style="color:var(--muted2)">${d.asset[0].toUpperCase()+d.asset.slice(1)}</span>
+        <span style="color:${d.drift>0?'var(--blue)':'var(--red)'}">
+          ${d.actual.toFixed(1)}% vs target ${d.target.toFixed(1)}% (${d.drift>0?'+':''}${d.drift.toFixed(1)}%)
+        </span>
+      </div>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:var(--r-md);padding:.75rem .9rem;margin-bottom:.6rem">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:600;font-size:.8rem">${r.portfolioName}</div>
+        <div style="width:8px;height:8px;border-radius:50%;background:${statusColor}"></div>
+      </div>
+      <div style="font-size:.6rem;color:var(--muted);margin:.2rem 0">
+        Target source: ${r.targetSource === 'client_recommended' ? 'Client recommended allocation' : 'Generic threshold band'}
+      </div>
+      ${driftRows}
+      ${r.ok ? '<div style="font-size:.66rem;color:var(--green);margin-top:.2rem">Within target band</div>' : ''}
+    </div>`;
+  }).join('');
+
+  showAgentModal('Drift Monitoring', `
+    <div style="font-size:.68rem;color:var(--muted2);margin-bottom:1rem">
+      ${summary.clean} within target · ${summary.flagged} drifted beyond ${thresholds.cap_move||5}% tolerance.
+    </div>
+    ${rows}`);
+}
+
+function showAgentModal(title, bodyHtml) {
+  const existing = document.getElementById('agent-modal');
+  if (existing) existing.remove();
+  const modalHtml = `
+    <div id="agent-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:2rem" onclick="if(event.target.id==='agent-modal')document.getElementById('agent-modal').remove()">
+      <div style="background:var(--s1);border-radius:var(--r-lg);max-width:600px;width:100%;max-height:80vh;overflow-y:auto;padding:1.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <div style="font-size:1.05rem;font-weight:700">${title}</div>
+          <button onclick="document.getElementById('agent-modal').remove()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted)">✕</button>
+        </div>
+        ${bodyHtml}
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
 function buildHomePage() {
@@ -9677,10 +10089,25 @@ window.MFPortfolioBuilder.filterFunds = function(funds) {
   console.log('✅ MF Portfolio Builder loaded. Run: MFPortfolioBuilder.initFirestore()');
 </script>
 <script type="module">
-import { getFirestore, collection, doc, setDoc, getDocs, query, where, writeBatch }
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, writeBatch }
   from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 
 window.MFPortfolioBuilder = window.MFPortfolioBuilder || {};
+
+// Bridge for main (non-module) script — exposes a Firestore read for
+// client_portfolios without needing to import Firestore functions there.
+// Used by the Drift Monitoring Agent (runDriftAgent) to fetch each
+// client's recommended allocation.
+window._fbGetClientPortfolio = async function(clientId) {
+  try {
+    const db = getFirestore();
+    const pSnap = await getDoc(doc(db, 'client_portfolios', clientId));
+    return pSnap.exists() ? pSnap.data() : null;
+  } catch(e) {
+    console.warn('_fbGetClientPortfolio failed:', e);
+    return null;
+  }
+};
 
 const BENCHMARK_CODE = '120716';
 const RISK_FREE_DAILY = 0.000177;
