@@ -1748,8 +1748,17 @@ body {
 <!-- ── Upload ── -->
 <div class="page" id="page-upload">
   <div class="pg-header">
-    <div class="pg-title">Add Factsheets</div>
-    <div class="pg-sub">Download AMC Excel → upload → fast analysis</div>
+    <div>
+      <div class="pg-title">Add Factsheets</div>
+      <div class="pg-sub">Download AMC Excel → upload → fast analysis</div>
+    </div>
+    <!-- AMC Upload Agent health indicator -->
+    <div id="amc-agent-badge" onclick="openAmcHealthModal()"
+      style="display:none;align-items:center;gap:.45rem;cursor:pointer;background:var(--s1);border:1px solid var(--border);border-radius:20px;padding:.35rem .8rem;font-size:.68rem;color:var(--muted2);transition:border-color .15s"
+      onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
+      <div id="amc-agent-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green)"></div>
+      <span id="amc-agent-text">Upload agent: all clear</span>
+    </div>
   </div>
 
   <!-- API URL config bar -->
@@ -3305,7 +3314,7 @@ function showPage(pg) {
     if (pg==='thresholds') try{buildThresholdsPage();}catch(e){console.error('buildThresholdsPage',e);}
     if (pg==='monitor')    { try{renderWatchlist();}catch(e){console.error('renderWatchlist',e);} if(!_monitorLoaded) loadMarketMonitor(); }
     if (pg==='fluid')      { try{fluidInit();}catch(e){console.error('fluidInit',e);} }
-    if (pg==='upload')     try{rebuildAmcPanels();buildAmcExcelLinks();initApiConfigBar();}catch(e){console.error('upload init',e);}
+    if (pg==='upload')     try{rebuildAmcPanels();buildAmcExcelLinks();initApiConfigBar();refreshAmcHealthBadge();}catch(e){console.error('upload init',e);}
     if (pg==='home')       try{buildHomePage();}catch(e){console.error('buildHomePage',e);}
   } catch(e) {
     console.error('showPage error:', e);
@@ -3742,6 +3751,97 @@ function buildAmcExcelLinks() {
   }).join('');
 }
 
+// ============================================================
+// AMC UPLOAD AGENT — health badge + report modal
+// ============================================================
+async function refreshAmcHealthBadge() {
+  const badge = document.getElementById('amc-agent-badge');
+  if (!badge) return;
+  const apiUrl = getMfApiUrl();
+  if (!apiUrl) { badge.style.display = 'none'; return; }
+  try {
+    const res = await fetch(`${apiUrl}/amc-health`);
+    if (!res.ok) { badge.style.display = 'none'; return; }
+    const data = await res.json();
+    window._lastAmcHealth = data;
+    const history = data.history || [];
+    badge.style.display = 'flex';
+    const dot  = document.getElementById('amc-agent-dot');
+    const text = document.getElementById('amc-agent-text');
+    if (!history.length) {
+      dot.style.background = 'var(--muted2)';
+      text.textContent = 'Upload agent: no uploads yet';
+      return;
+    }
+    const totalUnresolvedNow = history[0].total_unresolved - history[0].total_repaired;
+    if (totalUnresolvedNow > 0) {
+      dot.style.background = 'var(--amber)';
+      text.textContent = `Upload agent: ${totalUnresolvedNow} stock${totalUnresolvedNow===1?'':'s'} need review`;
+    } else if (history[0].total_repaired > 0) {
+      dot.style.background = 'var(--green)';
+      text.textContent = `Upload agent: ${history[0].total_repaired} auto-resolved`;
+    } else {
+      dot.style.background = 'var(--green)';
+      text.textContent = 'Upload agent: all clear';
+    }
+  } catch(e) {
+    badge.style.display = 'none';
+  }
+}
+
+function openAmcHealthModal() {
+  const data = window._lastAmcHealth;
+  if (!data || !data.history?.length) {
+    showToast('No upload history yet');
+    return;
+  }
+  const history = data.history;
+  const rows = history.map(report => {
+    const unresolvedNow = report.total_unresolved - report.total_repaired;
+    const statusColor = unresolvedNow > 0 ? 'var(--amber)' : 'var(--green)';
+    const fundRows = (report.funds || []).filter(f => f.unresolved_count > 0).map(f => `
+      <div style="padding:.45rem .6rem;background:var(--s2);border-radius:var(--r-sm);margin-bottom:.3rem">
+        <div style="font-size:.72rem;font-weight:600;color:var(--text);margin-bottom:.2rem">${f.fund_name}</div>
+        <div style="font-size:.65rem;color:var(--muted2)">
+          ${f.holdings_count} holdings · ${f.unresolved_count} unresolved
+          ${f.repaired.length ? ' · ' + f.repaired.length + ' auto-resolved: ' + f.repaired.map(r=>`${r.name} → ${r.cap}`).join(', ') : ''}
+        </div>
+      </div>`).join('');
+    return `
+      <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:.85rem;margin-bottom:.75rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+          <div style="font-weight:600;font-size:.85rem">${report.amc}</div>
+          <div style="font-size:.65rem;color:var(--muted)">${report.time_str || ''}</div>
+        </div>
+        <div style="display:flex;gap:1rem;margin-bottom:.5rem;font-size:.7rem">
+          <span style="color:var(--muted2)">Unresolved: <strong style="color:${statusColor}">${unresolvedNow}</strong></span>
+          <span style="color:var(--muted2)">Auto-repaired: <strong style="color:var(--green)">${report.total_repaired}</strong></span>
+          <span style="color:var(--muted2)">Repair calls used: ${report.repairs_used}${report.repairs_capped ? ' (capped)' : ''}</span>
+        </div>
+        ${fundRows || '<div style="font-size:.7rem;color:var(--green)">All holdings resolved cleanly ✓</div>'}
+      </div>`;
+  }).join('');
+
+  const modalHtml = `
+    <div id="amc-health-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:2rem" onclick="if(event.target.id==='amc-health-modal')closeAmcHealthModal()">
+      <div style="background:var(--s1);border-radius:var(--r-lg);max-width:640px;width:100%;max-height:80vh;overflow-y:auto;padding:1.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <div style="font-size:1.05rem;font-weight:700">Upload Agent Report</div>
+          <button onclick="closeAmcHealthModal()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted)">✕</button>
+        </div>
+        <div style="font-size:.68rem;color:var(--muted2);margin-bottom:1rem">
+          Cap resolution cache: ${data.cap_cache_size || 0} stocks resolved permanently across all uploads.
+        </div>
+        ${rows}
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeAmcHealthModal() {
+  document.getElementById('amc-health-modal')?.remove();
+}
+
 function initApiConfigBar() {
   const inp = document.getElementById('api-url-input');
   const sec = document.getElementById('api-secret-input');
@@ -3843,6 +3943,8 @@ async function pushFilesToApiServer(files, amcName) {
       showToast(`☁ ${json.funds_added} funds pushed to API server`);
       const st = document.getElementById('api-url-status');
       if (st) st.textContent = `✓ ${json.funds_total} funds on server`;
+      // Agent runs in the background server-side — give it a few seconds then refresh the badge
+      setTimeout(() => { try { refreshAmcHealthBadge(); } catch(e){} }, 8000);
       return json.funds_added;
     } else {
       console.warn('[API push]', json);
