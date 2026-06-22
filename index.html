@@ -2201,6 +2201,11 @@ body {
         <div class="pg-sub">Indices · FII/DII · Earnings · News</div>
       </div>
       <div style="display:flex;align-items:center;gap:.65rem">
+        <div id="exposure-agent-badge" onclick="openExposureAgentModal()"
+          style="display:none;align-items:center;gap:.45rem;cursor:pointer;background:var(--s1);border:1px solid var(--border);border-radius:20px;padding:.35rem .8rem;font-size:.68rem;color:var(--muted2);transition:border-color .15s">
+          <div id="exposure-agent-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green)"></div>
+          <span id="exposure-agent-text">No exposure flags</span>
+        </div>
         <button class="btn sm" onclick="testMonitorServer()" id="monitor-test-btn" title="Test server connection">Test Server</button>
         <button class="btn sm" onclick="testAnthropicKey()" id="monitor-api-btn" title="Test Anthropic API key">Test AI Key</button>
         <span id="monitor-server-status" style="font-size:.62rem;color:var(--muted)"></span>
@@ -7763,6 +7768,14 @@ async function loadMarketMonitor() {
     renderEarnings(data.earnings || []);
     renderMarketNews(data.market_news || []);
     renderPortfolioNews(data.portfolio_news || []);
+
+    // Exposure Cross-Reference Agent — reuses this same news data, zero
+    // extra cost, flags any portfolio with meaningful exposure to a
+    // stock that just had negative news or missed earnings
+    try {
+      runExposureAgent(data.market_news || [], data.earnings || []);
+      refreshExposureAgentBadge();
+    } catch(e) { console.error('Exposure agent', e); }
     renderFixedIncome(data.fixed_income || {});
 
     const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
@@ -7966,6 +7979,202 @@ function renderPortfolioNews(news) {
       <div style="font-size:.7rem;color:var(--text);flex:1">${n.headline}</div>
       <div style="font-size:.6rem;color:${sentCol(n.sentiment)};flex-shrink:0">${n.sentiment||''}</div>
     </div>`).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+// EXPOSURE CROSS-REFERENCE AGENT — Plan, Act, Verify, Repair, Report
+//
+// Reuses news data the Market Monitor agent ALREADY fetches every 6h —
+// no new searches, no new cost. Pure cross-referencing:
+//   1. PLAN   -- any news/earnings item tagged Negative (or a "Miss")
+//                is a candidate signal worth checking against holdings
+//   2. ACT    -- for each negative signal's company name, scan every
+//                portfolio's actual holdings for that stock
+//   3. VERIFY -- keep only matches where exposure exceeds the
+//                configured threshold (default 2%) in at least one
+//                portfolio -- filters noise from genuinely actionable
+//   4. REPAIR -- N/A, nothing to fix here, pure detection
+//   5. REPORT -- per-portfolio flagged exposures, surfaced as a badge
+//                on the Market Monitor page
+// ════════════════════════════════════════════════════════════════
+
+const EXPOSURE_AGENT_THRESHOLD = 2.0; // % weight in a portfolio to be worth flagging
+let _exposureAgentCache = null;
+
+function _exposureSignificantWords(name) {
+  const STOP = new Set(['LTD','LIMITED','THE','AND','OF','FOR','INDIA','INDIAN','PVT','PRIVATE','COMPANY','CO']);
+  return new Set(
+    normStockKey(name).split(' ').filter(w => w.length >= 3 && !STOP.has(w))
+  );
+}
+
+function _exposureStockMatches(newsCompanyName, holdingName) {
+  const a = _exposureSignificantWords(newsCompanyName);
+  const b = _exposureSignificantWords(holdingName);
+  if (!a.size || !b.size) return false;
+  const overlap = [...a].filter(w => b.has(w)).length;
+  return overlap >= Math.min(a.size, b.size) * 0.6 && overlap > 0;
+}
+
+// Risk-pattern keywords — catches genuinely bad news the model may have
+// tagged Neutral because it's reporting a fact rather than an opinion
+// (e.g. "X faces regulatory probe" reads as neutral phrasing but is a
+// real risk signal an advisor needs to see)
+const EXPOSURE_RISK_KEYWORDS = [
+  'probe', 'investigat', 'fraud', 'lawsuit', 'litigation', 'penalty', 'fine',
+  'downgrade', 'default', 'resign', 'scam', 'raid', 'fir ', 'sebi action',
+  'delist', 'suspend', 'scrutiny', 'show cause', 'insolvency', 'bankrupt',
+  'whistleblower', 'audit qualif', 'qualified opinion', 'rating cut',
+  'ban ', 'banned', 'recall', 'strike', 'layoff', 'job cut'
+];
+
+function _exposureHasRiskKeyword(headline) {
+  const h = (headline || '').toLowerCase();
+  return EXPOSURE_RISK_KEYWORDS.some(kw => h.includes(kw));
+}
+
+function runExposureAgent(newsItems, earningsItems) {
+  const signals = [];
+  (newsItems || []).forEach(n => {
+    if (!n.stock) return;
+    // Trigger 1: model explicitly tagged Negative
+    if (n.sentiment === 'Negative') {
+      signals.push({ company: n.stock, headline: n.headline, kind: 'news', reason: 'negative_sentiment' });
+    }
+    // Trigger 2: tagged Neutral/Positive but headline contains a risk-pattern
+    // keyword the model may have under-weighted — local check, zero cost
+    else if (_exposureHasRiskKeyword(n.headline)) {
+      signals.push({ company: n.stock, headline: n.headline, kind: 'news', reason: 'risk_keyword' });
+    }
+  });
+  (earningsItems || []).forEach(e => {
+    if (!e.company) return;
+    const profitDip  = e.profit_growth_pct != null && e.profit_growth_pct < 0;
+    const revenueDip = e.revenue_growth_pct != null && e.revenue_growth_pct < 0;
+    // Trigger 1: model explicitly tagged Miss
+    if (e.beat_miss === 'Miss') {
+      signals.push({ company: e.company, headline: `${e.company} missed earnings estimates`, kind: 'earnings', reason: 'beat_miss_label' });
+    }
+    // Trigger 2: actual YoY decline in profit or revenue, regardless of the
+    // beat_miss label — catches cases where a company "beat" a lowered
+    // analyst estimate despite a real earnings decline
+    else if (profitDip || revenueDip) {
+      const parts = [];
+      if (profitDip)  parts.push(`profit down ${Math.abs(e.profit_growth_pct).toFixed(1)}%`);
+      if (revenueDip) parts.push(`revenue down ${Math.abs(e.revenue_growth_pct).toFixed(1)}%`);
+      signals.push({ company: e.company, headline: `${e.company} reported a YoY decline — ${parts.join(', ')}`, kind: 'earnings', reason: 'numeric_decline' });
+    }
+  });
+
+  const flagged = [];
+  signals.forEach(signal => {
+    portfolios.forEach(port => {
+      const savedActiveId = activePortId;
+      let items = [];
+      try {
+        activePortId = port.id;
+        items = (port.id === savedActiveId) ? getActiveItems() : [];
+        if (!items.length) {
+          const uploadedMap = {};
+          allFunds().forEach(({name, data}) => { uploadedMap[name] = data; });
+          Object.entries(port.allocations || {}).forEach(([fundName, pct]) => {
+            const wt = parseFloat(pct) || 0;
+            const data = uploadedMap[fundName];
+            if (wt > 0 && data) items.push({ name: fundName, wt, ...data });
+          });
+        }
+      } finally {
+        activePortId = savedActiveId;
+      }
+
+      let totalExposure = 0;
+      const viaFunds = [];
+      items.forEach(it => {
+        (it.equityStocks || []).forEach(s => {
+          if (_exposureStockMatches(signal.company, s.name)) {
+            const eff = (s.pct || 0) * (it.wt || 0) / 100;
+            totalExposure += eff;
+            viaFunds.push({ fund: it.name, stockName: s.name, effectiveWeight: eff });
+          }
+        });
+      });
+
+      if (totalExposure >= EXPOSURE_AGENT_THRESHOLD) {
+        flagged.push({
+          portfolioId: port.id,
+          portfolioName: port.name,
+          signal,
+          exposurePct: Math.round(totalExposure * 100) / 100,
+          viaFunds,
+        });
+      }
+    });
+  });
+
+  flagged.sort((a, b) => b.exposurePct - a.exposurePct);
+  _exposureAgentCache = { flagged, signalsChecked: signals.length, checkedAt: new Date().toISOString() };
+  return _exposureAgentCache;
+}
+
+function getExposureAgentSummary() {
+  return _exposureAgentCache || { flagged: [], signalsChecked: 0 };
+}
+
+function refreshExposureAgentBadge() {
+  const badge = document.getElementById('exposure-agent-badge');
+  if (!badge) return;
+  const summary = getExposureAgentSummary();
+  badge.style.display = 'flex';
+  const dot = document.getElementById('exposure-agent-dot');
+  const text = document.getElementById('exposure-agent-text');
+  if (summary.flagged.length > 0) {
+    dot.style.background = 'var(--red)';
+    const uniquePortfolios = new Set(summary.flagged.map(f => f.portfolioId)).size;
+    text.textContent = `${uniquePortfolios} portfolio${uniquePortfolios===1?'':'s'} flagged`;
+  } else {
+    dot.style.background = 'var(--green)';
+    text.textContent = 'No exposure flags';
+  }
+}
+
+function openExposureAgentModal() {
+  const summary = getExposureAgentSummary();
+  if (!summary.flagged.length) {
+    showAgentModal('Negative News Exposure', `
+      <div style="font-size:.7rem;color:var(--green);text-align:center;padding:1.5rem">
+        No portfolios have exceeded ${EXPOSURE_AGENT_THRESHOLD}% exposure to a stock with negative news today.
+      </div>
+      <div style="font-size:.62rem;color:var(--muted);text-align:center">${summary.signalsChecked} negative signal(s) checked against all portfolios.</div>`);
+    return;
+  }
+
+  const reasonLabel = r => ({
+    negative_sentiment: 'Flagged: negative sentiment',
+    risk_keyword: 'Flagged: risk keyword detected',
+    beat_miss_label: 'Flagged: earnings miss',
+    numeric_decline: 'Flagged: YoY decline',
+  }[r] || 'Flagged');
+
+  const rows = summary.flagged.map(f => {
+    const fundsHtml = f.viaFunds.map(v =>
+      `<div style="font-size:.62rem;color:var(--muted2);padding:.15rem 0">via ${v.fund} — ${v.stockName} (${v.effectiveWeight.toFixed(2)}%)</div>`
+    ).join('');
+    return `<div style="border:1px solid var(--border);border-radius:var(--r-md);padding:.75rem .9rem;margin-bottom:.6rem;border-left:3px solid var(--red)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="font-weight:600;font-size:.8rem">${f.portfolioName}</div>
+        <div style="font-size:.78rem;font-weight:700;color:var(--red)">${f.exposurePct}% exposure</div>
+      </div>
+      <div style="font-size:.68rem;color:var(--text);margin:.35rem 0">${f.signal.headline}</div>
+      <div style="font-size:.58rem;color:var(--accent);margin-bottom:.3rem">${reasonLabel(f.signal.reason)}</div>
+      ${fundsHtml}
+    </div>`;
+  }).join('');
+
+  showAgentModal('Negative News Exposure', `
+    <div style="font-size:.68rem;color:var(--muted2);margin-bottom:1rem">
+      ${summary.flagged.length} flag(s) across ${new Set(summary.flagged.map(f=>f.portfolioId)).size} portfolio(s) — threshold ${EXPOSURE_AGENT_THRESHOLD}% weighted exposure.
+    </div>
+    ${rows}`);
 }
 
 async function fetchAllPrices() {
