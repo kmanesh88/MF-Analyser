@@ -4388,6 +4388,61 @@ async function pushExcelToApiServer(file, amcName) {
   return pushFilesToApiServer([file], amcName);
 }
 
+async function pushParsedPdfFundsToServer(funds, amcName) {
+  // Converts client-parsed PDF fund data (equityStocks/debtItems shape)
+  // back into the flat "holdings" shape the server's /upload-parsed
+  // endpoint expects -- so PDF-only AMCs go through the exact same
+  // rename-detection + verify/repair Upload Agent pipeline as Excel/ZIP.
+  const url    = getMfApiUrl();
+  const secret = localStorage.getItem('mf_api_secret') || '';
+  if (!url) return 0;
+
+  const payloadFunds = {};
+  Object.entries(funds || {}).forEach(([fname, f]) => {
+    const holdings = [
+      ...(f.equityStocks || []).map(s => ({ name: s.name, isin: '', sector: s.sector || '', pct: s.pct })),
+      ...(f.debtItems || []).map(d => ({ name: d.name, isin: '', sector: d.cat || '', pct: d.pct })),
+    ];
+    if (holdings.length < 2) return; // same minimum bar the server enforces
+    payloadFunds[normStockKey(fname)] = {
+      fund_name: fname,
+      amc: amcName,
+      holdings,
+      count: holdings.length,
+      cashPct: f.cash || 0,
+    };
+  });
+
+  if (!Object.keys(payloadFunds).length) {
+    console.warn('[PDF push] nothing to send — all funds below minimum holdings threshold');
+    return 0;
+  }
+
+  try {
+    const res = await fetch(`${url}/upload-parsed`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ amc: amcName, secret, funds: payloadFunds }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      const renameMsg = json.renames_resolved ? ` · ${json.renames_resolved} rename(s) merged` : '';
+      showToast(`☁ ${json.funds_added} PDF-parsed funds pushed to server${renameMsg}`);
+      setTimeout(() => { try { refreshAmcHealthBadge(); } catch(e){} }, 8000);
+      return json.funds_added;
+    } else {
+      console.warn('[PDF push]', json);
+      showToast('PDF data parsed locally but server push failed — see console');
+      return 0;
+    }
+  } catch(e) {
+    console.warn('[PDF push failed]', e.message);
+    showToast('PDF parsed locally (server push failed — check API URL/connection)');
+    return 0;
+  }
+}
+
 const _yield = () => new Promise(r => setTimeout(r, 0)); // release main thread
 
 async function handlePortfolioExcel(evt) {
@@ -5327,6 +5382,12 @@ async function handlePDF(evt, amcId) {
     refreshUploadPage();
     renderNav(); updateNextBtn();
     saveToStorage();
+
+    // Push to server so PDF-only AMCs (e.g. Sundaram) get the SAME
+    // verify/repair Upload Agent and rename detection that Excel/ZIP
+    // uploads already get -- without this, PDF-parsed data sits local-only
+    // and never benefits from the agents built for every other AMC.
+    pushParsedPdfFundsToServer(funds, amc.name);
   } catch(e) {
     amc.status = 'error';
     if (uz)   uz.className = 'uz';
