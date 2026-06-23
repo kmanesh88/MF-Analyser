@@ -4191,9 +4191,13 @@ async function refreshAmcHealthBadge() {
       return;
     }
     const totalUnresolvedNow = history[0].total_unresolved - history[0].total_repaired;
+    const renamesCount = (history[0].renames_resolved || []).length;
     if (totalUnresolvedNow > 0) {
       dot.style.background = 'var(--amber)';
       text.textContent = `Upload agent: ${totalUnresolvedNow} stock${totalUnresolvedNow===1?'':'s'} need review`;
+    } else if (renamesCount > 0) {
+      dot.style.background = 'var(--accent)';
+      text.textContent = `Upload agent: ${renamesCount} rename${renamesCount===1?'':'s'} auto-merged`;
     } else if (history[0].total_repaired > 0) {
       dot.style.background = 'var(--green)';
       text.textContent = `Upload agent: ${history[0].total_repaired} auto-resolved`;
@@ -4224,17 +4228,24 @@ function openAmcHealthModal() {
           ${f.repaired.length ? ' · ' + f.repaired.length + ' auto-resolved: ' + f.repaired.map(r=>`${r.name} → ${r.cap}`).join(', ') : ''}
         </div>
       </div>`).join('');
+    const renameRows = (report.renames_resolved || []).map(r => `
+      <div style="padding:.45rem .6rem;background:var(--accent-dim,rgba(196,127,16,.08));border-radius:var(--r-sm);margin-bottom:.3rem;border-left:2px solid var(--accent)">
+        <div style="font-size:.65rem;color:var(--accent);font-weight:600">↻ Rename auto-merged (${Math.round(r.similarity*100)}% name match)</div>
+        <div style="font-size:.65rem;color:var(--muted2);margin-top:.15rem">"${r.old_name}" → "${r.new_name}"</div>
+      </div>`).join('');
     return `
       <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:.85rem;margin-bottom:.75rem">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
           <div style="font-weight:600;font-size:.85rem">${report.amc}</div>
           <div style="font-size:.65rem;color:var(--muted)">${report.time_str || ''}</div>
         </div>
-        <div style="display:flex;gap:1rem;margin-bottom:.5rem;font-size:.7rem">
+        <div style="display:flex;gap:1rem;margin-bottom:.5rem;font-size:.7rem;flex-wrap:wrap">
           <span style="color:var(--muted2)">Unresolved: <strong style="color:${statusColor}">${unresolvedNow}</strong></span>
           <span style="color:var(--muted2)">Auto-repaired: <strong style="color:var(--green)">${report.total_repaired}</strong></span>
+          ${(report.renames_resolved||[]).length ? `<span style="color:var(--muted2)">Renames merged: <strong style="color:var(--accent)">${report.renames_resolved.length}</strong></span>` : ''}
           <span style="color:var(--muted2)">Repair calls used: ${report.repairs_used}${report.repairs_capped ? ' (capped)' : ''}</span>
         </div>
+        ${renameRows}
         ${fundRows || '<div style="font-size:.7rem;color:var(--green)">All holdings resolved cleanly ✓</div>'}
       </div>`;
   }).join('');
