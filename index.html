@@ -8788,6 +8788,20 @@ async function parseCASPdf(file, password) {
 }
 
 function extractFundsFromCAS(text) {
+  // ── Scripbox-style client portfolio report detection ──────────────
+  // Signature: "Mutual Fund Holdings as on" header + category rows
+  // (Equity/Debt/Large Cap/Mid Cap etc.) followed by fund rows that
+  // start with a folio number and contain a units/NAV pair on the
+  // following line. Structurally similar to the existing "Wealth
+  // Manager" Excel format (Particulars/Cost/Mkt Value/XIRR columns)
+  // but delivered as PDF text instead of structured cells.
+  if (/mutual\s*fund\s*holdings\s*as\s*on|scripbox/i.test(text)) {
+    const scripboxFunds = _parseScripboxCAS(text);
+    if (scripboxFunds.length) return scripboxFunds;
+    // fall through to generic patterns below if Scripbox-specific
+    // parsing found nothing (format may have changed)
+  }
+
   const funds = {};
   const lines = text.split('\n');
 
@@ -9030,6 +9044,71 @@ function parseManualInput(text) {
 }
 
 // ── Helper: compute % from values ─────────────────────────────────
+function _parseScripboxCAS(text) {
+  // Scripbox "Client Portfolio Report" PDF structure (from real sample):
+  //
+  //   Equity 1,06,642 1,63,592 56,951 0 0 10.64 56,951 100.00 51
+  //   Large Cap 94,755 1,43,814 49,059 0 0 10.36 49,059 52
+  //   Aditya Birla SL Large Cap Reg-G 1003428397 30-Mar2022 280.690
+  //     94,755 1,43,814 49,059 0 0 10.36 49,059 87.91 337.580 512.360 51.77 52
+  //   Mid Cap 11,886 19,778 7,892 0 0 12.84 7,892 51
+  //   UTI Mid Cap Reg-G 50617054058 05-Apr2022 63.755
+  //     11,886 19,778 7,892 0 0 12.84 7,892 12.09 186.438 310.217 66.39 51
+  //   Grand Total 1,06,642 1,63,592 56,951 0 0 10.64 56,951 100.00
+  //
+  // The reliable signature of an actual fund HOLDING row (as opposed to a
+  // category header like "Equity" / "Large Cap" / "Grand Total", which
+  // share the word "Fund" or numeric columns but are NOT individual
+  // holdings) is the presence of BOTH a folio number (8-14 digit string)
+  // AND a purchase date (DD-MonYYYY) on the same logical row. Matching on
+  // the word "fund" alone is unreliable -- it also matches page titles
+  // like "Mutual Fund Holdings as on ..." and silently produces garbage.
+  const FOLIO_AND_DATE = /(\d{8,14})\D+(\d{1,2}-[A-Za-z]{3}\d{4})/;
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const found = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(FOLIO_AND_DATE);
+    if (!m) continue;
+
+    const folio = m[1];
+    const folioIdx = line.indexOf(folio);
+    let name = line.slice(0, folioIdx).trim();
+    if (!name || name.length < 6) continue;
+    // Defensive reject for category/total rows that might coincidentally
+    // contain a long digit string somewhere
+    if (/^(equity|debt|hybrid|large cap|mid cap|small cap|multi cap|flexi cap|elss|liquid|gold|silver|international|grand total)\s*$/i.test(name)) continue;
+    if (/scripbox|relationship manager|report as on|client portfolio|page \d/i.test(name)) continue;
+
+    // Numbers after the date token are, in column order: Units, Cost,
+    // Mkt Value, Unrealized G/L, ... -- this matches every sample seen
+    // of the Scripbox report's column layout
+    const afterDate = line.slice(line.indexOf(m[2]) + m[2].length);
+    const nums = (afterDate.match(/[\d,]+\.?\d*/g) || [])
+      .map(n => parseFloat(n.replace(/,/g, '')))
+      .filter(n => !isNaN(n));
+
+    if (nums.length < 3) continue;
+    const units = nums[0];
+    const cost  = nums[1];
+    const mkt   = nums[2];
+    if (mkt <= 0) continue;
+
+    found.push({ name, value: mkt, cost, units });
+  }
+
+  // Dedupe by normalized name (a fund spanning a page break could
+  // otherwise be picked up twice) -- keep the larger value if duplicated
+  const byKey = {};
+  found.forEach(f => {
+    const key = normStockKey(f.name);
+    if (!byKey[key] || f.value > byKey[key].value) byKey[key] = f;
+  });
+
+  return buildAllocFromValues(Object.values(byKey));
+}
+
 function buildAllocFromValues(funds) {
   const total = funds.reduce((s,f) => s+(f.value||0), 0);
   return funds
@@ -9038,6 +9117,7 @@ function buildAllocFromValues(funds) {
       name:    f.name,
       value:   f.value || 0,
       units:   f.units || 0,
+      cost:    f.cost  || 0,
       pct:     total > 0 ? +(f.value/total*100).toFixed(2) : (f.pct||0),
       matched: null,
     }))
