@@ -8622,7 +8622,10 @@ async function parseImport() {
       const apiUrl = getMfApiUrl();
       window._lastCasAgentSource = 'deterministic';
       if (apiUrl) {
-        status.innerHTML = '<span class="spin"></span> Verifying extraction…';
+        const holdingCount = importParsedFunds.length;
+        status.innerHTML = holdingCount > 5
+          ? `<span class="spin"></span> Complex statement detected (${holdingCount} holdings) — using AI extraction for accuracy…`
+          : '<span class="spin"></span> Verifying extraction…';
         try {
           const res = await fetch(`${apiUrl}/cas-extract`, {
             method: 'POST',
@@ -8631,11 +8634,12 @@ async function parseImport() {
               raw_text: window._lastCasRawText || '',
               parsed_funds: importParsedFunds.map(f => ({ name:f.name, value:f.value, cost:f.cost||0, units:f.units||0 })),
             }),
-            signal: AbortSignal.timeout(45000),
+            signal: AbortSignal.timeout(120000), // chunked AI extraction on long statements takes longer
           });
           const json = await res.json();
-          if (json.source === 'ai_repair' && json.funds?.length) {
-            // AI repair found funds the deterministic parser missed —
+          if ((json.source === 'ai_repair' || json.source === 'ai_primary') && json.funds?.length) {
+            // AI extraction (either as primary path for a complex statement,
+            // or as repair when the regex parse failed verification) —
             // rebuild importParsedFunds from the AI's extraction
             const total = json.funds.reduce((s,f) => s + (f.value||0), 0);
             importParsedFunds = json.funds.map(f => ({
@@ -8643,8 +8647,10 @@ async function parseImport() {
               pct: total > 0 ? +(f.value/total*100).toFixed(2) : 0,
               matched: null,
             }));
-            window._lastCasAgentSource = 'ai_repair';
-            showToast('✦ AI extracted holdings from an unrecognized statement format');
+            window._lastCasAgentSource = json.source;
+            showToast(json.source === 'ai_primary'
+              ? `✦ AI extracted ${importParsedFunds.length} holdings from this complex statement`
+              : '✦ AI extracted holdings from an unrecognized statement format');
           }
           window._lastCasAgentVerify = json.verify || null;
         } catch(e) {
@@ -9177,10 +9183,15 @@ function showImportPreview() {
 
   const agentSource = window._lastCasAgentSource;
   const agentVerify = window._lastCasAgentVerify;
-  const agentBanner = agentSource === 'ai_repair'
+  const agentBannerText = agentSource === 'ai_primary'
+    ? `✦ This is a complex statement (${total} holdings) — AI extracted the holdings directly from the document text for accuracy, since automated parsing of large multi-fund statements can silently miscount.`
+    : agentSource === 'ai_repair'
+    ? `✦ This statement's format wasn't recognized by standard parsing — AI extracted the holdings directly from the document text.`
+    : null;
+  const agentBanner = agentBannerText
     ? `<div style="font-size:.68rem;color:var(--accent);background:rgba(196,127,16,.08);border:1px solid rgba(196,127,16,.2);border-radius:var(--r-sm);padding:.55rem .75rem;margin-bottom:.85rem">
-        ✦ This statement's format wasn't recognized by standard parsing — AI extracted the holdings directly from the document text.
-        ${agentVerify?.ok===false ? ' Totals could not be fully verified — please double-check the values below.' : ''}
+        ${agentBannerText}
+        ${agentVerify?.ok===false ? ` Extracted total (₹${(agentVerify.extracted_total||0).toLocaleString('en-IN',{maximumFractionDigits:0})}) differs from the statement's stated total${agentVerify.stated_total ? ' (₹'+agentVerify.stated_total.toLocaleString('en-IN',{maximumFractionDigits:0})+')' : ''} by ${agentVerify.diff_pct||'?'}% — please double-check the values below.` : ' Totals reconcile with the statement.'}
       </div>`
     : '';
 
@@ -9199,9 +9210,29 @@ function showImportPreview() {
         <div style="font-family:'Fraunces',serif;font-size:1.4rem;font-weight:600;color:var(--text)">₹${totalVal.toLocaleString('en-IN',{maximumFractionDigits:0})}</div>
       </div>`:''}
     </div>
-    ${matched < total ? `<div style="font-size:.68rem;color:var(--muted);background:var(--s3);border-radius:var(--r-sm);padding:.5rem .75rem;margin-bottom:.85rem">
-      ℹ ${matched > 0 ? `${matched} fund${matched>1?'s':''} linked to uploaded factsheets. ` : ''}Upload AMC factsheets later to enable cap/sector analysis.
-    </div>` : ''}
+    ${matched < total ? (() => {
+      const unmatchedFunds = importParsedFunds.filter(f => !f.matched);
+      // Group unmatched funds by inferred AMC (first 1-2 words of the
+      // fund name) so the advisor sees "which AMC factsheets" rather
+      // than a flat list of confusing scheme names
+      const byAmcGuess = {};
+      unmatchedFunds.forEach(f => {
+        const amcGuess = f.name.split(/\s+/).slice(0, 2).join(' ').replace(/[-–].*$/, '').trim() || 'Unknown';
+        if (!byAmcGuess[amcGuess]) byAmcGuess[amcGuess] = [];
+        byAmcGuess[amcGuess].push(f.name);
+      });
+      const groupRows = Object.entries(byAmcGuess).map(([amc, names]) => `
+        <div style="margin-bottom:.4rem">
+          <div style="font-size:.66rem;font-weight:600;color:var(--amber)">${amc} <span style="color:var(--muted);font-weight:400">(${names.length} fund${names.length>1?'s':''})</span></div>
+          ${names.map(n => `<div style="font-size:.62rem;color:var(--muted2);padding-left:.6rem">• ${n}</div>`).join('')}
+        </div>`).join('');
+      return `<div style="font-size:.68rem;color:var(--text);background:var(--s3);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.65rem .75rem;margin-bottom:.85rem">
+        <div style="margin-bottom:.5rem">
+          ⚠ <strong>${unmatchedFunds.length} fund${unmatchedFunds.length>1?'s':''} not linked to any uploaded factsheet</strong> — cap/sector analysis will be incomplete for these until their AMC's disclosure is uploaded:
+        </div>
+        ${groupRows}
+      </div>`;
+    })() : ''}
     <div style="background:var(--s2);border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden">
       <div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr;gap:.5rem;font-size:.6rem;color:var(--muted);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.06em">
         <span>Fund</span><span style="text-align:right">Market Value</span><span style="text-align:right">% of Portfolio</span>
