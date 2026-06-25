@@ -9407,26 +9407,60 @@ function confirmImport() {
     .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
     .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
 
+  // IMPORTANT: the SAME scheme can legitimately appear multiple times in
+  // a CAS/statement import -- a client may hold one scheme across several
+  // separate folios (different purchase dates, sometimes different
+  // distributors/RTAs). Each occurrence is a REAL, SEPARATE holding with
+  // its own value. Using cleanFundName(f.name) as the allocations/
+  // holdingsDetail key caused same-name entries to silently OVERWRITE
+  // each other here -- losing real holdings and corrupting the portfolio
+  // total. Fix: when a cleaned name collides with an existing key, MERGE
+  // the values (sum value/units/cost, recompute pct) instead of
+  // overwriting, so no holding is lost regardless of how many folios
+  // share the same underlying scheme.
   importParsedFunds.forEach(f => {
     const fundName = cleanFundName(f.name);
-    if (f.pct > 0) {
-      allocations[fundName]    = parseFloat(f.pct.toFixed(4));
-      holdingsDetail[fundName] = {
-        val:        f.value   || 0,
-        units:      f.units   || 0,
-        cost:       f.cost    || 0,
-        nav:        f.nav     || 0,
-        unrGL:      f.unrGL   || 0,
-        realGL:     f.realGL  || 0,
-        assetClass: f.assetClass || null,
-        category:   f.category   || null,
-      };
+    if (f.pct > 0 || f.value > 0) {
+      if (allocations[fundName] != null) {
+        // Collision -- same scheme already added from a different folio.
+        // Merge rather than overwrite.
+        const existing = holdingsDetail[fundName];
+        existing.val   = (existing.val   || 0) + (f.value || 0);
+        existing.units = (existing.units || 0) + (f.units || 0);
+        existing.cost  = (existing.cost  || 0) + (f.cost  || 0);
+        existing.unrGL = (existing.unrGL || 0) + (f.unrGL || 0);
+        existing.realGL= (existing.realGL|| 0) + (f.realGL|| 0);
+        // pct gets recomputed below from the merged totals across all
+        // funds, so we don't need to add percentages here directly --
+        // but stash the raw merged value for that recompute pass.
+      } else {
+        allocations[fundName]    = 0; // placeholder, recomputed below
+        holdingsDetail[fundName] = {
+          val:        f.value   || 0,
+          units:      f.units   || 0,
+          cost:       f.cost    || 0,
+          nav:        f.nav     || 0,
+          unrGL:      f.unrGL   || 0,
+          realGL:     f.realGL  || 0,
+          assetClass: f.assetClass || null,
+          category:   f.category   || null,
+        };
+      }
       // Pre-seed NAV data for Live NAV display
       if (f.nav > 0) {
         window._navData = window._navData || {};
         window._navData[fundName] = { nav: f.nav, date: 'from import', schemeCode: null, schemeName: fundName };
       }
     }
+  });
+
+  // Recompute pct for every fund from the MERGED values, not the
+  // original per-folio percentages (which would no longer sum correctly
+  // after merging multiple folios into one key)
+  const mergedTotal = Object.values(holdingsDetail).reduce((s,h) => s + (h.val||0), 0);
+  Object.keys(holdingsDetail).forEach(fundName => {
+    const val = holdingsDetail[fundName].val || 0;
+    allocations[fundName] = mergedTotal > 0 ? parseFloat((val / mergedTotal * 100).toFixed(4)) : 0;
   });
 
   const port = {
