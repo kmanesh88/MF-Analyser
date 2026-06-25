@@ -4555,7 +4555,7 @@ async function parseWorkbook(wb, filename, results) {
   // Detects ISIN col, name col, pct col, decimal vs actual %
   // Returns { fundName, holdings, cashPct } or null
   function parseSheetUniversal(rows, hintFundName) {
-    let headerRowIdx = -1, isinCol = -1, nameCol = -1, pctCol = -1;
+    let headerRowIdx = -1, isinCol = -1, nameCol = -1, pctCol = -1, sectorColDetected = -1;
     let fundName = hintFundName || '';
 
     // Pass 1: find fund name + header row
@@ -4590,7 +4590,15 @@ async function parseWorkbook(wb, filename, results) {
         vl.forEach((v, ci) => {
           if (v.includes('isin') && isinCol < 0)                               isinCol = ci;
           if (nameCol < 0 && ['name of','instrument','issuer','company/issuer','company'].some(k => v.includes(k))) nameCol = ci;
-          if (pctCol  < 0 && /(%\s*(to|of|net)\s*(nav|aum|asset|net)|nav\s*%|aum\s*%)/.test(v)) pctCol = ci;
+          if (pctCol  < 0 && /(%\s*(to|of|net)\s*(nav|aum|asset|net)|nav\s*%|aum\s*%|percentage\s*(to|of)\s*(nav|aum|asset|net))/.test(v)) pctCol = ci;
+          // Detect the actual rating/sector/industry column by header text
+          // rather than assuming a fixed offset from ISIN -- some AMC
+          // layouts put Coupon%/Quantity immediately after ISIN, with
+          // Rating/Industry further along (e.g. HDFC: ISIN, Coupon%,
+          // Name, Industry+/Rating). A fixed isinCol+1 offset silently
+          // grabs the wrong column on these layouts and loses all rating
+          // data, which then defaults every debt holding to equity.
+          if (sectorColDetected < 0 && /industry|sector|rating/.test(v)) sectorColDetected = ci;
         });
         break;
       }
@@ -4664,8 +4672,28 @@ async function parseWorkbook(wb, filename, results) {
       if (!nameVal || nameVal.length < 2) continue;
       if (SKIP_ROW.test(nameVal)) continue;
 
-      // Strip UTI-style prefixes: "EQ - ", "DB - " etc.
-      nameVal = nameVal.replace(/^(EQ|DB|NCD|CP|TB|GB|MF|CB)\s*[-\u2013]\s*/i, '').trim();
+      // UTI-style prefixes ("NCD - ", "CD - ", "CP - " etc.) are a strong,
+      // unambiguous debt signal. Capture the debt category BEFORE
+      // stripping the prefix from the display name, so classification
+      // downstream has something to match instead of silently defaulting
+      // every such holding to equity (real bug found on UTI-format debt
+      // funds where most/all holdings carry one of these prefixes).
+      const prefixMatch = nameVal.match(/^(EQ|DB|NCD|CP|TB|GB|MF|CB|CD|SPN\/DDB|SPN|DDB|PTC|ZCB)\s*[-\u2013]\s*/i);
+      let prefixDebtTag = '';
+      if (prefixMatch) {
+        const ptag = prefixMatch[1].toUpperCase();
+        if (ptag !== 'EQ') {
+          prefixDebtTag = ({
+            NCD:'NCD', CP:'Commercial Paper', TB:'T-Bill', GB:'G-Sec',
+            DB:'Debenture', CB:'Bond', MF:'MF', CD:'Certificate of Deposit',
+            'SPN/DDB':'Debt', SPN:'Debt', DDB:'Debt', PTC:'Debt', ZCB:'Debt',
+          })[ptag] || ptag;
+        }
+      }
+      nameVal = nameVal.replace(/^(EQ|DB|NCD|CP|TB|GB|MF|CB|CD|SPN\/DDB|SPN|DDB|PTC|ZCB)\s*[-\u2013]\s*/i, '').trim();
+      if (!prefixDebtTag && /\bt-?bill\b|\bcertificate of deposit\b|\bcommercial paper\b|\bncd\b|\bdebenture\b|\bcorporate debt\b|\bdebt market\b|\bsecuritisation\b|\bsecuritization\b|\bptc\b/i.test(nameVal)) {
+        prefixDebtTag = 'Debt';
+      }
 
       const rawPct = String(vals[pctCol] || '').replace(/[%,$]/g, '').replace(/[^\d.\-]/g, '');
       let pct = parseFloat(rawPct);
@@ -4673,9 +4701,15 @@ async function parseWorkbook(wb, filename, results) {
       if (pctIsDecimal) pct *= 100;
       if (pct <= 0 || pct > 100) continue;
 
-      // Sector: col immediately after ISIN
-      let sector = vals[isinCol + 1] || '';
+      // Sector: prefer the header-detected rating/industry column if one
+      // was found; fall back to the old isinCol+1 heuristic otherwise.
+      // A fixed isinCol+1 offset silently grabs the wrong column on
+      // layouts where Coupon%/Quantity sits immediately after ISIN
+      // instead of the rating (e.g. HDFC: ISIN, Coupon%, Name, Rating).
+      let sector = (typeof sectorColDetected !== 'undefined' && sectorColDetected >= 0)
+        ? (vals[sectorColDetected] || '') : (vals[isinCol + 1] || '');
       if (/^\d/.test(sector) || sector.includes('%')) sector = '';
+      if (!sector && prefixDebtTag) sector = prefixDebtTag;
 
       holdings.push({ name: nameVal, isin: isinVal, sector, pct: Math.round(pct * 10000) / 10000 });
     }
