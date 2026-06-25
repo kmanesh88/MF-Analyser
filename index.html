@@ -2102,7 +2102,7 @@ body {
           <tr id="sum-holdings-thead">
             <th>Scheme</th>
             <th class="r">Units</th>
-            <th class="r">Cost Value</th>
+            <th class="r">Market Value</th>
             <th class="r">NAV</th>
             <th class="r">Current Value</th>
             <th class="r">Gain/Loss</th>
@@ -6815,7 +6815,7 @@ function buildSummary() {
     const hasCostVal  = totalVal > 0;
 
     if (totalEl) totalEl.textContent = totalVal > 0
-      ? `Cost ₹${(totalVal/100000).toFixed(2)}L`
+      ? `Mkt Value ₹${(totalVal/100000).toFixed(2)}L`
       : `${items.length} funds · ${items.reduce((s,f)=>s+f.wt,0).toFixed(1)}% allocated`;
 
     // Update thead dynamically
@@ -6823,7 +6823,7 @@ function buildSummary() {
     if (thead) thead.innerHTML = `
       <th>Scheme</th>
       ${hasUnits  ? '<th class="r">Units</th>'         : ''}
-      ${hasCostVal? '<th class="r">Cost Value</th>'    : ''}
+      ${hasCostVal? '<th class="r">Market Value</th>'    : ''}
       ${hasNAV    ? '<th class="r">NAV</th>'           : ''}
       ${hasNAV    ? '<th class="r">Current Value</th>' : ''}
       ${hasNAV && hasCostVal ? '<th class="r">Gain / Loss</th>' : ''}
