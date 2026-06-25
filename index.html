@@ -1894,6 +1894,23 @@ body {
         <div id="portfolio-disclosure-link" style="display:none;margin-top:.6rem;text-align:center"></div>
       </div>
 
+      <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px dashed var(--border)">
+        <div style="font-size:.68rem;color:var(--muted2);margin-bottom:.85rem;line-height:1.7">
+          <strong style="color:var(--text)">Multi-scheme factsheet booklet</strong> (e.g. Edelweiss-style 60+ scheme PDF with Top-N holdings per scheme, no AMC pre-selection needed — the booklet's own index page identifies each scheme).
+        </div>
+        <div id="booklet-uz" class="uz"
+          onclick="document.getElementById('booklet-file-input').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="event.preventDefault();this.classList.remove('drag');const dt=event.dataTransfer;if(dt.files.length){const inp=document.getElementById('booklet-file-input');const d=new DataTransfer();d.items.add(dt.files[0]);inp.files=d.files;handleFactsheetBooklet({target:inp})}">
+          <input type="file" accept=".pdf" id="booklet-file-input" style="display:none" onchange="handleFactsheetBooklet(event)">
+          <div class="uz-icon" id="booklet-uz-icon">📚</div>
+          <div class="uz-text" id="booklet-uz-text">Drop or click to upload a multi-scheme factsheet booklet</div>
+          <div class="uz-st" id="booklet-uz-st"></div>
+        </div>
+        <div id="booklet-result" style="margin-top:.75rem"></div>
+      </div>
+
       <div id="upload-result" style="display:none;margin-top:1rem">
         <div class="flist" id="upload-flist"></div>
         <div class="btn-row" style="margin-top:.75rem">
@@ -5172,6 +5189,120 @@ function handleUploadFile(evt) {
 
 
 
+
+// ============================================================
+// FACTSHEET BOOKLET HANDLER — multi-scheme AMC marketing factsheets
+// (e.g. Edelweiss-style 60+ scheme PDF with Top-N holdings per scheme)
+// ============================================================
+async function handleFactsheetBooklet(evt) {
+  const file = evt.target.files?.[0];
+  if (!file) return;
+  const uz   = document.getElementById('booklet-uz');
+  const st   = document.getElementById('booklet-uz-st');
+  const icon = document.getElementById('booklet-uz-icon');
+  const resultEl = document.getElementById('booklet-result');
+
+  uz.className = 'uz busy';
+  icon.textContent = '⏳';
+  st.textContent = 'Reading PDF pages…';
+  resultEl.innerHTML = '';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const pagesText = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const pg = await pdf.getPage(i);
+      const ct = await pg.getTextContent();
+      const byY = {};
+      ct.items.forEach(item => {
+        const y = Math.round(item.transform[5]);
+        (byY[y] = byY[y] || []).push(item.str);
+      });
+      const lines = Object.keys(byY).sort((a,b)=>b-a).map(y => byY[y].join(' ').trim());
+      pagesText.push(lines.join('\n'));
+      if (i % 20 === 0) st.textContent = `Reading PDF pages… ${i}/${pdf.numPages}`;
+    }
+
+    st.textContent = `Extracting holdings from ${pdf.numPages} pages — this may take a minute for a large booklet…`;
+    icon.textContent = '✦';
+
+    const apiUrl = getMfApiUrl();
+    if (!apiUrl) {
+      showToast('Set the API server URL first (Add Factsheets page)');
+      uz.className = 'uz'; icon.textContent = '📚';
+      st.textContent = 'API server not configured';
+      return;
+    }
+
+    const res = await fetch(`${apiUrl}/factsheet-extract`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ pages_text: pagesText, amc: file.name.replace(/\.pdf$/i,'') }),
+      signal: AbortSignal.timeout(600000), // large booklets with 40-80 AI calls take a while
+    });
+    const json = await res.json();
+
+    if (json.error) {
+      uz.className = 'uz error'; icon.textContent = '✕';
+      st.textContent = json.error;
+      return;
+    }
+
+    // Convert each successfully-extracted scheme into a fund entry and
+    // push to the server via /upload-parsed, reusing the same agent
+    // pipeline (rename detection, cap-resolution repair) built for
+    // regular AMC disclosures
+    const amcName = file.name.replace(/\.pdf$/i, '').replace(/[_-]/g, ' ').trim();
+    const fundsPayload = {};
+    Object.entries(json.schemes || {}).forEach(([schemeName, data]) => {
+      if (!data.holdings?.length) return;
+      const holdings = data.holdings.map(h => ({
+        name: h.name, isin: '', sector: h.exposure || 'Domestic', pct: h.pct,
+      }));
+      fundsPayload[normStockKey(schemeName)] = {
+        fund_name: schemeName, amc: amcName, holdings,
+        count: holdings.length, cashPct: 0,
+      };
+    });
+
+    let pushedCount = 0;
+    if (Object.keys(fundsPayload).length) {
+      const secret = localStorage.getItem('mf_api_secret') || '';
+      const pushRes = await fetch(`${apiUrl}/upload-parsed`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ amc: amcName, secret, funds: fundsPayload }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const pushJson = await pushRes.json();
+      pushedCount = pushJson.funds_added || 0;
+    }
+
+    uz.className = 'uz success'; icon.textContent = '✓';
+    st.textContent = `${json.extracted_ok}/${json.index_found} schemes extracted, ${pushedCount} pushed to server`;
+
+    const notFoundHtml = (json.not_found || []).length
+      ? `<div style="font-size:.65rem;color:var(--amber);margin-top:.5rem">
+          <strong>${json.not_found.length} scheme(s) without a holdings table</strong> (likely debt/ETF/index/FoF funds — expected for non-equity schemes):
+          <div style="color:var(--muted2);margin-top:.3rem">${json.not_found.join(' · ')}</div>
+        </div>`
+      : '';
+
+    resultEl.innerHTML = `
+      <div style="font-size:.7rem;color:var(--green);margin-bottom:.4rem">
+        ✓ ${json.extracted_ok} scheme(s) extracted from ${json.index_found} found in the booklet's index — Top-N holdings only (not full SEBI disclosure), use with that caveat for cap/sector analysis.
+      </div>
+      ${notFoundHtml}`;
+
+    setTimeout(() => { try { refreshAmcHealthBadge(); } catch(e){} }, 8000);
+
+  } catch(e) {
+    console.error('[Factsheet booklet]', e);
+    uz.className = 'uz error'; icon.textContent = '✕';
+    st.textContent = 'Failed: ' + e.message;
+  }
+}
 
 async function handlePDF(evt, amcId) {
   const file = evt.target.files[0];
