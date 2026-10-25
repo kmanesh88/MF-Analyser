@@ -760,6 +760,31 @@ body {
 .btn.sm { padding: .32rem .75rem; font-size: .7rem; }
 .btn-row { display: flex; gap: .65rem; margin-top: 1.25rem; flex-wrap: wrap; align-items: center; }
 
+/* ── Analyser context bar ── */
+#analyser-ctx {
+  display: none;
+  align-items: center;
+  gap: .75rem;
+  padding: .5rem 1rem;
+  background: var(--s2);
+  border-bottom: 1px solid var(--border);
+  font-size: .72rem;
+  position: sticky;
+  top: 56px;
+  z-index: 90;
+}
+#analyser-ctx .ctx-label { color: var(--muted); flex-shrink: 0; }
+#analyser-ctx .ctx-name  { font-weight: 600; color: var(--text); }
+#analyser-ctx .ctx-tabs  { display: flex; gap: .2rem; margin-left: auto; }
+#analyser-ctx .ctx-tab   {
+  padding: .3rem .75rem; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border2); background: transparent;
+  font-size: .68rem; color: var(--muted); font-family: inherit;
+  transition: background .15s, color .15s;
+}
+#analyser-ctx .ctx-tab:hover   { background: var(--s3); color: var(--text); }
+#analyser-ctx .ctx-tab.active  { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 600; }
+
 /* ═══════════════════════════════════════════════
    ALLOCATION TABLE
 ═══════════════════════════════════════════════ */
@@ -1924,6 +1949,18 @@ body {
 </div>
 
 
+<!-- ── Analyser context bar (shared, injected above whichever analyser page is active) ── -->
+<div id="analyser-ctx">
+  <span class="ctx-label">CLIENT</span>
+  <span class="ctx-name" id="ctx-client-name">—</span>
+  <div class="ctx-tabs">
+    <button class="ctx-tab" id="ctab-alloc"   onclick="showPage('alloc')">Set Allocation</button>
+    <button class="ctx-tab" id="ctab-summary" onclick="showPage('summary')">Summary</button>
+    <button class="ctx-tab" id="ctab-res"     onclick="showPage('res')">Cap / Debt</button>
+    <button class="ctx-tab" id="ctab-metrics" onclick="showPage('metrics')">Metrics</button>
+  </div>
+</div>
+
 <!-- ── Allocation ── -->
 <div class="page" id="page-alloc">
   <div class="pg-header">
@@ -2932,6 +2969,10 @@ function refreshActivePortfolioUI() {
       banner.style.display = 'none';
     }
   }
+
+  // Keep analyser context bar name in sync
+  const ctxName = document.getElementById('ctx-client-name');
+  if (ctxName) ctxName.textContent = port ? (port.name || port.clientName || '—') : '—';
 }
 
 function deletePortfolio(id) {
@@ -3066,7 +3107,7 @@ function renderPortfolioGrid() {
       <div class="pc-client">${p.client||'—'} · ${fundCount} fund${fundCount!==1?'s':''}</div>
       ${assetHtml}
       <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
-        <div style="display:flex;flex-wrap:wrap;gap:.3rem;flex:1">
+        <div style="display:flex;flex-wrap:wrap;gap:.3rem;flex:1;cursor:pointer" onclick="event.stopPropagation();setActivePortfolio('${p.id}');showPage('alerts')">
           ${alertBadges}
           ${extraAlerts>0?`<span class="alert-tag breach">+${extraAlerts} more</span>`:''}
           ${!alerts.length&&snap?'<span class="alert-tag ok">✓ All clear</span>':''}
@@ -3344,6 +3385,26 @@ function showPage(pg) {
     document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
     document.getElementById('page-'+pg)?.classList.add('active');
     document.getElementById('nav-'+pg)?.classList.add('active');
+
+    // ── Analyser context bar ──
+    const analyserPages = ['alloc','summary','res','metrics'];
+    const ctx = document.getElementById('analyser-ctx');
+    if (ctx) {
+      if (analyserPages.includes(pg)) {
+        ctx.style.display = 'flex';
+        // Update client name
+        const port = portfolios.find(p => p.id === activePortId);
+        document.getElementById('ctx-client-name').textContent = port ? (port.name || port.clientName || '—') : '—';
+        // Set active tab
+        ['alloc','summary','res','metrics'].forEach(t => {
+          const el = document.getElementById('ctab-'+t);
+          if (el) el.classList.toggle('active', t === pg);
+        });
+      } else {
+        ctx.style.display = 'none';
+      }
+    }
+
     if (pg==='alloc')      try{buildAllocTable();}catch(e){console.error('buildAllocTable',e);}
     if (pg==='metrics')    try{buildMetrics();}catch(e){console.error('buildMetrics',e);}
     if (pg==='summary')    try{buildSummary();}catch(e){console.error('buildSummary',e);}
@@ -7655,17 +7716,29 @@ async function runAnalysis() {
     ...(commodityWt>0?[{v:commodityWt,c:'sg-comm',label:'🏅'}]:[])
   ]);
 
-  document.getElementById('eq-tbody').innerHTML = items.map(f=>`<tr${f.commodityType?' style="opacity:.6"':''}>
+  const noFactsheet = items.filter(f => !f.commodityType && f.large===0 && f.mid===0 && f.small===0 && !f.equityStocks?.length);
+  document.getElementById('eq-tbody').innerHTML = items.map(f=>{
+    const missing = !f.commodityType && f.large===0 && f.mid===0 && f.small===0 && !f.equityStocks?.length;
+    return `<tr${f.commodityType?' style="opacity:.6"':''}${missing?' style="background:rgba(var(--orange-rgb,200,100,0),.04)"':''}>
     <td>${f.name}${f.commodityType?` <span style="font-size:.58rem;background:var(--s3);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;color:var(--muted);margin-left:.3rem">🏅 ${f.commodityType}</span>`:''}
-      <span class="chip">${f.equityStocks?.length||0}</span></td>
+      ${missing?`<span style="font-size:.55rem;color:var(--orange);margin-left:.4rem">⚠ no factsheet</span>`:`<span class="chip">${f.equityStocks?.length||0}</span>`}</td>
     <td class="c-dim" style="font-size:.6rem">${f.amc}</td>
     <td class="r c-dim">${f.wt}%</td>
-    <td class="r c-l">${f.commodityType?'—':(f.large||0).toFixed(1)+'%'}</td>
-    <td class="r c-m">${f.commodityType?'—':(f.mid||0).toFixed(1)+'%'}</td>
-    <td class="r c-s">${f.commodityType?'—':(f.small||0).toFixed(1)+'%'}</td>
-    <td class="r c-dim">${f.commodityType?'—':(f.eqOther||0).toFixed(1)+'%'}</td>
-    <td class="r c-dim">${f.equityStocks?.length||0}</td>
-  </tr>`).join('');
+    <td class="r c-l">${f.commodityType?'—':missing?'—':(f.large||0).toFixed(1)+'%'}</td>
+    <td class="r c-m">${f.commodityType?'—':missing?'—':(f.mid||0).toFixed(1)+'%'}</td>
+    <td class="r c-s">${f.commodityType?'—':missing?'—':(f.small||0).toFixed(1)+'%'}</td>
+    <td class="r c-dim">${f.commodityType?'—':missing?'—':(f.eqOther||0).toFixed(1)+'%'}</td>
+    <td class="r c-dim">${missing?'—':f.equityStocks?.length||0}</td>
+  </tr>`;
+  }).join('');
+  // Show upload nudge for funds without factsheet
+  document.getElementById('eq-warnings').innerHTML = noFactsheet.length
+    ? `<div style="margin-top:.75rem;padding:.6rem .9rem;background:var(--s3);border:1px solid var(--border2);border-radius:6px;display:flex;align-items:center;gap:.75rem;font-size:.65rem">
+        <span style="color:var(--orange)">⚠</span>
+        <span style="color:var(--muted);flex:1">${noFactsheet.map(f=>f.name).join(', ')} — cap split unavailable (no factsheet)</span>
+        <button class="btn sm" onclick="showPage('upload')" style="flex-shrink:0;font-size:.6rem">Upload Factsheets →</button>
+       </div>`
+    : '';
 
   // ── Debt metrics
   const dG=bl('gsec'),dS=bl('sdl'),dA=bl('aaa'),dAA=bl('aa'),dM=bl('mkt'),dC=bl('cash');
