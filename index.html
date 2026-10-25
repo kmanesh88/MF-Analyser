@@ -1674,7 +1674,7 @@ body {
       <!-- Excel / CSV panel -->
       <div id="imp-excel-panel" style="display:none">
         <div class="info" style="margin-bottom:1rem">
-          Upload an Excel (.xlsx) or CSV file with columns: <strong>Fund Name</strong> and <strong>Current Value</strong> (or <strong>% Allocation</strong>). The app will auto-calculate weights from current values.
+          Upload your <strong>wealth management report Excel</strong> (.xlsx) — the standard format with columns: Particulars, Nature, Units, Cost, Mkt Value, NAV. Also supports any Excel with <strong>Fund Name</strong> + <strong>Current Value</strong> columns.
         </div>
         <div style="position:relative;border:1.5px dashed var(--border2);border-radius:var(--r-md);padding:1.75rem;text-align:center;cursor:pointer;background:var(--s2);transition:all .2s">
           <input type="file" accept=".xlsx,.xls,.csv" id="excel-file-input" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
@@ -1695,6 +1695,26 @@ body {
           style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.65rem .85rem;font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--text);resize:vertical;outline:none;line-height:1.7"></textarea>
       </div>
 
+      <!-- Import mode toggle -->
+      <div style="margin-top:1.1rem;padding:.75rem;background:var(--s3);border-radius:var(--r-sm);border:1px solid var(--border)">
+        <div style="font-size:.68rem;color:var(--muted);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em">Import Mode</div>
+        <div style="display:flex;gap:.5rem">
+          <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.72rem;color:var(--text)">
+            <input type="radio" name="imp-mode" id="imp-mode-new" value="new" checked onchange="toggleImportMode(this.value)"> Create new portfolio
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.72rem;color:var(--text)">
+            <input type="radio" name="imp-mode" id="imp-mode-update" value="update" onchange="toggleImportMode(this.value)"> Update existing portfolio
+          </label>
+        </div>
+        <!-- Update mode: existing portfolio picker -->
+        <div id="imp-update-picker" style="display:none;margin-top:.65rem">
+          <label style="font-size:.68rem;color:var(--muted);display:block;margin-bottom:.3rem">Choose portfolio to overwrite</label>
+          <select id="imp-update-portid" style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.45rem .7rem;font-size:.75rem;color:var(--text);outline:none">
+          </select>
+          <div style="font-size:.6rem;color:var(--orange);margin-top:.35rem">⚠ This will replace all holdings in the selected portfolio with the uploaded statement.</div>
+        </div>
+      </div>
+
       <!-- Parse button -->
       <div style="margin-top:1.25rem;display:flex;gap:.65rem;align-items:center">
         <button class="btn pri" onclick="parseImport()" id="parse-btn">Parse & Preview →</button>
@@ -1711,7 +1731,7 @@ body {
       </div>
       <div id="import-preview"></div>
       <div style="display:flex;gap:.65rem;margin-top:1.25rem">
-        <button class="btn pri" onclick="confirmImport()">✓ Create Portfolio</button>
+        <button class="btn pri" id="imp-confirm-btn" onclick="confirmImport()">✓ Create Portfolio</button>
         <button class="btn" onclick="closeImportModal()">Cancel</button>
       </div>
     </div>
@@ -8843,6 +8863,17 @@ async function fetchAnnouncements() {
 let importParsedFunds = []; window.importParsedFunds = importParsedFunds;
 let importTab = 'cas';
 
+function toggleImportMode(mode) {
+  const isUpdate = mode === 'update';
+  document.getElementById('imp-update-picker').style.display = isUpdate ? 'block' : 'none';
+  // Show/hide new-portfolio fields
+  document.querySelectorAll('#import-step1 .imp-new-only').forEach(el => {
+    el.style.display = isUpdate ? 'none' : '';
+  });
+  const btn = document.getElementById('imp-confirm-btn');
+  if (btn) btn.textContent = isUpdate ? '↺ Overwrite Portfolio' : '✓ Create Portfolio';
+}
+
 function showImportModal() {
   const modal = document.getElementById('import-modal');
   modal.style.display = 'flex';
@@ -8854,7 +8885,27 @@ function showImportModal() {
   document.getElementById('import-step1').style.display = 'block';
   document.getElementById('import-step2').style.display = 'none';
   importParsedFunds = [];
-  switchImportTab('cas');
+
+  // Reset to "create new" mode
+  document.getElementById('imp-mode-new').checked = true;
+  toggleImportMode('new');
+
+  // Populate the "update existing" portfolio dropdown
+  const picker = document.getElementById('imp-update-portid');
+  if (picker) {
+    picker.innerHTML = portfolios.map(p =>
+      `<option value="${p.id}">${p.name}${p.client ? ' — ' + p.client : ''}</option>`
+    ).join('') || '<option value="">No portfolios yet</option>';
+  }
+
+  // Pre-fill client dropdown
+  const clientSel = document.getElementById('imp-client');
+  const existingClients = [...new Set(portfolios.map(p => p.client).filter(Boolean))];
+  clientSel.innerHTML = '<option value="">-- Select Client --</option>' +
+    existingClients.map(c => `<option value="${c}">${c}</option>`).join('') +
+    '<option value="__new__">+ New Client</option>';
+
+  switchImportTab('excel'); // default to Excel since that's the main format
   // File input listeners
   document.getElementById('cas-file-input').onchange = e => {
     const f = e.target.files[0];
@@ -9225,15 +9276,18 @@ async function parseExcelFile(file) {
     hdr.forEach((h, i) => { ci[String(h).trim().toLowerCase()] = i; });
 
     const C = {
-      name:   ci['particulars']          ?? 0,
-      nature: ci['nature']               ?? 2,
-      cat:    ci['category']             ?? 3,
-      units:  ci['units']                ?? 4,
-      cost:   ci['cost']                 ?? 5,
-      mkt:    ci['mkt value']            ?? 7,
-      nav:    ci['nav']                  ?? 8,
-      unrgl:  ci['unrealized g/l']       ?? 9,
-      realgl: ci['realized gain/loss']   ?? 11,
+      name:    ci['particulars']          ?? 0,
+      client:  ci['client name']          ?? 1,
+      nature:  ci['nature']               ?? 2,
+      // CtgyName (wealth mgr format) or Category (generic)
+      cat:     ci['ctgyname'] ?? ci['category'] ?? 3,
+      units:   ci['units']                ?? 4,
+      cost:    ci['cost']                 ?? 5,
+      mkt:     ci['mkt value']            ?? 7,
+      nav:     ci['nav']                  ?? 8,
+      unrgl:   ci['unrealized g/l']       ?? 9,
+      realgl:  ci['realized gain/loss']   ?? 11,
+      xirr:    ci['xirr %']               ?? 14,
     };
 
     const ASSET = {
@@ -9279,6 +9333,7 @@ async function parseExcelFile(file) {
         if (toNum(row[C.nav]) > 0) fundMap[key].nav = toNum(row[C.nav]);
       } else {
         const nature = String(row[C.nature] ?? '').trim().toLowerCase();
+        const xirr   = C.xirr !== undefined ? toNum(row[C.xirr]) : 0;
         fundMap[key] = {
           name:       key,
           value:      mkt,
@@ -9287,10 +9342,12 @@ async function parseExcelFile(file) {
           nav:        toNum(row[C.nav]),
           unrGL:      toNum(row[C.unrgl]),
           realGL:     toNum(row[C.realgl]),
-          assetClass: ASSET[nature] || 'Other',
+          xirr:       xirr,
+          assetClass: ASSET[nature] || (nature === 'equity' ? 'Equity' : nature === 'hybrid' ? 'Hybrid' : nature === 'debt' ? 'Debt' : 'Other'),
           category:   String(row[C.cat] ?? '').trim(),
           pct:        0,
           matched:    null,
+          isWealthMgr: true,
         };
       }
     }
@@ -9659,10 +9716,86 @@ async function _fetchServerHoldingsForPortfolio(port) {
 
 // ── Confirm & create portfolio ─────────────────────────────────────
 function confirmImport() {
+  if (!importParsedFunds.length) { showToast('No fund data to import'); return; }
+
+  // ── Pathway 2: Overwrite existing portfolio ──
+  const isUpdate = document.getElementById('imp-mode-update')?.checked;
+  if (isUpdate) {
+    const portId = document.getElementById('imp-update-portid')?.value;
+    const port   = portfolios.find(p => p.id === portId);
+    if (!port) { showToast('Select a portfolio to update'); return; }
+
+    // Build merged holdings from parsed funds (same logic as create)
+    const cleanFundName = n => n
+      .replace(/\s*\(G\)\s*$/i,'').replace(/\s*\(D\)\s*$/i,'')
+      .replace(/\s*\(IDCW\)\s*$/i,'')
+      .replace(/\s*[-–]\s*(Direct|Regular)\s*Plan.*$/i,'')
+      .replace(/\s*[-–]\s*(Growth|IDCW|Dividend)\s*$/i,'').trim();
+
+    const allocations    = {};
+    const holdingsDetail = {};
+
+    importParsedFunds.forEach(f => {
+      const fundName = cleanFundName(f.name);
+      if (f.pct > 0 || f.value > 0) {
+        if (allocations[fundName] != null) {
+          const ex = holdingsDetail[fundName];
+          ex.val    = (ex.val   ||0) + (f.value||0);
+          ex.units  = (ex.units ||0) + (f.units||0);
+          ex.cost   = (ex.cost  ||0) + (f.cost ||0);
+          ex.unrGL  = (ex.unrGL ||0) + (f.unrGL||0);
+          ex.realGL = (ex.realGL||0) + (f.realGL||0);
+        } else {
+          allocations[fundName]    = 0;
+          holdingsDetail[fundName] = {
+            val: f.value||0, units: f.units||0, cost: f.cost||0,
+            nav: f.nav||0, unrGL: f.unrGL||0, realGL: f.realGL||0,
+            assetClass: f.assetClass||null, category: f.category||null,
+          };
+        }
+        if (f.nav > 0) {
+          window._navData = window._navData || {};
+          window._navData[fundName] = { nav: f.nav, date: 'from import', schemeCode: null, schemeName: fundName };
+        }
+      }
+    });
+
+    const mergedTotal = Object.values(holdingsDetail).reduce((s,h) => s+(h.val||0), 0);
+    Object.keys(holdingsDetail).forEach(fn => {
+      allocations[fn] = mergedTotal > 0 ? parseFloat((holdingsDetail[fn].val / mergedTotal * 100).toFixed(4)) : 0;
+    });
+
+    // Overwrite in place, preserve name/client/snapshots/alerts/id
+    port.allocations    = allocations;
+    port.holdingsDetail = holdingsDetail;
+    port.importedFrom   = importTab;
+    port.importedAt     = new Date().toISOString();
+
+    savePortfolios();
+    closeImportModal();
+    setActivePortfolio(port.id);
+    allocRows = Object.entries(allocations).map(([fname, pct]) => ({
+      key: sid(fname), fundName: fname, amcName: '', pct, isUploaded: false
+    }));
+    renderPortfolioGrid();
+    showToast(`"${port.name}" updated — ${Object.keys(allocations).length} funds`);
+
+    const hasAnyMatch = importParsedFunds.some(f => f.matched);
+    if (hasAnyMatch && getMfApiUrl()) {
+      showPage('summary');
+      _fetchServerHoldingsForPortfolio(port).then(() => runAnalysis());
+    } else {
+      runAnalysis();
+      showPage('summary');
+    }
+    return;
+  }
+
+  // ── Pathway 1: Create new portfolio ──
   const name   = document.getElementById('imp-name').value.trim();
   const clientSelect = document.getElementById('imp-client');
   let clientId = clientSelect.value;
- let clientName = (clientSelect.options[clientSelect.selectedIndex] && clientSelect.options[clientSelect.selectedIndex].text) || '';
+  let clientName = (clientSelect.options[clientSelect.selectedIndex] && clientSelect.options[clientSelect.selectedIndex].text) || '';
   const client = clientName || clientId || '';
 
   // Handle new client
@@ -9672,7 +9805,6 @@ function confirmImport() {
     clientId = 'client_' + Date.now();
   }
   if (!name) { showToast('Please enter a portfolio name'); return; }
-  if (!importParsedFunds.length) { showToast('No fund data to import'); return; }
 
  const id = 'p' + (++portCtr);
   const allocations   = {};
