@@ -178,36 +178,37 @@ window._fbSaveCloud = async () => {
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
 :root {
-  /* Backgrounds — cooler, near-white fintech canvas */
-  --bg:    #F5F6F8;
-  --s1:    #FFFFFF;
-  --s2:    #F8F9FB;
-  --s3:    #EFF1F5;
-  --s4:    #E3E6EC;
-  --s5:    #D5DAE4;
+  /* ── Muted blue-slate canvas — premium, not off-white, not dark ── */
+  --bg:    #EEF1F7;   /* Cool blue-grey page ground */
+  --s1:    #FFFFFF;   /* Card / panel surface */
+  --s2:    #F4F6FB;   /* Subtle raised surface */
+  --s3:    #E8ECF5;   /* Selected / hover state */
+  --s4:    #DCE2EF;   /* Border-adjacent fill */
+  --s5:    #CDD5E6;   /* Strongest surface accent */
 
-  /* Borders — tighter, crisper than before */
-  --border:  rgba(15,23,42,.07);
-  --border2: rgba(15,23,42,.13);
-  --border3: rgba(15,23,42,.20);
+  /* Borders */
+  --border:  rgba(30,50,100,.08);
+  --border2: rgba(30,50,100,.14);
+  --border3: rgba(30,50,100,.22);
 
-  /* Text — cool near-black, not warm grey */
+  /* Text */
   --text:    #0F172A;
   --text2:   #334155;
   --muted:   #94A3B8;
   --muted2:  #64748B;
 
   /* Brand & semantic */
-  --accent:     #1746C8;          /* deeper, cooler primary blue */
-  --accent-dim: rgba(23,70,200,.07);
+  --accent:     #1746C8;
+  --accent-dim: rgba(23,70,200,.08);
   --blue:   #1746C8;
   --green:  #0F9858;
   --red:    #D92D20;
   --orange: #D85C1A;
   --purple: #6D28D9;
   --teal:   #0E8F84;
+  --gold:   #C9A82C;
 
-  /* Asset colors — calibrated to new primary */
+  /* Asset colors */
   --lc: #1746C8;
   --mc: #C28010;
   --sc: #D92D20;
@@ -218,7 +219,7 @@ window._fbSaveCloud = async () => {
   --dc-mkt:  #D85C1A;
   --dc-cash: #94A3B8;
 
-  /* Radii — sharper than before, fintech not consumer app */
+  /* Radii */
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 8px;
@@ -227,7 +228,7 @@ window._fbSaveCloud = async () => {
   --sb: 64px;
   --sb-expanded: 232px;
 
-  /* Vantage module colors */
+  /* Module accent colors */
   --mod-analyser: #1746C8;
   --mod-builder:  #C28010;
   --mod-fluid:    #B8860B;
@@ -235,7 +236,7 @@ window._fbSaveCloud = async () => {
   --mod-alerts:   #D92D20;
   --mod-clients:  #6D28D9;
 
-  --ink: #0A0F1E;   /* deeper navy-black sidebar */
+  --ink: #0A0F1E;   /* sidebar stays deep navy */
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
