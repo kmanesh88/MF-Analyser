@@ -139,7 +139,7 @@ window._fbSaveCloud = async () => {
             debtItems:    localFund?.debtItems    || f.debtItems    || [],
           };
         });
-        return { id:a.id, name:a.name, status:a.status, funds:mergedFunds };
+        return { id:a.id, name:a.name, status:a.status, uploadedAt:a.uploadedAt||null, funds:mergedFunds };
       });
       loaded = true;
     }
@@ -3898,6 +3898,7 @@ function saveToStorage() {
         id: a.id,
         name: a.name,
         status: a.status === 'loaded' ? 'loaded' : 'empty',
+        uploadedAt: a.uploadedAt || null,
         funds: Object.fromEntries(
           Object.entries(a.funds).map(([fname, f]) => [fname, {
             large: f.large, mid: f.mid, small: f.small, eqOther: f.eqOther,
@@ -4016,11 +4017,23 @@ function refreshUploadPage() {
   listEl.innerHTML = loaded.map(a => {
     const n = Object.keys(a.funds).length;
     const isActive = window._selectedAmcId === a.id;
+
+    // Staleness indicator
+    let staleHtml = '';
+    if (a.uploadedAt) {
+      const days = Math.floor((Date.now() - new Date(a.uploadedAt)) / 86400000);
+      const mo   = Math.floor(days / 30);
+      const age  = mo >= 1 ? `${mo}mo` : `${days}d`;
+      const isStale = days > 45; // factsheets older than ~1.5 months
+      staleHtml = `<span style="font-size:.55rem;color:${isStale ? 'var(--orange)' : 'var(--muted2)'}" title="${new Date(a.uploadedAt).toLocaleDateString('en-IN')}">${isStale ? '⚠ ' : ''}${age}</span>`;
+    }
+
     return `<div style="display:flex;align-items:center;gap:.5rem;padding:.5rem .6rem;border-radius:var(--r-sm);margin-bottom:.3rem;background:${isActive ? 'var(--s3)' : 'transparent'};cursor:pointer"
       onclick="selectLoadedAmc('${a.id}')">
       <span style="width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0"></span>
       <span style="flex:1;font-size:.75rem;font-weight:${isActive?'600':'400'};color:var(--text)">${a.name}</span>
       <span style="font-size:.62rem;color:var(--muted)">${n}f</span>
+      ${staleHtml}
       <button onclick="event.stopPropagation();doRemoveAMC('${a.id}')"
         style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;padding:0 2px;line-height:1"
         title="Remove">✕</button>
@@ -5251,6 +5264,7 @@ function doSavePortfolioExcel() {
   });
 
   amc.status = 'loaded';
+  amc.uploadedAt = new Date().toISOString();
   showUploadResult(amc);
   refreshUploadPage();
   updateNextBtn();
@@ -5644,7 +5658,7 @@ async function handlePDF(evt, amcId) {
       }
       throw new Error('No fund portfolios detected — expand above to see raw text');
     }
-    amc.funds = funds; amc.status = 'loaded';
+    amc.funds = funds; amc.status = 'loaded'; amc.uploadedAt = new Date().toISOString();
     showUploadResult(amc);
     refreshUploadPage();
     renderNav(); updateNextBtn();
