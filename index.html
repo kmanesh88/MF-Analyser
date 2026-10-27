@@ -1040,6 +1040,7 @@ body {
 }
 .pc-btn:hover { color: var(--text); border-color: var(--border3); background: var(--s4); }
 .pc-btn.del:hover { color: var(--red); border-color: rgba(217,45,32,.3); background: rgba(217,45,32,.06); }
+.pc-btn.edit:hover { color: var(--accent); border-color: rgba(23,70,200,.25); background: var(--accent-dim); }
 
 /* ═══════════════════════════════════════════════
    ALERTS PAGE
@@ -2990,10 +2991,30 @@ function resetThresholds() {
 }
 
 function createPortfolio() {
+  // Populate family select with existing families
+  const sel = document.getElementById('np-family-select');
+  const families = getDistinctFamilies();
+  sel.innerHTML = '<option value="">-- Select existing family --</option>'
+    + families.map(f => `<option value="${escHtml(f)}">${escHtml(f)}</option>`).join('')
+    + '<option value="__new__">+ Create new family</option>';
+  sel.value = '';
+  document.getElementById('np-family-name').style.display = 'none';
+  document.getElementById('np-family-name').value = '';
+  document.getElementById('np-member').value = '';
   document.getElementById('np-name').value = '';
-  document.getElementById('np-client').value = '';
   document.getElementById('new-portfolio-modal').style.display = 'flex';
-  setTimeout(() => document.getElementById('np-name').focus(), 50);
+  setTimeout(() => sel.focus(), 50);
+}
+
+function npFamilySelectChange() {
+  const sel = document.getElementById('np-family-select');
+  const nameInput = document.getElementById('np-family-name');
+  if (sel.value === '__new__') {
+    nameInput.style.display = 'block';
+    nameInput.focus();
+  } else {
+    nameInput.style.display = 'none';
+  }
 }
 
 function closeNewPortfolioModal() {
@@ -3001,8 +3022,13 @@ function closeNewPortfolioModal() {
 }
 
 function confirmNewPortfolio() {
+  const sel    = document.getElementById('np-family-select');
+  const familyName = sel.value === '__new__'
+    ? document.getElementById('np-family-name').value.trim()
+    : sel.value.trim();
+  const member = document.getElementById('np-member').value.trim();
   const name   = document.getElementById('np-name').value.trim();
-  const client = document.getElementById('np-client').value.trim();
+
   if (!name) {
     document.getElementById('np-name').style.borderColor = 'var(--red)';
     document.getElementById('np-name').focus();
@@ -3010,13 +3036,79 @@ function confirmNewPortfolio() {
   }
   closeNewPortfolioModal();
   const id = 'p'+(++portCtr);
-  portfolios.push({id, name, client, createdAt:new Date().toISOString(), allocations:{}, snapshots:[], alerts:[]});
+  // familyId groups portfolios together; familyName is display label; memberLabel is the individual
+  const familyId = familyName ? familyName.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '-fam' : null;
+  portfolios.push({
+    id, name,
+    client: familyName || '',   // keep client for legacy display
+    familyId,
+    familyName: familyName || '',
+    memberLabel: member || '',
+    createdAt: new Date().toISOString(),
+    allocations:{}, snapshots:[], alerts:[]
+  });
   savePortfolios(); setActivePortfolio(id); renderPortfolioGrid(); showPage('alloc');
+}
+
+// ── Edit Portfolio ──
+function openEditPortfolioModal(id) {
+  const p = portfolios.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('ep-id').value     = id;
+  document.getElementById('ep-family').value = p.familyName || p.client || '';
+  document.getElementById('ep-member').value = p.memberLabel || '';
+  document.getElementById('ep-name').value   = p.name || '';
+  document.getElementById('edit-portfolio-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('ep-family').focus(), 50);
+}
+
+function closeEditPortfolioModal() {
+  document.getElementById('edit-portfolio-modal').style.display = 'none';
+}
+
+function confirmEditPortfolio() {
+  const id         = document.getElementById('ep-id').value;
+  const familyName = document.getElementById('ep-family').value.trim();
+  const member     = document.getElementById('ep-member').value.trim();
+  const name       = document.getElementById('ep-name').value.trim();
+  if (!name) {
+    document.getElementById('ep-name').style.borderColor = 'var(--red)';
+    document.getElementById('ep-name').focus();
+    return;
+  }
+  const p = portfolios.find(x => x.id === id);
+  if (!p) return;
+  const familyId = familyName ? familyName.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '-fam' : null;
+  p.name        = name;
+  p.familyName  = familyName;
+  p.familyId    = familyId;
+  p.memberLabel = member;
+  p.client      = familyName;   // keep legacy field in sync
+  closeEditPortfolioModal();
+  savePortfolios();
+  renderPortfolioGrid();
+  refreshActivePortfolioUI();
+  showToast('Portfolio updated');
+}
+
+// Returns distinct family names from current portfolios
+function getDistinctFamilies() {
+  const seen = new Set();
+  portfolios.forEach(p => {
+    const fn = p.familyName || p.client || '';
+    if (fn) seen.add(fn);
+  });
+  return [...seen].sort();
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // Close on backdrop click
 document.addEventListener('click', e => {
   if (e.target === document.getElementById('new-portfolio-modal')) closeNewPortfolioModal();
+  if (e.target === document.getElementById('edit-portfolio-modal')) closeEditPortfolioModal();
 });
 
 function setActivePortfolio(id) {
@@ -3101,7 +3193,34 @@ function renderPortfolioGrid() {
     return;
   }
 
-  grid.innerHTML = portfolios.map(p => {
+  // Group portfolios by familyId (or solo if none)
+  const groups = []; // [{familyId, familyName, portfolios:[]}]
+  const familyMap = {};
+  portfolios.forEach(p => {
+    const fid = p.familyId || ('__solo__' + p.id);
+    if (!familyMap[fid]) {
+      familyMap[fid] = { familyId: fid, familyName: p.familyName || p.client || '', portfolios: [] };
+      groups.push(familyMap[fid]);
+    }
+    familyMap[fid].portfolios.push(p);
+  });
+
+  // Build HTML: family header + member cards, grouped
+  let html = '';
+  groups.forEach(grp => {
+    const isSolo = grp.familyId.startsWith('__solo__');
+    const members = grp.portfolios;
+
+    // Family header (only when there's an actual family group)
+    if (!isSolo && grp.familyName) {
+      html += `<div style="grid-column:1/-1;display:flex;align-items:center;gap:.75rem;margin-top:.5rem;margin-bottom:-.25rem">
+        <div style="font-family:'DM Sans','Inter',sans-serif;font-size:.85rem;font-weight:700;color:var(--text)">${escHtml(grp.familyName)}</div>
+        <div style="flex:1;height:1px;background:var(--border2)"></div>
+        <div style="font-size:.65rem;color:var(--muted)">${members.length} member${members.length!==1?'s':''}</div>
+      </div>`;
+    }
+
+    members.forEach(p => {
     const goodSnap = [...(p.snapshots||[])].reverse()
       .find(s => (s.summary.large||0)+(s.summary.mid||0)+(s.summary.small||0)+(s.summary.debtTotal||0)+(s.summary.equityPct||0) > 0);
     const snap = goodSnap?.summary || null;
@@ -3192,14 +3311,26 @@ function renderPortfolioGrid() {
     ].slice(0,2).join('');
     const extraAlerts = br.length + wa.length - 2;
 
-    return `<div class="portfolio-card ${rag} ${isAct?'active-portfolio':''}" onclick="selectPortfolioFromGrid('${p.id}')">
+    // Member label chip (shown when portfolio belongs to a family)
+    const memberChip = p.memberLabel
+      ? `<div style="display:inline-block;font-size:.6rem;font-weight:600;padding:2px 8px;border-radius:20px;background:var(--accent-dim);color:var(--accent);margin-bottom:.45rem">${escHtml(p.memberLabel)}</div>`
+      : '';
+
+    // Solo card: show family/client name below portfolio name
+    const clientLine = (isSolo && (p.familyName || p.client))
+      ? `<div class="pc-client">${escHtml(p.familyName||p.client)} · ${fundCount} fund${fundCount!==1?'s':''}</div>`
+      : `<div class="pc-client">${fundCount} fund${fundCount!==1?'s':''}</div>`;
+
+    html += `<div class="portfolio-card ${rag} ${isAct?'active-portfolio':''}" onclick="selectPortfolioFromGrid('${p.id}')">
       <div class="pc-actions">
         ${isAct ? '<span style="font-size:.58rem;padding:2px 7px;border-radius:4px;background:var(--accent-dim);color:var(--accent);font-weight:600">Active</span>' : ''}
+        <button class="pc-btn edit" onclick="event.stopPropagation();openEditPortfolioModal('${p.id}')" title="Edit">✎</button>
         <button class="pc-btn" onclick="event.stopPropagation();duplicatePortfolio('${p.id}')" title="Duplicate">⧉</button>
         <button class="pc-btn del" onclick="event.stopPropagation();deletePortfolio('${p.id}')" title="Delete">✕</button>
       </div>
-      <div class="pc-name">${p.name}</div>
-      <div class="pc-client">${p.client||'—'} · ${fundCount} fund${fundCount!==1?'s':''}</div>
+      ${memberChip}
+      <div class="pc-name">${escHtml(p.name)}</div>
+      ${clientLine}
       ${assetHtml}
       <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
         <div style="display:flex;flex-wrap:wrap;gap:.3rem;flex:1;cursor:pointer" onclick="event.stopPropagation();setActivePortfolio('${p.id}');showPage('alerts')">
@@ -3216,7 +3347,10 @@ function renderPortfolioGrid() {
       </div>
       <div class="pc-date" style="margin-top:.45rem">Created ${date}${lastSnap?' · Analysed '+lastSnap:''}</div>
     </div>`;
-  }).join('');
+    }); // end members.forEach
+  }); // end groups.forEach
+
+  grid.innerHTML = html;
 }
 
 function selectPortfolioFromGrid(id) {
@@ -9967,8 +10101,15 @@ function confirmImport() {
     allocations[fundName] = mergedTotal > 0 ? parseFloat((val / mergedTotal * 100).toFixed(4)) : 0;
   });
 
+  // Derive family fields from the client name (import sets familyName = client name; member label can be edited later)
+  const _familyName = clientId === '__new__' ? document.getElementById('imp-client-new').value.trim() : (clientName !== '-- Select Client --' ? clientName : '');
+  const _familyId = _familyName ? _familyName.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '-fam' : null;
+
   const port = {
     id, name, client,
+    familyName: _familyName || client || '',
+    familyId: _familyId,
+    memberLabel: '',
     createdAt: new Date().toISOString(),
     allocations,
     holdingsDetail,
