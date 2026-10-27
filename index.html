@@ -1602,26 +1602,83 @@ body {
 
 <!-- ── New Portfolio Modal ── -->
 <div id="new-portfolio-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;align-items:center;justify-content:center">
-  <div style="background:var(--s1);border:1px solid var(--border2);border-radius:var(--r-lg);padding:2rem;width:420px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+  <div style="background:var(--s1);border:1px solid var(--border2);border-radius:var(--r-lg);padding:2rem;width:460px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.2)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
       <div style="font-family:'DM Sans','Inter',sans-serif;font-size:1.15rem;font-weight:600;color:var(--text)">New Portfolio</div>
       <button onclick="closeNewPortfolioModal()" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--muted)">✕</button>
     </div>
+
+    <!-- Family / Client Group -->
     <div style="margin-bottom:1rem">
-      <label style="font-size:.72rem;color:var(--text2);font-weight:500;display:block;margin-bottom:.4rem">Portfolio Name *</label>
-      <input id="np-name" type="text" placeholder='e.g. "Manesh - Growth"'
-        onkeydown="if(event.key==='Enter')document.getElementById('np-client').focus()"
+      <label style="font-size:.72rem;color:var(--text2);font-weight:600;display:block;margin-bottom:.4rem">Family / Client Group *</label>
+      <div style="font-size:.67rem;color:var(--muted);margin-bottom:.4rem">This is the top-level name — e.g. father's name or family surname</div>
+      <select id="np-family-select" onchange="npFamilySelectChange()"
+        style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.55rem .75rem;font-size:.82rem;color:var(--text);outline:none;margin-bottom:.4rem">
+        <option value="">-- Select existing family --</option>
+        <option value="__new__">+ Create new family</option>
+      </select>
+      <input id="np-family-name" type="text" placeholder='e.g. "Manesh Family" or father\'s name'
+        style="display:none;width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.55rem .75rem;font-size:.82rem;color:var(--text);outline:none;box-sizing:border-box">
+    </div>
+
+    <!-- Member label -->
+    <div style="margin-bottom:1rem">
+      <label style="font-size:.72rem;color:var(--text2);font-weight:500;display:block;margin-bottom:.4rem">Member Label <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <div style="font-size:.67rem;color:var(--muted);margin-bottom:.4rem">The family member this portfolio belongs to — e.g. Father, Mother, Arjun</div>
+      <input id="np-member" type="text" placeholder='e.g. Father / Mother / Arjun'
+        onkeydown="if(event.key==='Enter')document.getElementById('np-name').focus()"
         style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.55rem .75rem;font-size:.82rem;color:var(--text);outline:none">
     </div>
+
+    <!-- Portfolio Name -->
     <div style="margin-bottom:1.5rem">
-      <label style="font-size:.72rem;color:var(--text2);font-weight:500;display:block;margin-bottom:.4rem">Client Name <span style="color:var(--muted);font-weight:400">(optional)</span></label>
-      <input id="np-client" type="text" placeholder="Client's full name"
+      <label style="font-size:.72rem;color:var(--text2);font-weight:500;display:block;margin-bottom:.4rem">Portfolio Name *</label>
+      <div style="font-size:.67rem;color:var(--muted);margin-bottom:.4rem">A label for this specific portfolio — e.g. Growth, Conservative</div>
+      <input id="np-name" type="text" placeholder='e.g. "Growth" or "Equity Heavy"'
         onkeydown="if(event.key==='Enter')confirmNewPortfolio()"
         style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.55rem .75rem;font-size:.82rem;color:var(--text);outline:none">
     </div>
+
     <div style="display:flex;gap:.65rem">
       <button class="btn pri" onclick="confirmNewPortfolio()" style="flex:1">Create Portfolio →</button>
       <button class="btn" onclick="closeNewPortfolioModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit Portfolio Modal ── -->
+<div id="edit-portfolio-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;align-items:center;justify-content:center">
+  <div style="background:var(--s1);border:1px solid var(--border2);border-radius:var(--r-lg);padding:2rem;width:460px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.35rem">
+      <div style="font-family:'DM Sans','Inter',sans-serif;font-size:1.15rem;font-weight:600;color:var(--text)">Edit Portfolio</div>
+      <button onclick="closeEditPortfolioModal()" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div style="font-size:.67rem;color:var(--muted);margin-bottom:1.5rem">Rename labels only — fund data and allocations are not changed</div>
+
+    <input type="hidden" id="ep-id">
+
+    <div style="margin-bottom:1rem">
+      <label style="font-size:.72rem;color:var(--text2);font-weight:600;display:block;margin-bottom:.4rem">Family / Client Group</label>
+      <input id="ep-family" type="text" placeholder='e.g. "Manesh Family"'
+        style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.55rem .75rem;font-size:.82rem;color:var(--text);outline:none">
+    </div>
+
+    <div style="margin-bottom:1rem">
+      <label style="font-size:.72rem;color:var(--text2);font-weight:500;display:block;margin-bottom:.4rem">Member Label</label>
+      <input id="ep-member" type="text" placeholder='e.g. Father / Mother / Arjun'
+        style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.55rem .75rem;font-size:.82rem;color:var(--text);outline:none">
+    </div>
+
+    <div style="margin-bottom:1.5rem">
+      <label style="font-size:.72rem;color:var(--text2);font-weight:500;display:block;margin-bottom:.4rem">Portfolio Name *</label>
+      <input id="ep-name" type="text" placeholder='Portfolio name'
+        onkeydown="if(event.key==='Enter')confirmEditPortfolio()"
+        style="width:100%;background:var(--s2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:.55rem .75rem;font-size:.82rem;color:var(--text);outline:none">
+    </div>
+
+    <div style="display:flex;gap:.65rem">
+      <button class="btn pri" onclick="confirmEditPortfolio()" style="flex:1">Save Changes</button>
+      <button class="btn" onclick="closeEditPortfolioModal()">Cancel</button>
     </div>
   </div>
 </div>
