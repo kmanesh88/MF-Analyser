@@ -5464,8 +5464,12 @@ function doSavePortfolioExcel() {
   // Each result sheet = one fund in the AMC
   _xlsParsedFunds.forEach(result => {
     const fname = result.fundName || `${amc.name} Fund`;
-    const DEBT_SECTOR = /crisil|care|icra|fitch|ind-ra|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
-    const isDebtHolding = h => DEBT_SECTOR.test(h.sector || '') || /^\d+\.?\d*%/.test(h.name);
+    const DEBT_SECTOR = /crisil|care|icra|fitch|ind[\s\-]*ra|ind[\s\-]*a1|a1\+|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
+    const isDebtHolding = h =>
+      DEBT_SECTOR.test(h.sector || '') ||
+      /^\d+\.?\d*%/.test(h.name) ||        // "7.64% GOI..." style names
+      /^IN[09F]/.test(h.isin || '') ||      // IN0/IN9 = debt ISINs; INF = MF units (treat as non-equity)
+      /mutual fund|debt market development fund|\bfof\b|fund of fund/i.test(h.name);
 
     const equityStocks = result.holdings
       .filter(h => !isDebtHolding(h) && !/mutual fund|mf -|\betf\b|\bfof\b|fund of fund/i.test(h.name))
