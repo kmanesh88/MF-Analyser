@@ -7981,9 +7981,11 @@ async function runAnalysis() {
     ...(commodityWt>0?[{v:commodityWt,c:'sg-comm',label:'🏅'}]:[])
   ]);
 
-  const noFactsheet = items.filter(f => !f.commodityType && f.large===0 && f.mid===0 && f.small===0 && !f.equityStocks?.length);
+  // A fund "has factsheet data" if it has any equity OR debt holdings (pure debt funds have debtItems but no equityStocks)
+  const hasAnyData = f => !f.commodityType && (f.large>0 || f.mid>0 || f.small>0 || (f.equityStocks?.length>0) || (f.debtItems?.length>0) || f.debtTotal>0);
+  const noFactsheet = items.filter(f => !f.commodityType && !hasAnyData(f));
   document.getElementById('eq-tbody').innerHTML = items.map(f=>{
-    const missing = !f.commodityType && f.large===0 && f.mid===0 && f.small===0 && !f.equityStocks?.length;
+    const missing = !f.commodityType && !hasAnyData(f);
     return `<tr${f.commodityType?' style="opacity:.6"':''}${missing?' style="background:rgba(var(--orange-rgb,200,100,0),.04)"':''}>
     <td>${f.name}${f.commodityType?` <span style="font-size:.58rem;background:var(--s3);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;color:var(--muted);margin-left:.3rem">🏅 ${f.commodityType}</span>`:''}
       ${missing?`<span style="font-size:.55rem;color:var(--orange);margin-left:.4rem">⚠ no factsheet</span>`:`<span class="chip">${f.equityStocks?.length||0}</span>`}</td>
@@ -8065,7 +8067,9 @@ async function runAnalysis() {
   renderPortfolioGrid();
 
   showPage('summary');
-  switchView('equity');
+  // If portfolio is pure debt (no equity in any fund), open debt tab automatically
+  const hasAnyEquity = fundItems.some(f => f.large>0 || f.mid>0 || f.small>0 || (f.equityStocks?.length>0));
+  switchView(hasAnyEquity ? 'equity' : 'debt');
 }
 
 function metric(val, lbl, color) {
