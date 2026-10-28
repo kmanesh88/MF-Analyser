@@ -3378,7 +3378,19 @@ function loadPortfolio(id) {
   }
 
   // Has allocations — go straight to summary (shows holdings banner + analysis if factsheet data exists)
-  const hasFactsheet = allFunds().some(f => (port.allocations||{})[f.name] > 0);
+  // Use the same normFundName fuzzy match as runAnalysis() so "&" vs "And", "(G)" suffixes etc. don't block the gate
+  const _normHF = n => n.toLowerCase()
+    .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$|\s*\(idcw\)\s*$/i, '')
+    .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
+    .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
+    .replace(/\s*&\s*/g, ' and ')
+    .replace(/\s+/g, ' ').trim();
+  const _allocKeys = Object.keys(port.allocations||{}).filter(k=>(port.allocations[k]||0)>0).map(_normHF);
+  const hasFactsheet = allFunds().some(f => {
+    const wt = (port.allocations||{})[f.name];
+    if (wt > 0) return true; // exact match
+    return _allocKeys.includes(_normHF(f.name)); // fuzzy match
+  });
   if (hasFactsheet) {
     runAnalysis(); // builds full analysis then shows summary
   } else {
@@ -6200,9 +6212,13 @@ function extractHoldings(lines, start) {
       const pctMatch = after.match(/(\d{1,2}\.\d{2})/);
       if (!pctMatch) return;
       const pct = parseFloat(pctMatch[1]);
-      if (pct <= 0 || pct > 35 || name.length < 3) return;
+      if (pct <= 0 || name.length < 3) return;
 
       const isDebt = /^IN[09]/.test(ip.isin);
+      // Equity: 35% cap (no single stock should exceed this in a diversified fund)
+      // Debt: 70% cap (concentrated debt funds can have single issuer 35–60%+ of NAV)
+      if (!isDebt && pct > 35) return;
+      if (pct > 70) return;
       if (isDebt) {
         const dcat = classifyDebt(name + ' ' + after.slice(0, 40));
         const key = name.toLowerCase().replace(/\s+/g,'');
@@ -6218,7 +6234,9 @@ function extractHoldings(lines, start) {
       }
     });
 
-    if (equityStocks.length + debtItems.length >= 3) return { equityStocks, debtItems };
+    // For pure debt funds, even 1–2 items are valid (Banking & PSU, Credit Risk funds can have few large positions)
+    const minItems = debtItems.length > 0 && equityStocks.length === 0 ? 1 : 3;
+    if (equityStocks.length + debtItems.length >= minItems) return { equityStocks, debtItems };
     equityStocks.length = 0; debtItems.length = 0; seenEq.clear(); seenDt.clear();
   }
 
@@ -6252,7 +6270,7 @@ function extractHoldings(lines, start) {
     if (bondMatch) {
       const bondName=bondMatch[1].trim(), bondPct=parseFloat(bondMatch[3]);
       const dcat=classifyDebt(bondName+' '+bondMatch[2]);
-      if (dcat&&bondPct>0&&bondPct<=35) { const key=bondName.toLowerCase().replace(/\s+/g,''); if(!seenDt.has(key)){seenDt.add(key);debtItems.push({name:bondName,pct:bondPct,cat:dcat});} }
+      if (dcat&&bondPct>0&&bondPct<=70) { const key=bondName.toLowerCase().replace(/\s+/g,''); if(!seenDt.has(key)){seenDt.add(key);debtItems.push({name:bondName,pct:bondPct,cat:dcat});} }
       continue;
     }
 
@@ -6261,7 +6279,10 @@ function extractHoldings(lines, start) {
     if (!name) { const m1=line.match(/^(.{4,70}?)\s{1,6}(\d{1,2}\.\d{1,2})\s*%?\s*$/); if(m1){name=m1[1].trim().replace(sectorRx,'').replace(/\s{2,}/g,' ').trim();pct=parseFloat(m1[2]);} }
     if (!name) { const m2=line.match(/^(.{4,60}?)\s{2,}(?:[A-Z][a-z]+(?:\s*[-&\/]\s*[A-Z][a-z]+)*\s+)?(\d{1,2}\.\d{1,2})\s*%?\s*$/); if(m2){name=m2[1].replace(sectorRx,'').trim();pct=parseFloat(m2[2]);} }
 
-    if (!name||pct<=0||pct>35||name.length<3) continue;
+    // Classify first so we can apply the right cap (debt: up to 70%, equity: up to 35%)
+    const _preDebtCat = classifyDebt(name);
+    const _pctCap = _preDebtCat ? 70 : 35;
+    if (!name||pct<=0||pct>_pctCap||name.length<3) continue;
     if (skipWords.test(name)||perfBreak.test(name)) continue;
     if (/^\d/.test(name)) continue;
     if (sectorRx.test(name+' x')) continue;
@@ -7883,6 +7904,7 @@ async function runAnalysis() {
     .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$|\s*\(idcw\)\s*$/i, '')
     .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
     .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
+    .replace(/\s*&\s*/g, ' and ')
     .replace(/\s+/g, ' ').trim();
 
   allFunds().forEach(({name, amc, data}) => {
