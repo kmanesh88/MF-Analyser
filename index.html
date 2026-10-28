@@ -4915,8 +4915,13 @@ async function parseWorkbook(wb, filename, results) {
           if (/^back to (index|table)/i.test(vlo) && vals[i+1] && vals[i+1].length > 8
               && /fund|etf|scheme/i.test(vals[i+1])) { fundName = vals[i+1]; break; }
           if (i < 3 && v.length > 8 && /fund/i.test(v)
-              && !/mutual fund/i.test(v) && !/asset management/i.test(v) && !fundName)
-            fundName = v;
+              && !/mutual fund/i.test(v) && !/asset management/i.test(v) && !fundName) {
+            // Strip long parenthetical AMC descriptions: "HDFC Banking and PSU Debt Fund (An open ended...)"
+            // Keep short parentheticals like "Kotak Flexi Cap Fund (G)"
+            let cleanName = v.replace(/\s*\([^)]{30,}\)/g, '').trim(); // strip any (text >30 chars)
+            cleanName = cleanName.replace(/\s*\([^)]*open ended[^)]*\)/gi, '').trim();
+            fundName = cleanName || v;
+          }
         }
       }
 
@@ -5050,7 +5055,14 @@ async function parseWorkbook(wb, filename, results) {
       holdings.push({ name: nameVal, isin: isinVal, sector, pct: Math.round(pct * 10000) / 10000 });
     }
 
-    return { fundName: fundName || filename, holdings, cashPct: Math.round(cashPct * 100) / 100 };
+    // Final fund name cleanup: strip long AMC descriptions in parentheses
+    // e.g. "HDFC Banking and PSU Debt Fund (An open ended debt scheme...)" → short name only
+    let cleanedFundName = (fundName || filename)
+      .replace(/\s*\([^)]{30,}\)/g, '')  // drop any parenthetical >30 chars
+      .replace(/\s*\([^)]*open ended[^)]*\)/gi, '') // explicitly catch AMFI-style category descriptions
+      .trim();
+    if (!cleanedFundName) cleanedFundName = fundName || filename;
+    return { fundName: cleanedFundName, holdings, cashPct: Math.round(cashPct * 100) / 100 };
   }
 
   // ── FORMAT E: UTI — single sheet, SCHEME CODE markers ────────────────
