@@ -9936,8 +9936,13 @@ async function _fetchServerHoldingsForPortfolio(port) {
       const fname = f.name;
       // Distinguish equity vs debt using server-provided type field,
       // falling back to sector-based detection for older server data
-      const DEBT_SECTOR = /crisil|care|icra|fitch|ind-ra|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
-      const isDebtHolding = h => h.type === 'debt' || (!h.type && (DEBT_SECTOR.test(h.sector || '') || /^\d+\.?\d*%/.test(h.name)));
+      const DEBT_SECTOR = /crisil|care|icra|fitch|ind[\s\-]*ra|ind[\s\-]*a1|a1\+|aaa|aa\+|aa-|\baa\b|sovereign|tbill|t-bill|treps|cblo|repo|gilt|g-sec|sdl|commercial paper|certificate of deposit|fixed deposit|bond|debenture/i;
+      const isDebtHolding = h => h.type === 'debt' || (!h.type && (
+        DEBT_SECTOR.test(h.sector || '') ||
+        /^\d+\.?\d*%/.test(h.name) ||
+        /^IN[09F]/.test(h.isin || '') ||
+        /mutual fund|debt market development fund|\bfof\b|fund of fund/i.test(h.name)
+      ));
 
       const equityStocks = data.holdings
         .filter(h => h.isin && !isDebtHolding(h)
