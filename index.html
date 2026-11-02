@@ -2323,11 +2323,11 @@ body {
       <thead>
         <tr>
           <th style="width:28px">#</th>
-          <th>Stock</th>
-          <th>Sector</th>
-          <th class="r">Cap</th>
+          <th>Holding</th>
+          <th>Sector / Rating</th>
+          <th class="r">Type</th>
           <th class="r">Eff. Weight</th>
-          <th class="r">% of Equity</th>
+          <th class="r">% of Total</th>
           <th>In Funds</th>
         </tr>
       </thead>
@@ -7584,9 +7584,15 @@ function buildSummary() {
   items.forEach(f => {
     (f.equityStocks||[]).forEach(s => {
       const key = normStockKey(s.name);
-      if (!stockMap[key]) stockMap[key] = {name:s.name, sector:'', funds:[], effWt:0};
+      if (!stockMap[key]) stockMap[key] = {name:s.name, sector:'', funds:[], effWt:0, isDebt:false, debtCat:null};
       stockMap[key].effWt += s.pct * f.wt / 100;
       stockMap[key].sector = getSector(s.name, s.sector);
+      stockMap[key].funds.push(f.name);
+    });
+    (f.debtItems||[]).forEach(d => {
+      const key = 'debt:' + normStockKey(d.name);
+      if (!stockMap[key]) stockMap[key] = {name:d.name, sector:'', funds:[], effWt:0, isDebt:true, debtCat:d.cat||'aaa'};
+      stockMap[key].effWt += d.pct * f.wt / 100;
       stockMap[key].funds.push(f.name);
     });
   });
@@ -7595,27 +7601,38 @@ function buildSummary() {
     .sort((a,b)=>b.effWt-a.effWt)
     .slice(0, 10);
 
-  const totalEffEq = Object.values(stockMap).reduce((s,h)=>s+h.effWt, 0);
+  const totalEffWt = Object.values(stockMap).reduce((s,h)=>s+h.effWt, 0);
+
+  const debtCatLabel = {gsec:'G-Sec', sdl:'SDL', aaa:'AAA', aa:'AA', mkt:'Mkt', cash:'Cash'};
+  const debtCatClass = {gsec:'rb-sov', sdl:'rb-sov', aaa:'rb-aaa', aa:'rb-aa', mkt:'rb-mkt', cash:'rb-mkt'};
 
   document.getElementById('sum-top10').innerHTML = top10.map((h,i) => {
-    const { cap } = classifyEquityWithConfidence(h.name);
-    const capTag  = cap==='large'
-      ? `<span class="cap-tag cap-tag-l">L</span>`
-      : cap==='mid'
-      ? `<span class="cap-tag cap-tag-m">M</span>`
-      : `<span class="cap-tag cap-tag-s">S</span>`;
-    const pctOfEq = totalEffEq > 0 ? (h.effWt/totalEffEq*100).toFixed(1) : '—';
+    let typeTag;
+    if (h.isDebt) {
+      const cat = h.debtCat || 'aaa';
+      typeTag = `<span class="cap-tag ${debtCatClass[cat]||'rb-aaa'}" style="font-size:.55rem">${debtCatLabel[cat]||cat}</span>`;
+    } else {
+      const { cap } = classifyEquityWithConfidence(h.name);
+      typeTag = cap==='large'
+        ? `<span class="cap-tag cap-tag-l">L</span>`
+        : cap==='mid'
+        ? `<span class="cap-tag cap-tag-m">M</span>`
+        : `<span class="cap-tag cap-tag-s">S</span>`;
+    }
+    const pctOfTotal = totalEffWt > 0 ? (h.effWt/totalEffWt*100).toFixed(1) : '—';
     const uniqFunds = [...new Set(h.funds)];
     const fundsStr  = uniqFunds.length <= 2
       ? uniqFunds.map(f=>f.split(' ').slice(-2).join(' ')).join(', ')
       : uniqFunds.slice(0,2).map(f=>f.split(' ').slice(-2).join(' ')).join(', ')+` +${uniqFunds.length-2}`;
+    const ratingBadge = h.isDebt ? (getRatingBadge(h.name)||{}) : {};
+    const sectorTxt = h.isDebt ? (ratingBadge.txt || debtCatLabel[h.debtCat] || '') : h.sector;
     return `<tr>
       <td class="c-dim" style="font-size:.6rem">${i+1}</td>
       <td style="font-weight:500">${h.name}</td>
-      <td style="font-size:.6rem;color:var(--muted)">${h.sector}</td>
-      <td class="r">${capTag}</td>
+      <td style="font-size:.6rem;color:var(--muted)">${sectorTxt}</td>
+      <td class="r">${typeTag}</td>
       <td class="r" style="color:var(--accent);font-weight:500">${h.effWt.toFixed(2)}%</td>
-      <td class="r c-dim">${pctOfEq}%</td>
+      <td class="r c-dim">${pctOfTotal}%</td>
       <td style="font-size:.58rem;color:var(--muted2)">${fundsStr}</td>
     </tr>`;
   }).join('');
