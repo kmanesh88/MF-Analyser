@@ -6,6 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vantage — Advisory Workstation</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a2942'/%3E%3Ctext x='16' y='23' font-family='Georgia,serif' font-size='20' font-weight='700' text-anchor='middle' fill='%2360a5fa'%3EV%3C/text%3E%3C/svg%3E">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -9945,9 +9946,9 @@ async function _fetchServerHoldingsForPortfolio(port) {
       ));
 
       const equityStocks = data.holdings
-        .filter(h => h.isin && !isDebtHolding(h)
-               && !/mutual fund|mf -|etf|\bfof\b|fund of fund/i.test(h.name)
-               || (h.cap && h.cap !== null))  // keep if server classified it
+        .filter(h => !isDebtHolding(h)
+               && h.isin
+               && !/mutual fund|mf -|etf|\bfof\b|fund of fund/i.test(h.name))
         .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || ''), cap: h.cap || null }));
       const debtItems = data.holdings
         .filter(h => h.isin && isDebtHolding(h))
