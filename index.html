@@ -5473,7 +5473,11 @@ function doSavePortfolioExcel() {
       /mutual fund|debt market development fund|\bfof\b|fund of fund/i.test(h.name);
 
     const equityStocks = result.holdings
-      .filter(h => !isDebtHolding(h) && !/mutual fund|mf -|\betf\b|\bfof\b|fund of fund/i.test(h.name))
+      .filter(h => {
+        const isDebt = isDebtHolding(h);
+        if (!isDebt) console.warn('[EQUITY?]', JSON.stringify({name:h.name, isin:h.isin, sector:h.sector, pct:h.pct}));
+        return !isDebt && !/mutual fund|mf -|\betf\b|\bfof\b|fund of fund/i.test(h.name);
+      })
       .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || '') }));
     const debtItems = result.holdings
       .filter(h => isDebtHolding(h))
