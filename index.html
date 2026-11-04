@@ -3487,7 +3487,7 @@ function takeSnapshot() {
     const isPureDebt = (f.debtTotal||0) > 0 && !(f.equityStocks?.length);
     const rawEq = f.eqTotal != null ? f.eqTotal
                 : (f.large||0)+(f.mid||0)+(f.small||0)+(isPureDebt ? 0 : (f.eqOther||0));
-    console.log('[EQPCT]', f.name, {large:f.large,mid:f.mid,small:f.small,eqOther:f.eqOther,eqTotal:f.eqTotal,debtTotal:f.debtTotal,isPureDebt,rawEq,wt:f.wt,equityStocksLen:f.equityStocks?.length});
+    console.log('[EQPCT]', f.name, {large:f.large,mid:f.mid,small:f.small,eqOther:f.eqOther,eqTotal:f.eqTotal,debtTotal:f.debtTotal,isPureDebt,rawEq,wt:f.wt,equityStocks:f.equityStocks});
     return s + f.wt * Math.min(rawEq, 100)/100;
   }, 0);
   const debtPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
