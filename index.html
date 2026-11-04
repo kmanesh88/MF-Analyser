@@ -3487,7 +3487,6 @@ function takeSnapshot() {
     const isPureDebt = (f.debtTotal||0) > 0 && !(f.equityStocks?.length);
     const rawEq = f.eqTotal != null ? f.eqTotal
                 : (f.large||0)+(f.mid||0)+(f.small||0)+(isPureDebt ? 0 : (f.eqOther||0));
-    console.log('[EQPCT]', f.name, {large:f.large,mid:f.mid,small:f.small,eqOther:f.eqOther,eqTotal:f.eqTotal,debtTotal:f.debtTotal,isPureDebt,rawEq,wt:f.wt,equityStocks:f.equityStocks});
     return s + f.wt * Math.min(rawEq, 100)/100;
   }, 0);
   const debtPct  = fundItemsT.reduce((s,f)=>s+f.wt*((f.debtTotal||0)/100),0);
@@ -5483,11 +5482,7 @@ function doSavePortfolioExcel() {
       /mutual fund|debt market development fund|\bfof\b|fund of fund/i.test(h.name);
 
     const equityStocks = result.holdings
-      .filter(h => {
-        const isDebt = isDebtHolding(h);
-        if (!isDebt) console.warn('[EQUITY?]', JSON.stringify({name:h.name, isin:h.isin, sector:h.sector, pct:h.pct}));
-        return !isDebt && !/mutual fund|mf -|\betf\b|\bfof\b|fund of fund/i.test(h.name);
-      })
+      .filter(h => !isDebtHolding(h) && !/mutual fund|mf -|\betf\b|\bfof\b|fund of fund/i.test(h.name))
       .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || '') }));
     const debtItems = result.holdings
       .filter(h => isDebtHolding(h))
@@ -6639,17 +6634,36 @@ function renderFundList(amcId, containerId) {
   el.classList.remove('hidden');
   el.innerHTML = Object.entries(amc.funds).map(([name,f])=>{
     const hasDebt = f.debtTotal > 0.5;
-    return `<div class="fi">
-      <span class="fi-name">${name}</span>
-      <span class="fi-meta">${f.equityStocks.length} eq${hasDebt?' · '+f.debtItems.length+' debt':''}</span>
-      <div class="caps">
-        <span class="pill pl">${f.large.toFixed(0)}%L</span>
-        <span class="pill pm">${f.mid.toFixed(0)}%M</span>
-        <span class="pill ps">${f.small.toFixed(0)}%S</span>
-        ${hasDebt?`<span class="pill pd">${f.debtTotal.toFixed(0)}%D</span>`:''}
+    const safeName = name.replace(/'/g,"\\'");
+    return `<div class="fi" style="display:flex;align-items:center;gap:.4rem">
+      <div style="flex:1;min-width:0">
+        <span class="fi-name">${name}</span>
+        <span class="fi-meta">${(f.equityStocks||[]).length} eq${hasDebt?' · '+(f.debtItems||[]).length+' debt':''}</span>
+        <div class="caps">
+          <span class="pill pl">${(f.large||0).toFixed(0)}%L</span>
+          <span class="pill pm">${(f.mid||0).toFixed(0)}%M</span>
+          <span class="pill ps">${(f.small||0).toFixed(0)}%S</span>
+          ${hasDebt?`<span class="pill pd">${f.debtTotal.toFixed(0)}%D</span>`:''}
+        </div>
       </div>
+      <button onclick="deleteFund('${amcId}','${safeName}')"
+        style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;padding:2px 4px;line-height:1;flex-shrink:0"
+        title="Remove this fund">✕</button>
     </div>`;
   }).join('');
+}
+
+function deleteFund(amcId, fundName) {
+  const amc = amcs.find(a => a.id === amcId);
+  if (!amc) return;
+  delete amc.funds[fundName];
+  if (Object.keys(amc.funds).length === 0) {
+    amc.status = 'empty';
+  }
+  saveToStorage();
+  renderFundList(amcId, 'upload-flist');
+  renderNav();
+  showToast(`Removed: ${fundName}`);
 }
 
 function updateNextBtn() {
