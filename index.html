@@ -65,13 +65,32 @@ onAuthStateChanged(auth, user => {
 });
 
 // ── Save to Firestore ──
+// ── Save holdings (equityStocks/debtItems) to factsheets subcollection ──
+// Each fund gets its own doc: users/{uid}/factsheets/{safeKey}
+// Key = amcName__fundName (double underscore), non-alphanum replaced with _
+window._fbSaveFactsheets = async (amcName, fundsObj) => {
+  const user = window._fb?.currentUser;
+  if (!user) return;
+  const uid = user.uid;
+  const toKey = s => (amcName + '__' + s).replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 500);
+  const promises = Object.entries(fundsObj).map(([fname, f]) => {
+    if (!(f.equityStocks?.length) && !(f.debtItems?.length)) return Promise.resolve();
+    return setDoc(doc(db, 'users', uid, 'factsheets', toKey(fname)), {
+      amcName, fundName: fname,
+      equityStocks: f.equityStocks || [],
+      debtItems:    f.debtItems    || [],
+      uploadedAt:   new Date().toISOString()
+    });
+  });
+  await Promise.all(promises);
+};
+
 window._fbSaveCloud = async () => {
   const user = window._fb.currentUser;
   if (!user) return;
   try {
     const uid = user.uid;
-    // Save AMC factsheet data — summary metrics only, NOT equityStocks/debtItems
-    // (stock-level data lives on API server; saving it here would exceed Firestore 1MB limit)
+    // Save AMC factsheet data — summary metrics only
     const amcPayload = {
       amcCtr,
       savedAt: new Date().toISOString(),
@@ -82,13 +101,17 @@ window._fbSaveCloud = async () => {
             large:f.large||0, mid:f.mid||0, small:f.small||0, eqOther:f.eqOther||0,
             gsec:f.gsec||0, sdl:f.sdl||0, aaa:f.aaa||0, aa:f.aa||0,
             mkt:f.mkt||0, cash:f.cash||0, debtTotal:f.debtTotal||0,
-            cashPct:f.cashPct||0, amc:f.amc||a.name
-            // equityStocks and debtItems intentionally excluded — too large for Firestore
+            cashPct:f.cashPct||0, amc:f.amc||a.name, eqTotal:f.eqTotal
           }])
         )
       }))
     };
     await setDoc(doc(db, 'users', uid, 'data', 'amcs'), amcPayload);
+
+    // Save holdings-level data to factsheets subcollection
+    await Promise.all(amcs.filter(a=>a.name!=='__server__').map(a =>
+      window._fbSaveFactsheets(a.name, a.funds)
+    ));
 
     // Save portfolios
     await setDoc(doc(db, 'users', uid, 'data', 'portfolios'), {
@@ -113,31 +136,32 @@ window._fbSaveCloud = async () => {
     document.getElementById('fb-sync-status').textContent = '☁ Loading…';
     const uid = user.uid;
 
-    const [amcSnap, portSnap, threshSnap] = await Promise.all([
+    const [amcSnap, portSnap, threshSnap, factsheetsSnap] = await Promise.all([
       getDoc(doc(db, 'users', uid, 'data', 'amcs')),
       getDoc(doc(db, 'users', uid, 'data', 'portfolios')),
-      getDoc(doc(db, 'users', uid, 'data', 'thresholds'))
+      getDoc(doc(db, 'users', uid, 'data', 'thresholds')),
+      getDocs(collection(db, 'users', uid, 'factsheets'))
     ]);
+
+    // Build a lookup: { "amcName__fundName" -> { equityStocks, debtItems } }
+    const holdingsMap = {};
+    factsheetsSnap.forEach(d => { holdingsMap[d.id] = d.data(); });
+    const toKey = (amcName, fname) =>
+      (amcName + '__' + fname).replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 500);
 
     let loaded = false;
 
     if (amcSnap.exists()) {
       const d = amcSnap.data();
       amcCtr = d.amcCtr || 0;
-      // Load from Firestore but preserve equityStocks/debtItems from localStorage
-      // (Firestore only stores summary metrics to stay under 1MB limit)
-      const localAmcMap = {};
-      amcs.forEach(a => { localAmcMap[a.name] = a; });
       amcs = (d.amcs || []).map(a => {
-        const localAmc = localAmcMap[a.name];
         const mergedFunds = {};
         Object.entries(a.funds || {}).forEach(([fname, f]) => {
-          const localFund = localAmc?.funds?.[fname];
+          const cloud = holdingsMap[toKey(a.name, fname)];
           mergedFunds[fname] = {
             ...f,
-            // Restore stock-level data from localStorage if available
-            equityStocks: localFund?.equityStocks || f.equityStocks || [],
-            debtItems:    localFund?.debtItems    || f.debtItems    || [],
+            equityStocks: cloud?.equityStocks || [],
+            debtItems:    cloud?.debtItems    || [],
           };
         });
         return { id:a.id, name:a.name, status:a.status, uploadedAt:a.uploadedAt||null, funds:mergedFunds };
@@ -5516,7 +5540,10 @@ function doSavePortfolioExcel() {
   refreshUploadPage();
   updateNextBtn();
   saveToStorage();
-  if (window._fb?.currentUser) window._fbSaveCloud();
+  if (window._fb?.currentUser) {
+    window._fbSaveCloud();
+    window._fbSaveFactsheets(amc.name, amc.funds);
+  }
   showToast(`✓ ${_xlsParsedFunds.reduce((s,r)=>s+r.holdings.length,0)} holdings saved to ${amc.name}`);
 
   // Push to API server so all future analyses skip upload entirely
@@ -5910,6 +5937,10 @@ async function handlePDF(evt, amcId) {
     refreshUploadPage();
     renderNav(); updateNextBtn();
     saveToStorage();
+    if (window._fb?.currentUser) {
+      window._fbSaveCloud();
+      window._fbSaveFactsheets(amc.name, amc.funds);
+    }
 
     // Push to server so PDF-only AMCs (e.g. Sundaram) get the SAME
     // verify/repair Upload Agent and rename detection that Excel/ZIP
