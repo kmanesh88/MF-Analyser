@@ -7405,8 +7405,6 @@ function renderMissingFactsheets() {
     .replace(/\s+/g, ' ').trim();
 
   // Build a set of normalised names for funds that have ANY factsheet data uploaded.
-  // A fund counts as "linked" if it exists in allFunds() AND has at least one meaningful
-  // data field (equity %, debt %, cash, or holdings lines). This matches what runAnalysis uses.
   const uploadedNorms = new Set();
   allFunds().forEach(f => {
     const hasData = (f.equityStocks?.length > 0)
@@ -7417,8 +7415,11 @@ function renderMissingFactsheets() {
       || (f.small      || 0) > 0
       || (f.cash       || 0) > 0
       || (f.eqTotal    || 0) > 0;
+    console.log('[MFCHECK] fund:', f.name, '| norm:', normFN(f.name), '| hasData:', hasData, '| large:', f.large, 'debtTotal:', f.debtTotal, 'cash:', f.cash);
     if (hasData) uploadedNorms.add(normFN(f.name));
   });
+  console.log('[MFCHECK] uploadedNorms:', [...uploadedNorms]);
+  console.log('[MFCHECK] portfolio allocs:', Object.keys(port.allocations||{}).map(n => normFN(n)));
 
   // Find funds in this portfolio that are missing factsheets
   const missing = Object.entries(port.allocations||{})
