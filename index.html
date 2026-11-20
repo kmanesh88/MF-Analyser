@@ -7391,20 +7391,33 @@ function renderMissingFactsheets() {
     return;
   }
 
-  // Normalise fund name for fuzzy matching (same logic as loadPortfolio)
+  // Normalise fund name — mirrors getActiveItems() normFund so matching is consistent
   const normFN = n => n.toLowerCase()
-    .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$|\s*\(idcw\)\s*$/i, '')
+    .replace(/\bpru\b/g, 'prudential')
+    .replace(/\s*[-–]\s*(direct|regular)\s*(plan|-).*$/i, '')
     .replace(/\s*-?\s*(direct|regular)\s*plan.*$/i, '')
+    .replace(/\s*[-–]\s*(growth|idcw|dividend)\s*$/i, '')
     .replace(/\s*-?\s*(growth|idcw|dividend)\s*$/i, '')
+    .replace(/\s*\(g\)\s*$|\s*\(d\)\s*$/i, '')
+    .replace(/\s*-g\s*$/i, '')
+    .replace(/\s*\bfund\b\s*$/i, '')
     .replace(/\s*&\s*/g, ' and ')
     .replace(/\s+/g, ' ').trim();
 
-  // Build a set of fund names that HAVE factsheet data
+  // Build a set of normalised names for funds that have ANY factsheet data uploaded.
+  // A fund counts as "linked" if it exists in allFunds() AND has at least one meaningful
+  // data field (equity %, debt %, cash, or holdings lines). This matches what runAnalysis uses.
   const uploadedNorms = new Set();
   allFunds().forEach(f => {
-    if ((f.equityStocks?.length || f.debtItems?.length || (f.debtTotal||0) > 0)) {
-      uploadedNorms.add(normFN(f.name));
-    }
+    const hasData = (f.equityStocks?.length > 0)
+      || (f.debtItems?.length > 0)
+      || (f.debtTotal  || 0) > 0
+      || (f.large      || 0) > 0
+      || (f.mid        || 0) > 0
+      || (f.small      || 0) > 0
+      || (f.cash       || 0) > 0
+      || (f.eqTotal    || 0) > 0;
+    if (hasData) uploadedNorms.add(normFN(f.name));
   });
 
   // Find funds in this portfolio that are missing factsheets
