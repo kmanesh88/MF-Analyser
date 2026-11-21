@@ -4904,7 +4904,11 @@ async function handlePortfolioExcel(evt) {
     if (uz)   uz.className = 'uz ok';
     if (icon) icon.textContent = '✅';
     const totalH = results.filter(r=>!r.isClientFormat).reduce((s,r)=>s+(r.holdings?.length||0),0);
-    if (st)   { st.className='uz-st ok'; st.textContent = `✓ ${results.length} fund(s), ${totalH} holdings`; }
+    // Count unique underlying holdings by ISIN (deduplicated across all funds)
+    const uniqueIsins = new Set();
+    results.filter(r=>!r.isClientFormat).forEach(r=>(r.holdings||[]).forEach(h=>{ if(h.isin) uniqueIsins.add(h.isin); }));
+    const uniqueH = uniqueIsins.size || totalH;
+    if (st)   { st.className='uz-st ok'; st.textContent = `✓ ${results.length} fund(s), ${uniqueH} unique holdings`; }
     showXlsPreview(results);
 
   } catch(e) {
@@ -5012,10 +5016,15 @@ async function parseWorkbook(wb, filename, results) {
       }
     }
 
-    // Detect decimal % — sample up to 5 rows, if max value < 1.0 it's decimal
+    // Detect decimal % — sample up to 5 ISIN rows.
+    // Scan the full sheet (not just headerRow+20) because some AMC formats
+    // (e.g. Sundaram debt) have a large empty equity section at the top —
+    // the first real holdings don't appear until row 27+. If we stop at +20
+    // we collect zero samples, leave pctIsDecimal=false, then accumulate
+    // pct values like 0.064 as-is; total ≈ 1.0 → fails the total<5 gate.
     let pctIsDecimal = false;
     const pctSamples = [];
-    for (let r = headerRowIdx + 1; r < Math.min(rows.length, headerRowIdx + 20); r++) {
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
       const row = rows[r] || [];
       const vals = row.map(c => String(c || '').trim());
       if (VALID_ISIN.test(vals[isinCol] || '')) {
@@ -5121,7 +5130,7 @@ async function parseWorkbook(wb, filename, results) {
       const parsed = parseSheetUniversal(fundRows, currentFund);
       if (parsed && parsed.holdings.length >= 2) {
         const total = parsed.holdings.reduce((s, h) => s + h.pct, 0);
-        if (total >= 5 && total <= 200)
+        if (total >= 1 && total <= 200)
           results.push({ fundName: parsed.fundName, isClientFormat: false,
                          holdings: parsed.holdings, pct: 0, cashPct: parsed.cashPct });
       }
@@ -5188,7 +5197,7 @@ async function parseWorkbook(wb, filename, results) {
       if (!parsed || parsed.holdings.length < 2) continue;
 
       const total = parsed.holdings.reduce((s, h) => s + h.pct, 0);
-      if (total < 5 || total > 200) continue;
+      if (total < 1 || total > 200) continue;
 
       results.push({ fundName: parsed.fundName || sname, isClientFormat: false,
                      holdings: parsed.holdings, pct: 0, cashPct: parsed.cashPct });
@@ -5221,7 +5230,7 @@ async function parseWorkbook(wb, filename, results) {
       const parsed = parseSheetUniversal(rows, fundName);
       if (!parsed || parsed.holdings.length < 2) continue;
       const total = parsed.holdings.reduce((s, h) => s + h.pct, 0);
-      if (total < 5 || total > 200) continue;
+      if (total < 1 || total > 200) continue;
 
       results.push({ fundName: parsed.fundName, isClientFormat: false,
                      holdings: parsed.holdings, pct: 0, cashPct: parsed.cashPct });
@@ -5253,7 +5262,7 @@ async function parseWorkbook(wb, filename, results) {
     const parsed = parseSheetUniversal(rows, fundName);
     if (!parsed || parsed.holdings.length < 2) continue;
     const total = parsed.holdings.reduce((s, h) => s + h.pct, 0);
-    if (total < 5 || total > 200) continue;
+    if (total < 1 || total > 200) continue;
 
     results.push({ fundName: parsed.fundName, isClientFormat: false,
                    holdings: parsed.holdings, pct: 0, cashPct: parsed.cashPct });
@@ -5548,7 +5557,11 @@ function doSavePortfolioExcel() {
     window._fbSaveCloud();
     window._fbSaveFactsheets(amc.name, amc.funds);
   }
-  showToast(`✓ ${_xlsParsedFunds.reduce((s,r)=>s+r.holdings.length,0)} holdings saved to ${amc.name}`);
+  // Show unique ISINs across all parsed funds (not raw sum)
+  const _savedIsins = new Set();
+  _xlsParsedFunds.forEach(r=>(r.holdings||[]).forEach(h=>{ if(h.isin) _savedIsins.add(h.isin); }));
+  const _savedUnique = _savedIsins.size || _xlsParsedFunds.reduce((s,r)=>s+r.holdings.length,0);
+  showToast(`✓ ${_xlsParsedFunds.length} funds, ${_savedUnique} unique holdings saved to ${amc.name}`);
 
   // Push to API server so all future analyses skip upload entirely
   pushFilesToApiServer(_lastXlsFiles.length ? _lastXlsFiles : [_lastXlsFile], amc.name);
@@ -7415,11 +7428,8 @@ function renderMissingFactsheets() {
       || (f.small      || 0) > 0
       || (f.cash       || 0) > 0
       || (f.eqTotal    || 0) > 0;
-    console.log('[MFCHECK] fund:', f.name, '| norm:', normFN(f.name), '| hasData:', hasData, '| large:', f.large, 'debtTotal:', f.debtTotal, 'cash:', f.cash);
     if (hasData) uploadedNorms.add(normFN(f.name));
   });
-  console.log('[MFCHECK] uploadedNorms:', [...uploadedNorms]);
-  console.log('[MFCHECK] portfolio allocs:', Object.keys(port.allocations||{}).map(n => normFN(n)));
 
   // Find funds in this portfolio that are missing factsheets
   const missing = Object.entries(port.allocations||{})
