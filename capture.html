@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vantage · Capture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500&family=Noto+Sans+Malayalam:wght@400;500&family=Noto+Sans+Devanagari:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#0f1218; --panel:#171b23; --panel2:#1e232d; --line:#2a303c; --text:#e8ebf1; --muted:#8b93a3;
+  --accent:#4f8cff; --accent2:#2f6fe6; --green:#2fbf71; --amber:#f0a83a; --red:#ef5a5a; --client:#c58cff; --advisor:#4f8cff;
+  --r:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 Inter,"Noto Sans Tamil","Noto Sans Malayalam","Noto Sans Devanagari",system-ui,sans-serif}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:var(--panel2);color:var(--text)}
+button:hover{filter:brightness(1.15)} button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);color:#fff} button.danger{background:transparent;color:var(--red);border:1px solid #4a2a2e}
+button.ghost{background:transparent;border:1px solid var(--line)}
+input,select,textarea{font:inherit;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px} header h1 span{color:var(--muted);font-weight:500}
+nav{display:flex;gap:4px;margin-left:auto}
+nav button{background:transparent;color:var(--muted)} nav button.on{background:var(--panel2);color:var(--text)}
+#who{font-size:12px;color:var(--muted)}
+main{max-width:980px;margin:0 auto;padding:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.seg{display:flex;background:var(--panel2);border-radius:10px;padding:3px;gap:3px}
+.seg button{flex:1;background:transparent;color:var(--muted);padding:9px 6px}
+.seg button.on{background:var(--accent);color:#fff}
+.hint{font-size:12px;color:var(--muted);margin-top:8px}
+.recwrap{display:flex;flex-direction:column;align-items:center;gap:14px;padding:18px 0 6px}
+#recBtn{width:96px;height:96px;border-radius:50%;background:var(--red);box-shadow:0 0 0 6px #ef5a5a22;font-size:13px;font-weight:600;color:#fff}
+#recBtn.live{animation:pulse 1.6s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 #ef5a5a66}70%{box-shadow:0 0 0 18px #ef5a5a00}100%{box-shadow:0 0 0 0 #ef5a5a00}}
+#timer{font-size:28px;font-variant-numeric:tabular-nums;font-weight:600}
+#meter{width:240px;height:6px;background:var(--panel2);border-radius:3px;overflow:hidden} #meter i{display:block;height:100%;width:0;background:var(--green);transition:width .08s}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.banner{background:#2b2414;border:1px solid #5a4620;color:#f3d39a;padding:12px 14px;border-radius:10px;margin-bottom:16px}
+.err{background:#2b1717;border-color:#5a2525;color:#f5b0b0}
+.progress{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;width:100%} .progress i{display:block;height:100%;background:var(--accent);width:0}
+.list .item{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.list .item:hover{background:#ffffff05}
+.badge{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.b-ready{background:#12321f;color:var(--green)} .b-failed{background:#3a1616;color:var(--red)}
+.b-proc{background:#33270f;color:var(--amber);animation:blink 1.4s infinite}
+@keyframes blink{50%{opacity:.55}}
+.muted{color:var(--muted)} .small{font-size:12px}
+.utt{display:grid;grid-template-columns:64px 1fr;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+.utt.advisor{opacity:.72} .utt.reviewed .txt{border-left-color:var(--green)}
+.ts{font-size:12px;color:var(--muted);background:transparent;padding:2px 0;text-align:left}
+.ts:hover{color:var(--accent)}
+.txt{border-left:3px solid var(--line);padding-left:10px}
+.utt.client .txt{border-left-color:var(--client)}
+.spk{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.spk.client{color:var(--client)} .spk.advisor{color:var(--advisor)} .spk.other{color:var(--muted)}
+.cm{font-size:15px;margin:2px 0} .en{color:var(--muted);font-size:13px}
+.tags{display:grid;grid-template-columns:2fr 1.2fr auto 2fr auto;gap:8px;margin-top:10px;align-items:center}
+.tags select,.tags input{padding:6px 8px;font-size:13px}
+.inten{display:flex;gap:2px} .inten button{padding:6px 9px;font-size:12px;background:var(--panel2)} .inten button.on{background:var(--amber);color:#111}
+.ok{background:var(--green);color:#06210f;font-weight:600;padding:6px 12px}
+.aiflag{font-size:11px;color:var(--amber)}
+.bar{display:flex;align-items:center;gap:10px;margin:6px 0} .bar .lbl{width:190px;font-size:12px} .bar .track{flex:1;height:10px;background:var(--panel2);border-radius:5px;overflow:hidden;position:relative}
+.bar .track i{position:absolute;left:0;top:0;bottom:0;background:#4f8cff55} .bar .track b{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+.bar .n{width:70px;text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.kpi{font-size:24px;font-weight:700} .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#000c;border:1px solid var(--line);padding:10px 16px;border-radius:10px;display:none;z-index:50;max-width:90vw}
+.hide{display:none!important}
+@media(max-width:700px){ .tags{grid-template-columns:1fr 1fr} .tags .wide{grid-column:1/-1} header{flex-wrap:wrap} nav{margin-left:0;width:100%} nav button{flex:1} }
+</style>
+</head>
+<body>
+<header>
+  <h1>Vantage <span>· Capture</span></h1>
+  <nav id="nav" class="hide">
+    <button data-tab="record" class="on">Record</button>
+    <button data-tab="review">Review</button>
+    <button data-tab="dataset">Dataset</button>
+  </nav>
+  <div id="who"></div>
+</header>
+
+<main>
+  <!-- sign in -->
+  <section id="signin" class="card hide">
+    <p>Sign in with the same account you use for the main app.</p>
+    <button class="primary" id="signinBtn">Sign in with Google</button>
+  </section>
+
+  <!-- RECORD -->
+  <section id="tab-record" class="hide">
+    <div id="recoverBanner"></div>
+
+    <div class="card">
+      <div class="grid">
+        <div>
+          <label>Client</label>
+          <input id="clientId" list="clientList" placeholder="Client ID or name" autocomplete="off">
+          <datalist id="clientList"></datalist>
+        </div>
+        <div>
+          <label>Language (hint)</label>
+          <select id="lang">
+            <option value="">Auto-detect</option>
+            <option value="ta-IN">Tamil / Tanglish</option>
+            <option value="ml-IN">Malayalam / Manglish</option>
+            <option value="hi-IN">Hindi / Hinglish</option>
+            <option value="en-IN">English</option>
+            <option value="te-IN">Telugu</option>
+            <option value="kn-IN">Kannada</option>
+          </select>
+        </div>
+        <div>
+          <label>Speakers</label>
+          <select id="speakers"><option>2</option><option>3</option><option>4</option></select>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <label>Conversation mode</label>
+        <div class="seg" id="channelSeg">
+          <button data-ch="in_person" class="on">In person</button>
+          <button data-ch="phone">Phone call</button>
+          <button data-ch="video">Video call</button>
+        </div>
+        <div class="hint" id="channelHint"></div>
+      </div>
+    </div>
+
+    <div class="card" id="recorderCard">
+      <div class="recwrap">
+        <button id="recBtn">Record</button>
+        <div id="timer">00:00</div>
+        <div id="meter"><i></i></div>
+        <div class="row">
+          <button id="pauseBtn" class="ghost hide">Pause</button>
+          <button id="stopBtn" class="primary hide">Stop &amp; save</button>
+        </div>
+      </div>
+      <div class="hint" style="text-align:center">Audio is saved on this device every 10 seconds, so a closed tab or crash won't lose the meeting.</div>
+      <div style="text-align:center;margin-top:16px">
+        <span class="muted small">or</span>
+        <button class="ghost" id="uploadPick">Upload a recording</button>
+        <input type="file" id="fileInput" class="hide" accept="audio/*,video/*,.m4a,.mp3,.wav,.aac,.amr,.ogg,.opus,.webm,.mp4,.3gp">
+      </div>
+    </div>
+
+    <div class="card hide" id="pendingCard">
+      <div class="row" style="justify-content:space-between">
+        <strong id="pendingTitle">Ready to upload</strong>
+        <span class="muted small" id="pendingMeta"></span>
+      </div>
+      <audio id="pendingAudio" controls style="width:100%;margin:12px 0"></audio>
+      <div class="progress hide" id="upProg"><i></i></div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="uploadBtn">Upload &amp; transcribe</button>
+        <button class="danger" id="discardBtn">Discard</button>
+      </div>
+      <div id="upErr"></div>
+    </div>
+  </section>
+
+  <!-- REVIEW -->
+  <section id="tab-review" class="hide">
+    <div id="sessionList" class="card list"></div>
+    <div id="sessionDetail" class="hide"></div>
+  </section>
+
+  <!-- DATASET -->
+  <section id="tab-dataset" class="hide">
+    <div id="statsBox" class="card"></div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+/* ================================================================ CONFIG */
+const CONFIG = {
+  // same backend URL the main app uses (Settings), else the default Render URL
+  API_BASE: (localStorage.getItem("mf_analyser_api_url") || "https://mf-holdings-api.onrender.com").replace(/\/+$/, ""),
+  firebase: {
+    apiKey:            "AIzaSyC61qLPZztu1Vd8uETMbYi-I5pndrg5484",
+    authDomain:        "mf-analyser-f2867.firebaseapp.com",
+    projectId:         "mf-analyser-f2867",
+    storageBucket:     "mf-analyser-f2867.firebasestorage.app",
+    messagingSenderId: "528169645475",
+    appId:             "1:528169645475:web:14f3962a3607d52b095616"
+  }
+};
+
+/* ================================================================ BOOT */
+firebase.initializeApp(CONFIG.firebase);
+const auth = firebase.auth();
+const fs = firebase.firestore();
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = s => { s = Math.max(0, Math.floor(s||0)); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60;
+  return (h? h+":"+String(m).padStart(2,"0") : String(m).padStart(2,"0")) + ":" + String(x).padStart(2,"0"); };
+function toast(msg, ms=3500){ const t=$("#toast"); t.textContent=msg; t.style.display="block"; clearTimeout(toast._t); toast._t=setTimeout(()=>t.style.display="none", ms); }
+
+const state = { user:null, tab:"record", channel:"in_person", taxonomy:null, sessions:[], detail:null,
+  pending:null /* {blob, name, recKey|null, source, meta} */, filterClient:true, filterUnreviewed:false };
+
+auth.onAuthStateChanged(async u => {
+  state.user = u;
+  $("#signin").classList.toggle("hide", !!u);
+  $("#nav").classList.toggle("hide", !u);
+  $("#who").textContent = u ? (u.email || u.displayName || "") : "";
+  if (!u) { $$("main > section[id^=tab-]").forEach(s=>s.classList.add("hide")); return; }
+  showTab(state.tab);
+  loadClients(); checkRecovery();
+  try { state.taxonomy = await api("/taxonomy"); } catch(e){ toast("Backend unreachable: "+e.message); }
+});
+$("#signinBtn").onclick = () => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e=>toast(e.message));
+
+async function api(path, opts={}) {
+  const token = await state.user.getIdToken();
+  const res = await fetch(CONFIG.API_BASE + "/capture" + path, {...opts,
+    headers:{...(opts.headers||{}), Authorization:"Bearer "+token}});
+  if (!res.ok) { let m = await res.text(); try{ m = JSON.parse(m).detail || m; }catch(_){} throw new Error(m || res.status); }
+  return (res.headers.get("content-type")||"").includes("json") ? res.json() : res;
+}
+
+/* ================================================================ TABS */
+$$("#nav button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function showTab(t){
+  state.tab = t;
+  $$("#nav button").forEach(b => b.classList.toggle("on", b.dataset.tab===t));
+  $$("main > section[id^=tab-]").forEach(s => s.classList.toggle("hide", s.id !== "tab-"+t));
+  if (t==="review") { closeDetail(); loadSessions(); }
+  if (t==="dataset") loadStats();
+}
+
+/* ================================================================ CLIENTS */
+async function loadClients(){
+  const dl = $("#clientList"); const seen = new Set();
+  const add = (v,l) => { if(!v||seen.has(v)) return; seen.add(v); const o=document.createElement("option"); o.value=v; if(l) o.label=l; dl.appendChild(o); };
+  try { JSON.parse(localStorage.getItem("cap_recent_clients")||"[]").forEach(c=>add(c)); } catch(_){}
+  try {
+    const snap = await fs.collection("clients").limit(500).get();
+    snap.forEach(d => { const x=d.data()||{}; add(d.id, x.name||x.client_name||x.full_name||""); });
+  } catch(_) { /* rules may block; free text still works */ }
+}
+function rememberClient(c){ if(!c) return; try{ const a=JSON.parse(localStorage.getItem("cap_recent_clients")||"[]").filter(x=>x!==c); a.unshift(c); localStorage.setItem("cap_recent_clients", JSON.stringify(a.slice(0,30))); }catch(_){} }
+
+/* ================================================================ CHANNEL */
+const HINTS = {
+  in_person: "Place the phone or laptop between you and the client. Keep it on the table, not in a pocket.",
+  phone: "Best: upload your phone's call recording after the call. Or put the call on speaker and record here.",
+  video: "Click Record, pick the Meet/Zoom tab and tick “Share tab audio”. Your mic is mixed in automatically. Or upload the meeting recording."
+};
+$$("#channelSeg button").forEach(b => b.onclick = () => { if (Rec.mr) return; state.channel=b.dataset.ch;
+  $$("#channelSeg button").forEach(x=>x.classList.toggle("on", x===b)); $("#channelHint").textContent = HINTS[state.channel]; });
+$("#channelHint").textContent = HINTS.in_person;
+
+/* ================================================================ INDEXEDDB (crash-safe chunks) */
+const IDB = {
+  db:null,
+  open(){ if(this.db) return Promise.resolve(this.db); return new Promise((res,rej)=>{ const r=indexedDB.open("vantage_capture",1);
+    r.onupgradeneeded=()=>{ const d=r.result; d.createObjectStore("recs"); d.createObjectStore("chunks"); };
+    r.onsuccess=()=>{ this.db=r.result; res(this.db); }; r.onerror=()=>rej(r.error); }); },
+  async tx(store, mode, fn){ const d=await this.open(); return new Promise((res,rej)=>{ const t=d.transaction(store,mode); const out=fn(t.objectStore(store)); t.oncomplete=()=>res(out&&out.result!==undefined?out.result:out); t.onerror=()=>rej(t.error); }); },
+  putRec(k,v){ return this.tx("recs","readwrite",s=>s.put(v,k)); },
+  putChunk(k,i,blob){ return this.tx("chunks","readwrite",s=>s.put(blob,[k,i])); },
+  async allRecs(){ const d=await this.open(); return new Promise((res,rej)=>{ const out=[]; const c=d.transaction("recs").objectStore("recs").openCursor();
+    c.onsuccess=()=>{ const cur=c.result; if(cur){ out.push({key:cur.key, ...cur.value}); cur.continue(); } else res(out); }; c.onerror=()=>rej(c.error); }); },
+  async chunks(k){ const d=await this.open(); return new Promise((res,rej)=>{ const r=d.transaction("chunks").objectStore("chunks").getAll(IDBKeyRange.bound([k,0],[k,Infinity])); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); },
+  async remove(k){ await this.tx("chunks","readwrite",s=>s.delete(IDBKeyRange.bound([k,0],[k,Infinity]))); await this.tx("recs","readwrite",s=>s.delete(k)); }
+};
+
+async function checkRecovery(){
+  const box = $("#recoverBanner"); box.innerHTML="";
+  let recs=[]; try{ recs = await IDB.allRecs(); }catch(_){ return; }
+  recs = recs.filter(r => r.key !== Rec.key);
+  recs.forEach(r => {
+    const d = document.createElement("div"); d.className="banner";
+    d.innerHTML = `<div class="row" style="justify-content:space-between"><span>Unsaved recording · ${esc(new Date(r.started).toLocaleString())} · ${esc(r.client_id||"no client")} · ${esc(r.channel)}</span>
+      <span class="row"><button class="primary">Recover</button><button class="danger">Discard</button></span></div>`;
+    const [rec, del] = d.querySelectorAll("button");
+    rec.onclick = async () => { const parts = await IDB.chunks(r.key); if(!parts.length){ await IDB.remove(r.key); d.remove(); return toast("Nothing to recover"); }
+      setPending({ blob:new Blob(parts,{type:r.mime}), name:"recording"+extFor(r.mime), recKey:r.key, source:"recorded",
+        meta:{client_id:r.client_id, channel:r.channel, language_hint:r.language_hint, num_speakers:r.num_speakers, recorded_at:new Date(r.started).toISOString()} });
+      d.remove(); };
+    del.onclick = async () => { if(!confirm("Delete this recording permanently?")) return; await IDB.remove(r.key); d.remove(); };
+    box.appendChild(d);
+  });
+}
+
+/* ================================================================ RECORDER */
+const Rec = { mr:null, key:null, mime:"", idx:0, chunks:[], streams:[], ctx:null, raf:0, startedAt:0, acc:0, segStart:0, tick:0, wake:null };
+function pickMime(){ for (const m of ["audio/webm;codecs=opus","audio/mp4","audio/ogg;codecs=opus","audio/webm"]) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m; return ""; }
+function extFor(m){ return m.includes("mp4")? ".m4a" : m.includes("ogg")? ".ogg" : ".webm"; }
+function meta(){ return { client_id: $("#clientId").value.trim(), channel: state.channel, language_hint: $("#lang").value, num_speakers: +$("#speakers").value }; }
+
+$("#recBtn").onclick = () => Rec.mr ? null : startRecording();
+$("#pauseBtn").onclick = () => {
+  if (!Rec.mr) return;
+  if (Rec.mr.state === "recording") { Rec.mr.pause(); Rec.acc += (Date.now()-Rec.segStart)/1000; $("#pauseBtn").textContent="Resume"; $("#recBtn").classList.remove("live"); }
+  else { Rec.mr.resume(); Rec.segStart = Date.now(); $("#pauseBtn").textContent="Pause"; $("#recBtn").classList.add("live"); }
+};
+$("#stopBtn").onclick = () => stopRecording();
+
+async function startRecording(){
+  if (state.pending) return toast("Upload or discard the previous recording first");
+  if (!window.MediaRecorder) return toast("This browser can't record. Use Chrome, or upload a file.");
+  const m = meta(); let stream;
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)(); Rec.ctx = ctx;
+    if (state.channel === "video") {
+      const disp = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
+      if (!disp.getAudioTracks().length) { disp.getTracks().forEach(t=>t.stop()); ctx.close(); Rec.ctx=null;
+        return toast("No call audio was shared. Choose the Meet/Zoom tab and tick “Share tab audio”.", 6000); }
+      const mic = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+      const dest = ctx.createMediaStreamDestination();
+      ctx.createMediaStreamSource(new MediaStream(disp.getAudioTracks())).connect(dest);
+      ctx.createMediaStreamSource(mic).connect(dest);
+      Rec.streams = [disp, mic]; stream = dest.stream;
+      disp.getVideoTracks().forEach(t => t.onended = () => Rec.mr && stopRecording());
+    } else {
+      const phone = state.channel === "phone";
+      stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:phone, noiseSuppression:phone, autoGainControl:true } });
+      Rec.streams = [stream];
+    }
+    // level meter
+    const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    const loop = () => { an.getByteTimeDomainData(buf); let p=0; for (const v of buf) p=Math.max(p, Math.abs(v-128)); $("#meter i").style.width = Math.min(100, p/128*180)+"%"; Rec.raf = requestAnimationFrame(loop); };
+    loop();
+  } catch(e) { cleanupStreams(); return toast("Microphone/screen access denied: "+e.message, 6000); }
+
+  Rec.mime = pickMime(); Rec.key = "rec_"+Date.now(); Rec.idx = 0; Rec.chunks = [];
+  Rec.startedAt = Date.now(); Rec.segStart = Date.now(); Rec.acc = 0;
+  await IDB.putRec(Rec.key, { mime:Rec.mime, started:Rec.startedAt, ...m }).catch(()=>{});
+  const mr = new MediaRecorder(stream, Rec.mime ? { mimeType:Rec.mime, audioBitsPerSecond:64000 } : undefined);
+  Rec.mime = mr.mimeType || Rec.mime;
+  mr.ondataavailable = e => { if (e.data && e.data.size) { Rec.chunks.push(e.data); IDB.putChunk(Rec.key, Rec.idx++, e.data).catch(()=>{}); } };
+  mr.onstop = onRecorderStop;
+  mr.start(10000); Rec.mr = mr;
+
+  try { Rec.wake = await navigator.wakeLock?.request("screen"); } catch(_){}
+  $("#recBtn").classList.add("live"); $("#recBtn").textContent = "Recording";
+  $("#pauseBtn").classList.remove("hide"); $("#stopBtn").classList.remove("hide"); $("#pauseBtn").textContent="Pause";
+  Rec.tick = setInterval(() => { const live = Rec.mr && Rec.mr.state==="recording" ? (Date.now()-Rec.segStart)/1000 : 0; $("#timer").textContent = fmt(Rec.acc + live); }, 500);
+  rememberClient(m.client_id);
+}
+
+function stopRecording(){ if (Rec.mr && Rec.mr.state !== "inactive") { if (Rec.mr.state==="recording") Rec.acc += (Date.now()-Rec.segStart)/1000; Rec.mr.stop(); } }
+function cleanupStreams(){ Rec.streams.forEach(s=>s.getTracks().forEach(t=>t.stop())); Rec.streams=[]; cancelAnimationFrame(Rec.raf); $("#meter i").style.width="0";
+  if (Rec.ctx) { Rec.ctx.close().catch(()=>{}); Rec.ctx=null; } }
+function onRecorderStop(){
+  cleanupStreams(); clearInterval(Rec.tick); try{ Rec.wake?.release(); }catch(_){}
+  $("#recBtn").classList.remove("live"); $("#recBtn").textContent="Record"; $("#pauseBtn").classList.add("hide"); $("#stopBtn").classList.add("hide");
+  const m = meta();
+  setPending({ blob:new Blob(Rec.chunks, {type:Rec.mime}), name:"recording"+extFor(Rec.mime), recKey:Rec.key, source:"recorded",
+    meta:{...m, recorded_at:new Date(Rec.startedAt).toISOString()}, secs:Rec.acc });
+  Rec.mr = null; Rec.key = null;
+}
+window.addEventListener("beforeunload", e => { if (Rec.mr || state.pending) { e.preventDefault(); e.returnValue=""; } });
+
+/* ================================================================ UPLOAD FILE */
+$("#uploadPick").onclick = () => { if (Rec.mr) return; if (state.pending) return toast("Upload or discard the current recording first"); $("#fileInput").click(); };
+$("#fileInput").onchange = e => { const f = e.target.files[0]; e.target.value=""; if (!f) return;
+  const m = meta(); rememberClient(m.client_id);
+  setPending({ blob:f, name:f.name, recKey:null, source:"uploaded", meta:{...m, recorded_at:new Date(f.lastModified||Date.now()).toISOString()} }); };
+
+function setPending(p){
+  state.pending = p;
+  $("#pendingCard").classList.toggle("hide", !p); $("#recorderCard").classList.toggle("hide", !!p);
+  $("#upErr").innerHTML=""; $("#upProg").classList.add("hide"); $("#uploadBtn").disabled=false;
+  if (!p) { $("#pendingAudio").removeAttribute("src"); return; }
+  $("#pendingAudio").src = URL.createObjectURL(p.blob);
+  $("#pendingTitle").textContent = p.source==="uploaded" ? p.name : "Recording ready";
+  $("#pendingMeta").textContent = [p.meta.client_id||"no client", p.meta.channel.replace("_"," "), (p.blob.size/1048576).toFixed(1)+" MB", p.secs? fmt(p.secs):""].filter(Boolean).join(" · ");
+  $("#timer").textContent = "00:00";
+}
+$("#discardBtn").onclick = async () => { if (!confirm("Discard this recording? This cannot be undone.")) return;
+  if (state.pending?.recKey) await IDB.remove(state.pending.recKey).catch(()=>{}); setPending(null); };
+$("#uploadBtn").onclick = async () => {
+  const p = state.pending; if (!p) return;
+  // allow fixing client/channel chosen after recording
+  const cur = meta(); if (cur.client_id && !p.meta.client_id) p.meta.client_id = cur.client_id;
+  $("#uploadBtn").disabled = true; $("#upProg").classList.remove("hide"); $("#upErr").innerHTML="";
+  try {
+    const r = await uploadBlob(p);
+    if (p.recKey) await IDB.remove(p.recKey).catch(()=>{});
+    setPending(null); toast("Uploaded · transcription running ("+fmt(r.duration_sec)+")");
+  } catch(e) {
+    $("#upErr").innerHTML = `<div class="banner err" style="margin-top:12px">Upload failed: ${esc(e.message)}. The recording is still saved on this device. Try again.</div>`;
+    $("#uploadBtn").disabled = false;
+  }
+};
+function uploadBlob(p){
+  return new Promise(async (resolve, reject) => {
+    const token = await state.user.getIdToken();
+    const fd = new FormData(); fd.append("file", p.blob, p.name);
+    Object.entries({...p.meta, source:p.source}).forEach(([k,v]) => fd.append(k, v ?? ""));
+    const x = new XMLHttpRequest(); x.open("POST", CONFIG.API_BASE + "/capture/sessions");
+    x.setRequestHeader("Authorization", "Bearer "+token);
+    x.upload.onprogress = e => { if (e.lengthComputable) $("#upProg i").style.width = (e.loaded/e.total*100)+"%"; };
+    x.onload = () => { if (x.status < 300) resolve(JSON.parse(x.responseText)); else { let m=x.responseText; try{ m=JSON.parse(m).detail||m; }catch(_){} reject(new Error(m||x.status)); } };
+    x.onerror = () => reject(new Error("network error"));
+    x.send(fd);
+  });
+}
+
+/* ================================================================ REVIEW: list */
+const PROC = ["uploaded","transcribing","tagging"];
+function badge(s){ const cls = s==="ready"?"b-ready": s==="failed"?"b-failed":"b-proc"; return `<span class="badge ${cls}">${esc(s)}</span>`; }
+async function loadSessions(){
+  clearTimeout(loadSessions._t);
+  const box = $("#sessionList");
+  try { state.sessions = await api("/sessions"); } catch(e){ box.innerHTML = `<div class="muted">Couldn't load: ${esc(e.message)}</div>`; return; }
+  if (!state.sessions.length) { box.innerHTML = `<div class="muted">No recordings yet.</div>`; return; }
+  box.innerHTML = state.sessions.map(s => `
+    <div class="item" data-id="${esc(s.id)}">
+      <div style="flex:1">
+        <div><strong>${esc(s.client_id||"No client")}</strong> <span class="muted small">· ${esc((s.channel||"").replace("_"," "))} · ${esc(s.detected_language||s.language_hint||"auto")}</span></div>
+        <div class="muted small">${esc(new Date(s.recorded_at||s.created_at).toLocaleString())} · ${fmt(s.duration_sec)}${s.status==="ready" ? ` · ${s.utterance_count} lines · ${s.reviewed_count||0} reviewed` : ""}${s.error? ` · <span style="color:var(--red)">${esc(s.error)}</span>`:""}</div>
+      </div>${badge(s.status)}</div>`).join("");
+  $$("#sessionList .item").forEach(el => el.onclick = () => openDetail(el.dataset.id));
+  if (state.tab==="review" && !state.detail && state.sessions.some(s=>PROC.includes(s.status))) loadSessions._t = setTimeout(loadSessions, 8000);
+}
+
+/* ================================================================ REVIEW: detail */
+function closeDetail(){ state.detail=null; clearTimeout(openDetail._t); $("#sessionDetail").classList.add("hide"); $("#sessionList").classList.remove("hide"); }
+async function openDetail(id){
+  clearTimeout(openDetail._t); clearTimeout(loadSessions._t);
+  let d; try { d = await api("/sessions/"+id); } catch(e){ return toast(e.message); }
+  state.detail = d; $("#sessionList").classList.add("hide"); $("#sessionDetail").classList.remove("hide");
+  renderDetail();
+  if (PROC.includes(d.session.status)) openDetail._t = setTimeout(() => state.detail?.session.id===id && openDetail(id), 8000);
+}
+function roleOf(u){ return (state.detail.session.speaker_map||{})[u.speaker_id] || "other"; }
+function renderDetail(){
+  const { session:s, utterances:U } = state.detail; const T = state.taxonomy || {intents:{}, emotions:[]};
+  const speakers = s.speakers || [...new Set(U.map(u=>u.speaker_id))].sort();
+  const smap = s.speaker_map || {};
+  const sample = sp => (U.find(u=>u.speaker_id===sp)?.text_codemix || "").slice(0,60);
+  const clientUtts = U.filter(u=>roleOf(u)==="client");
+  const reviewed = clientUtts.filter(u=>u.reviewed).length;
+  let shown = U;
+  if (state.filterClient) shown = shown.filter(u=>roleOf(u)==="client" || roleOf(u)==="advisor");
+  if (state.filterUnreviewed) shown = shown.filter(u=>roleOf(u)==="client" && !u.reviewed);
+
+  $("#sessionDetail").innerHTML = `
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <button class="ghost" id="backBtn">← All recordings</button>${badge(s.status)}
+    </div>
+    <h3 style="margin:14px 0 2px">${esc(s.client_id||"No client")}</h3>
+    <div class="muted small">${esc(new Date(s.recorded_at||s.created_at).toLocaleString())} · ${esc((s.channel||"").replace("_"," "))} · ${esc(s.detected_language||s.language_hint||"auto")} · ${fmt(s.duration_sec)}</div>
+    ${s.error? `<div class="banner err" style="margin-top:12px">${esc(s.error)}</div>`:""}
+    <audio id="detAudio" controls preload="none" style="width:100%;margin-top:12px"></audio>
+    ${speakers.length && s.status==="ready" ? `<div style="margin-top:14px"><label>Who is who ${s.speaker_map_source==="ai"?'<span class="aiflag">· AI guess, please check</span>':""}</label>
+      <div class="grid">${speakers.map(sp=>`<div><select data-sp="${esc(sp)}" class="spSel">
+        ${["advisor","client","other"].map(r=>`<option value="${r}" ${smap[sp]===r?"selected":""}>Speaker ${esc(sp)} = ${r}</option>`).join("")}</select>
+        <div class="muted small" style="margin-top:4px">“${esc(sample(sp))}…”</div></div>`).join("")}</div></div>`:""}
+    <div class="row" style="margin-top:14px;justify-content:space-between">
+      <div class="row">
+        <label class="row small" style="margin:0;gap:6px"><input type="checkbox" id="fUnrev" style="width:auto" ${state.filterUnreviewed?"checked":""}> Unreviewed client lines only</label>
+      </div>
+      <div class="row">
+        <span class="muted small">${reviewed}/${clientUtts.length} client lines reviewed</span>
+        ${s.status==="ready" && reviewed<clientUtts.length ? `<button class="ghost" id="bulkBtn">Accept remaining AI tags</button>`:""}
+      </div>
+    </div>
+  </div>
+
+  ${s.status==="ready" ? `<div class="card" id="uttList">${shown.map(u=>uttHTML(u,T)).join("") || '<div class="muted">Nothing to show.</div>'}</div>`
+    : PROC.includes(s.status) ? `<div class="card muted">Processing… this page refreshes automatically. A 30-minute meeting usually takes a few minutes.</div>` : ""}
+
+  <div class="row" style="margin-bottom:30px">
+    <button class="ghost" id="retagBtn" ${s.status!=="ready"&&s.status!=="failed"?"disabled":""}>Re-run AI tagging</button>
+    <button class="ghost" id="reprocBtn" ${PROC.includes(s.status)?"disabled":""}>Re-transcribe</button>
+    <button class="danger" id="delBtn">Delete recording</button>
+  </div>`;
+
+  $("#backBtn").onclick = () => { closeDetail(); loadSessions(); };
+  $("#fUnrev").onchange = e => { state.filterUnreviewed = e.target.checked; renderDetail(); };
+  $$(".spSel").forEach(sel => sel.onchange = saveSpeakers);
+  $("#bulkBtn") && ($("#bulkBtn").onclick = bulkConfirm);
+  $("#retagBtn").onclick = () => reprocess("tag");
+  $("#reprocBtn").onclick = () => reprocess("all");
+  $("#delBtn").onclick = deleteSession;
+  $$("#uttList .ts").forEach(b => b.onclick = () => seek(+b.dataset.t));
+  $$("#uttList .utt.client").forEach(bindTagRow);
+}
+function uttHTML(u, T){
+  const role = roleOf(u);
+  const base = `<button class="ts" data-t="${u.start}">▶ ${fmt(u.start)}</button>
+    <div class="txt"><div class="spk ${role}">${role} · ${esc(u.speaker_id)}</div>
+    <div class="cm">${esc(u.text_codemix)}</div>
+    ${u.text_en||u.text_en_human ? `<div class="en">${esc(u.text_en_human||u.text_en)}</div>`:""}`;
+  if (role !== "client") return `<div class="utt ${role}">${base}</div></div>`;
+  const t = u.human_tags || u.ai_tags || {};
+  const intents = {...T.intents}; if (t.intent && !intents[t.intent]) intents[t.intent] = "(custom)";
+  delete intents.advisor_turn;
+  return `<div class="utt client ${u.reviewed?"reviewed":""}" data-i="${u.i}">${base}
+    <div class="tags">
+      <select class="wide f-intent">${Object.entries(intents).map(([k,v])=>`<option value="${esc(k)}" ${t.intent===k?"selected":""}>${esc(k.replaceAll("_"," "))}</option>`).join("")}<option value="__new">+ new intent…</option></select>
+      <select class="f-emo">${T.emotions.map(e=>`<option ${t.emotion===e?"selected":""}>${esc(e)}</option>`).join("")}</select>
+      <div class="inten f-int">${[1,2,3].map(n=>`<button data-n="${n}" class="${(t.intensity||1)===n?"on":""}">${n}</button>`).join("")}</div>
+      <input class="wide f-ent" placeholder="Funds / amounts mentioned" value="${esc((t.entities||[]).join(", "))}">
+      <button class="ok">${u.reviewed? "✓ Saved" : "Confirm"}</button>
+    </div>
+    ${!u.reviewed && u.ai_tags ? `<div class="aiflag" style="margin-top:4px">AI suggestion: check it</div>`:""}
+    </div></div>`;
+}
+function bindTagRow(row){
+  const i = +row.dataset.i;
+  row.querySelectorAll(".f-int button").forEach(b => b.onclick = () => { row.querySelectorAll(".f-int button").forEach(x=>x.classList.toggle("on", x===b)); });
+  row.querySelector(".f-intent").onchange = e => { if (e.target.value === "__new") {
+      const v = (prompt("New intent code (e.g. wants_guaranteed_return)")||"").trim().toLowerCase().replace(/[^a-z0-9_]+/g,"_");
+      if (!v) { e.target.selectedIndex = 0; return; }
+      const o = document.createElement("option"); o.value=v; o.textContent=v.replaceAll("_"," "); e.target.insertBefore(o, e.target.lastElementChild); e.target.value=v; } };
+  row.querySelector(".ok").onclick = async (ev) => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    const body = { intent: row.querySelector(".f-intent").value, emotion: row.querySelector(".f-emo").value,
+      intensity: +(row.querySelector(".f-int button.on")?.dataset.n || 1),
+      entities: row.querySelector(".f-ent").value.split(",").map(s=>s.trim()).filter(Boolean) };
+    try {
+      await api(`/sessions/${state.detail.session.id}/utterances/${i}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+      const u = state.detail.utterances.find(x=>x.i===i); u.reviewed = true; u.human_tags = {...body};
+      row.classList.add("reviewed"); btn.textContent = "✓ Saved"; row.querySelector(".aiflag")?.remove();
+      const next = [...$$("#uttList .utt.client")].find(r => +r.dataset.i > i && !r.classList.contains("reviewed"));
+      next?.scrollIntoView({behavior:"smooth", block:"center"});
+    } catch(e){ toast("Save failed: "+e.message); }
+    btn.disabled = false;
+  };
+}
+async function seek(t){
+  const a = $("#detAudio");
+  if (!a.src) { try { const { url } = await api(`/sessions/${state.detail.session.id}/audio`); a.src = url; } catch(e){ return toast(e.message); } }
+  const go = () => { a.currentTime = Math.max(0, t - 0.3); a.play(); };
+  a.readyState >= 1 ? go() : a.addEventListener("loadedmetadata", go, { once:true });
+}
+async function saveSpeakers(){
+  const map = {}; $$(".spSel").forEach(s => map[s.dataset.sp] = s.value);
+  try { await api(`/sessions/${state.detail.session.id}/speakers`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({speaker_map:map}) });
+    state.detail.session.speaker_map = map; state.detail.session.speaker_map_source = "human"; renderDetail(); } catch(e){ toast(e.message); }
+}
+async function bulkConfirm(){
+  if (!confirm("Accept the AI tags for every unreviewed client line? They'll be marked as bulk-accepted in the dataset.")) return;
+  try { const r = await api(`/sessions/${state.detail.session.id}/confirm-remaining`, { method:"POST" }); toast(r.confirmed+" lines accepted"); openDetail(state.detail.session.id); } catch(e){ toast(e.message); }
+}
+async function reprocess(stage){
+  const warn = stage==="all" ? "Re-transcribe from audio? This replaces all lines and your reviews, and costs another speech-to-text run." : "Re-run AI tagging? Your reviewed tags are kept; AI suggestions are refreshed.";
+  if (!confirm(warn)) return;
+  try { await api(`/sessions/${state.detail.session.id}/reprocess?stage=${stage}`, { method:"POST" }); openDetail(state.detail.session.id); } catch(e){ toast(e.message); }
+}
+async function deleteSession(){
+  if (!confirm("Delete this recording, its transcript and all reviews permanently?")) return;
+  try { await api(`/sessions/${state.detail.session.id}`, { method:"DELETE" }); closeDetail(); loadSessions(); toast("Deleted"); } catch(e){ toast(e.message); }
+}
+
+/* ================================================================ DATASET */
+async function loadStats(){
+  const box = $("#statsBox"); box.innerHTML = `<div class="muted">Loading…</div>`;
+  let s; try { s = await api("/stats"); } catch(e){ box.innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
+  const intents = Object.entries(s.by_intent).sort((a,b)=>b[1].total-a[1].total);
+  const max = Math.max(1, ...intents.map(x=>x[1].total));
+  box.innerHTML = `
+    <div class="kpis">
+      <div><div class="kpi">${s.sessions}</div><div class="muted small">recordings</div></div>
+      <div><div class="kpi">${s.hours}</div><div class="muted small">hours of audio</div></div>
+      <div><div class="kpi">${s.client_utterances}</div><div class="muted small">client lines</div></div>
+      <div><div class="kpi">${s.reviewed}</div><div class="muted small">reviewed (gold)</div></div>
+    </div>
+    <div class="muted small" style="margin-top:10px">By channel: ${Object.entries(s.by_channel).map(([k,v])=>`${esc(k.replace("_"," "))} ${v}`).join(" · ")} &nbsp;|&nbsp; By language: ${Object.entries(s.by_language).map(([k,v])=>`${esc(k)} ${v}`).join(" · ")||"—"}</div>
+    <h4 style="margin:22px 0 8px">Client intents <span class="muted small">(dark = reviewed)</span></h4>
+    ${intents.map(([k,v])=>`<div class="bar"><div class="lbl">${esc(k.replaceAll("_"," "))}</div><div class="track"><i style="width:${v.total/max*100}%"></i><b style="width:${v.reviewed/max*100}%"></b></div><div class="n">${v.reviewed}/${v.total}</div></div>`).join("") || '<div class="muted">No tagged client lines yet.</div>'}
+    <div class="row" style="margin-top:20px">
+      <button class="primary" id="expGold">Export reviewed lines (JSONL)</button>
+      <button class="ghost" id="expAll">Export all incl. AI-only</button>
+    </div>`;
+  $("#expGold").onclick = () => exportData(true);
+  $("#expAll").onclick = () => exportData(false);
+}
+async function exportData(reviewedOnly){
+  try { const res = await api("/export?reviewed_only="+reviewedOnly); const blob = await res.blob();
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `fluid_dataset_${reviewedOnly?"gold":"all"}_${new Date().toISOString().slice(0,10)}.jsonl`; a.click();
+  } catch(e){ toast(e.message); }
+}
+</script>
+</body>
+</html>
