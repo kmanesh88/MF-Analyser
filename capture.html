@@ -60,7 +60,7 @@ main{max-width:980px;margin:0 auto;padding:20px}
 .txt{border-left:3px solid var(--line);padding-left:10px}
 .utt.client .txt{border-left-color:var(--client)}
 .spk{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
-.spk.client{color:var(--client)} .spk.advisor{color:var(--advisor)} .spk.other{color:var(--muted)}
+.spk.client{color:var(--client)} .spk.colleague{color:#f0a83a} .spk.advisor{color:var(--advisor)} .spk.other{color:var(--muted)}
 .cm{font-size:15px;margin:2px 0} .en{color:var(--muted);font-size:13px}
 .tags{display:grid;grid-template-columns:2fr 1.2fr auto 2fr auto;gap:8px;margin-top:10px;align-items:center}
 .tags select,.tags input{padding:6px 8px;font-size:13px}
@@ -116,6 +116,10 @@ main{max-width:980px;margin:0 auto;padding:20px}
             <option value="te-IN">Telugu</option>
             <option value="kn-IN">Kannada</option>
           </select>
+        </div>
+        <div>
+          <label>Conversation</label>
+          <select id="ctype"><option value="client">With a client</option><option value="team">With my team (RMs)</option></select>
         </div>
         <div>
           <label>Speakers</label>
@@ -286,7 +290,7 @@ async function checkRecovery(){
     const [rec, del] = d.querySelectorAll("button");
     rec.onclick = async () => { const parts = await IDB.chunks(r.key); if(!parts.length){ await IDB.remove(r.key); d.remove(); return toast("Nothing to recover"); }
       setPending({ blob:new Blob(parts,{type:r.mime}), name:"recording"+extFor(r.mime), recKey:r.key, source:"recorded",
-        meta:{client_id:r.client_id, channel:r.channel, language_hint:r.language_hint, num_speakers:r.num_speakers, recorded_at:new Date(r.started).toISOString()} });
+        meta:{client_id:r.client_id, channel:r.channel, language_hint:r.language_hint, num_speakers:r.num_speakers, conversation_type:r.conversation_type||"client", recorded_at:new Date(r.started).toISOString()} });
       d.remove(); };
     del.onclick = async () => { if(!confirm("Delete this recording permanently?")) return; await IDB.remove(r.key); d.remove(); };
     box.appendChild(d);
@@ -297,7 +301,7 @@ async function checkRecovery(){
 const Rec = { mr:null, key:null, mime:"", idx:0, chunks:[], streams:[], ctx:null, raf:0, startedAt:0, acc:0, segStart:0, tick:0, wake:null };
 function pickMime(){ for (const m of ["audio/webm;codecs=opus","audio/mp4","audio/ogg;codecs=opus","audio/webm"]) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m; return ""; }
 function extFor(m){ return m.includes("mp4")? ".m4a" : m.includes("ogg")? ".ogg" : ".webm"; }
-function meta(){ return { client_id: $("#clientId").value.trim(), channel: state.channel, language_hint: $("#lang").value, num_speakers: +$("#speakers").value }; }
+function meta(){ return { client_id: $("#clientId").value.trim(), channel: state.channel, language_hint: $("#lang").value, num_speakers: +$("#speakers").value, conversation_type: $("#ctype").value }; }
 
 $("#recBtn").onclick = () => Rec.mr ? null : startRecording();
 $("#pauseBtn").onclick = () => {
@@ -421,7 +425,7 @@ async function loadSessions(){
   box.innerHTML = state.sessions.map(s => `
     <div class="item" data-id="${esc(s.id)}">
       <div style="flex:1">
-        <div><strong>${esc(s.client_id||"No client")}</strong> <span class="muted small">· ${esc((s.channel||"").replace("_"," "))} · ${esc(s.detected_language||s.language_hint||"auto")}</span></div>
+        <div><strong>${esc(s.client_id||(s.conversation_type==="team"?"Team conversation":"No client"))}</strong> <span class="muted small">· ${s.conversation_type==="team"?"team · ":""}${esc((s.channel||"").replace("_"," "))} · ${esc(s.detected_language||s.language_hint||"auto")}</span></div>
         <div class="muted small">${esc(new Date(s.recorded_at||s.created_at).toLocaleString())} · ${fmt(s.duration_sec)}${s.status==="ready" ? ` · ${s.utterance_count} lines · ${s.reviewed_count||0} reviewed` : ""}${s.error? ` · <span style="color:var(--red)">${esc(s.error)}</span>`:""}</div>
       </div>${badge(s.status)}</div>`).join("");
   $$("#sessionList .item").forEach(el => el.onclick = () => openDetail(el.dataset.id));
@@ -443,11 +447,12 @@ function renderDetail(){
   const speakers = s.speakers || [...new Set(U.map(u=>u.speaker_id))].sort();
   const smap = s.speaker_map || {};
   const sample = sp => (U.find(u=>u.speaker_id===sp)?.text_codemix || "").slice(0,60);
-  const clientUtts = U.filter(u=>roleOf(u)==="client");
+  const isQ = u => ["client","colleague"].includes(roleOf(u));
+  const clientUtts = U.filter(isQ);
   const reviewed = clientUtts.filter(u=>u.reviewed).length;
   let shown = U;
-  if (state.filterClient) shown = shown.filter(u=>roleOf(u)==="client" || roleOf(u)==="advisor");
-  if (state.filterUnreviewed) shown = shown.filter(u=>roleOf(u)==="client" && !u.reviewed);
+  if (state.filterClient) shown = shown.filter(u=>isQ(u) || roleOf(u)==="advisor");
+  if (state.filterUnreviewed) shown = shown.filter(u=>isQ(u) && !u.reviewed);
 
   $("#sessionDetail").innerHTML = `
   <div class="card">
@@ -460,14 +465,14 @@ function renderDetail(){
     <audio id="detAudio" controls preload="none" style="width:100%;margin-top:12px"></audio>
     ${speakers.length && s.status==="ready" ? `<div style="margin-top:14px"><label>Who is who ${s.speaker_map_source==="ai"?'<span class="aiflag">· AI guess, please check</span>':""}</label>
       <div class="grid">${speakers.map(sp=>`<div><select data-sp="${esc(sp)}" class="spSel">
-        ${["advisor","client","other"].map(r=>`<option value="${r}" ${smap[sp]===r?"selected":""}>Speaker ${esc(sp)} = ${r}</option>`).join("")}</select>
+        ${["advisor","client","colleague","other"].map(r=>`<option value="${r}" ${smap[sp]===r?"selected":""}>Speaker ${esc(sp)} = ${r}</option>`).join("")}</select>
         <div class="muted small" style="margin-top:4px">“${esc(sample(sp))}…”</div></div>`).join("")}</div></div>`:""}
     <div class="row" style="margin-top:14px;justify-content:space-between">
       <div class="row">
         <label class="row small" style="margin:0;gap:6px"><input type="checkbox" id="fUnrev" style="width:auto" ${state.filterUnreviewed?"checked":""}> Unreviewed client lines only</label>
       </div>
       <div class="row">
-        <span class="muted small">${reviewed}/${clientUtts.length} client lines reviewed</span>
+        <span class="muted small">${reviewed}/${clientUtts.length} ${s.conversation_type==="team"?"team":"client"} lines reviewed</span>
         ${s.status==="ready" && reviewed<clientUtts.length ? `<button class="ghost" id="bulkBtn">Accept remaining AI tags</button>`:""}
       </div>
     </div>
@@ -498,11 +503,11 @@ function uttHTML(u, T){
     <div class="txt"><div class="spk ${role}">${role} · ${esc(u.speaker_id)}</div>
     <div class="cm">${esc(u.text_codemix)}</div>
     ${u.text_en||u.text_en_human ? `<div class="en">${esc(u.text_en_human||u.text_en)}</div>`:""}`;
-  if (role !== "client") return `<div class="utt ${role}">${base}</div></div>`;
+  if (role !== "client" && role !== "colleague") return `<div class="utt ${role}">${base}</div></div>`;
   const t = u.human_tags || u.ai_tags || {};
   const intents = {...T.intents}; if (t.intent && !intents[t.intent]) intents[t.intent] = "(custom)";
   delete intents.advisor_turn;
-  return `<div class="utt client ${u.reviewed?"reviewed":""}" data-i="${u.i}">${base}
+  return `<div class="utt client ${role} ${u.reviewed?"reviewed":""}" data-i="${u.i}">${base}
     <div class="tags">
       <select class="wide f-intent">${Object.entries(intents).map(([k,v])=>`<option value="${esc(k)}" ${t.intent===k?"selected":""}>${esc(k.replaceAll("_"," "))}</option>`).join("")}<option value="__new">+ new intent…</option></select>
       <select class="f-emo">${T.emotions.map(e=>`<option ${t.emotion===e?"selected":""}>${esc(e)}</option>`).join("")}</select>
