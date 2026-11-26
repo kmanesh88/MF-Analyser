@@ -90,6 +90,10 @@
       cards: ['f_tax_entity'], key: 'tax_entity' },
     { patterns: [' nri', 'nri ', 'non resident', 'non-resident', ' tds', 'tds ', 'dtaa', 'nre account', 'nro account'],
       cards: ['f_tax_nri'], key: 'tax_nri' },
+    { patterns: ['rnor', 'returning nri', 'moving back to india', 'coming back to india', 'oci', 'pio', 'foreign citizen', 'foreign national', 'expat', 'residential status', 'resident status', 'green card', 'us citizen'],
+      cards: ['f_tax_residency', 'f_tax_nri'], key: 'tax_nri' },
+    { patterns: ['gift to', 'gifting', 'clubbing', 'in wife\'s name', 'in my wife', 'in my son', 'in my daughter', 'minor', 'parents name', 'save tax', 'tax efficient', 'tax-efficient', 'private limited', 'pvt ltd', 'holding company', 'family office'],
+      cards: ['f_tax_planning', 'f_tax_entity'], key: 'tax_entity' },
     { patterns: ['budget', 'new tax act', 'income tax act 2025', 'tax change', 'tax rule', 'buyback', 'new regime', 'old regime'],
       cards: ['f_tax_changes'], key: 'tax_changes' },
     { patterns: ['tax', 'taxation', 'taxable', 'tax free', 'tax-free'],
@@ -160,6 +164,19 @@
           nri.map(t => row(esc(t.item), pct(t.rate) + (t.plus ? ' +SC+cess' : ''), vbadge(t))).join('') +
           `<div class="ftp"><strong>Say:</strong> ${esc(FLUID_STASH.tax_nri.talking_points[0])}</div>` + foot());
       }
+      case 'f_tax_residency': {
+        const st = (R.residency || {}).statuses || {};
+        return fCard(id, 'Tax · Residency', 'Resident, RNOR, NRI, OCI — what is taxed',
+          Object.entries(st).map(([k, v]) => row(k, esc(v.scope.split(';')[0].split('.')[0]))).join('') +
+          `<div class="ftp"><strong>Say:</strong> ${esc((R.residency || {}).principle || '')}</div>` +
+          `<div class="txmuted">Returning NRI? ${esc((R.structuring.find(x => x.id === 'rnor_window') || { points: [''] }).points[0])}</div>` + foot());
+      }
+      case 'f_tax_planning': {
+        const pick = ['huf_split', 'gift_parents', 'clubbing_traps', 'llp_vs_company'].map(k => (R.structuring || []).find(x => x.id === k)).filter(Boolean);
+        return fCard(id, 'Tax · Planning', 'Structuring for tax efficiency',
+          pick.map(p => `<div class="txr"><span>${esc(p.title)}</span></div><div class="txnote">${esc(p.points[0])}</div>`).join('') +
+          `<div class="txmuted"><a href="#" onclick="openTaxDesk('planning');return false">All planning notes →</a></div>` + foot());
+      }
       case 'f_tax_changes':
         return fCard(id, 'Tax · What changed', 'Tax changes in force for TY ' + esc(R.meta.tax_year),
           '<ul class="txul">' + (R.changes_2026 || []).map(c => `<li>${esc(c.what)}</li>`).join('') + '</ul>' + foot());
@@ -181,17 +198,32 @@
     debt_mf_pre_apr2023: 'Debt MF (bought < Apr 2023)', other_mf: 'Hybrid 35–65% / intl / gold FoF', commodity_intl_etf: 'Gold / silver / intl ETF',
     sif: 'SIF units', listed_bond: 'Listed bond / NCD', unlisted_bond: 'Unlisted bond', mld: 'Market-linked debenture', sgb: 'Sovereign Gold Bond',
     physical_gold: 'Physical gold / silver', unlisted_equity: 'Unlisted / foreign shares', real_estate: 'Land / building', reit_invit_units: 'REIT / InvIT units',
-    ulip_high_premium: 'ULIP (premium > ₹2.5L)', aif_units: 'AIF units', pms: 'PMS', vda: 'Crypto / VDA', buyback: 'Share buyback' };
+    ulip_high_premium: 'ULIP (premium > ₹2.5L)', aif_units: 'AIF units', pms: 'PMS', vda: 'Crypto / VDA', buyback: 'Share buyback',
+    ipo_shares: 'IPO / FPO shares', sme_shares: 'SME-exchange shares', bonus_rights: 'Bonus / rights shares', esop_rsu_listed_india: 'ESOP/RSU — Indian listed',
+    esop_rsu_foreign: 'ESOP/RSU — foreign/unlisted', preference_shares: 'Preference shares', warrants: 'Warrants', foreign_equity: 'Foreign stocks/ETFs/MFs (LRS)',
+    adr_gdr: 'ADR / GDR', gift_city_fund: 'GIFT City (IFSC) funds', g_sec: 'G-secs / SDLs', t_bill_cp_cd: 'T-bills / CP / CD', perpetual_bond: 'Perpetual / AT1 bonds',
+    deep_discount_bond: 'Deep discount bonds', securitised_debt: 'PTCs / securitised debt', egr: 'Electronic Gold Receipts', digital_gold: 'Digital gold',
+    gold_monetisation: 'Gold Monetisation Scheme', art_collectibles: 'Art & collectibles', sm_reit: 'SM REIT units', fractional_realty: 'Fractional real estate', nft: 'NFTs' };
   function assetOptions(sel) {
-    return R.capital_gains.assets.filter(a => a.id !== 'pms')
-      .map(a => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${esc(SHORT[a.id] || a.label.split(' (')[0])}</option>`).join('');
+    const groups = {};
+    R.capital_gains.assets.filter(a => a.stcg !== undefined || a.flat != null || a.exempt_all || ['sif', 'ulip_high_premium', 'buyback'].includes(a.id))
+      .forEach(a => (groups[a.cat || 'Other'] = groups[a.cat || 'Other'] || []).push(a));
+    return (R.categories || Object.keys(groups)).filter(c => groups[c]).map(c => `<optgroup label="${esc(c)}">` +
+      groups[c].map(a => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${esc(SHORT[a.id] || a.label.split(' (')[0])}</option>`).join('') + '</optgroup>').join('');
   }
   const ENTITY_LIST = [
     ['individual_resident', 'Individual (resident)'], ['individual_nri', 'NRI'], ['huf', 'HUF'],
     ['trust_private_discretionary', 'Discretionary trust'], ['aop_mmr', 'AOP at MMR'], ['firm_llp', 'Firm / LLP'],
     ['company_115BAA', 'Company 115BAA'], ['company_normal_small', 'Company 25%'], ['company_normal', 'Company 30%'],
   ];
-  function entityOptions(sel) { return ENTITY_LIST.map(([v, l]) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${l}</option>`).join(''); }
+  function entityOptions(sel) {
+    if (!R) return ENTITY_LIST.map(([v, l]) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${l}</option>`).join('');
+    const groups = {};
+    Object.entries(R.entities).filter(([k, e]) => e.engine).forEach(([k, e]) => (groups[e.group || 'Other'] = groups[e.group || 'Other'] || []).push([k, e]));
+    const order = ['Individuals', 'Family structures', 'Trusts', 'Firms & LLPs', 'Companies', 'Foreign investors', 'AOP / BOI / others', 'Charitable', 'Pooled vehicles', 'Other'];
+    return order.filter(g => groups[g]).map(g => `<optgroup label="${esc(g)}">` +
+      groups[g].map(([k, e]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(e.label)}</option>`).join('') + '</optgroup>').join('');
+  }
 
   function datesFromMonths(m) {
     const sale = new Date(); const p = new Date(sale); p.setMonth(p.getMonth() - Math.max(0, Math.round(+m || 0))); p.setDate(p.getDate() - 1);
@@ -268,7 +300,7 @@
       el = document.createElement('div'); el.id = 'tax-desk';
       el.innerHTML = `<div class="txd-panel">
         <div class="txd-head"><div><div class="txd-title">Tax Desk</div><div class="txd-sub" id="txd-sub"></div></div>
-          <div class="txd-tabs">${[['lookup', 'Lookup'], ['calc', 'Calculator'], ['compare', 'Compare structures'], ['harvest', 'Harvest'], ['updates', 'Rule updates'], ['sources', 'Sources']]
+          <div class="txd-tabs">${[['lookup', 'Instruments'], ['structures', 'Structures & residency'], ['eligibility', 'Who can invest'], ['planning', 'Planning'], ['calc', 'Calculator'], ['compare', 'Compare'], ['harvest', 'Harvest'], ['updates', 'Rule updates'], ['sources', 'Sources']]
             .map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join('')}</div>
           <button class="txd-x" onclick="closeTaxDesk()">✕</button></div>
         <div class="txd-body" id="txd-body"></div></div>`;
@@ -290,44 +322,88 @@
     document.getElementById('txd-sub').innerHTML = `TY ${esc(R.meta.tax_year)} · ${esc(R.meta.act.split(' (')[0])} · rules ${esc(R.version)}` +
       (st.pending_updates ? ` · <a href="#" onclick="FluidTax.tab('updates');return false" class="txpend">${st.pending_updates} update${st.pending_updates > 1 ? 's' : ''} pending</a>` : '') +
       (st.unverified ? ` · ${st.unverified} items flagged to verify` : '');
-    ({ lookup: drawLookup, calc: drawCalc, compare: drawCompare, harvest: drawHarvest, updates: drawUpdates, sources: drawSources }[deskTab] || drawLookup)(body);
+    ({ lookup: drawLookup, structures: drawStructures, eligibility: drawEligibility, planning: drawPlanning, calc: drawCalc, compare: drawCompare,
+       harvest: drawHarvest, updates: drawUpdates, sources: drawSources }[deskTab] || drawLookup)(body);
   }
 
+  function assetRow(x) {
+    return `<tr><td>${esc(x.label)} ${vbadge(x)}${x.notes ? `<div class="txnote">${x.notes.map(esc).join('<br>')}</div>` : ''}${x.follows ? `<div class="txnote">${esc(x.follows)}</div>` : ''}${x.maturity_exemption ? `<div class="txnote">${esc(x.maturity_exemption)}</div>` : ''}</td>
+      <td>${x.exempt_all ? 'Exempt' : x.deemed_stcg ? 'Never (deemed short-term)' : x.flat ? '—' : x.lt_months ? '> ' + x.lt_months + ' months' + (x.lt_months_listed ? ` (listed > ${x.lt_months_listed})` : '') : '—'}</td>
+      <td>${x.exempt_all ? 'Exempt' : x.flat ? x.flat + '% flat' : pct(x.stcg)}</td><td>${x.exempt_all ? 'Exempt' : x.ltcg != null ? pct(x.ltcg) + (x.exemption_112A ? ' above ₹1.25L' : '') : x.flat ? x.flat + '% flat' : '—'}</td></tr>`;
+  }
+  function incomeRow(i) {
+    return `<details class="txdet"><summary>${esc(i.label)} — <i>${esc(i.tax.replace(/_/g, ' '))}</i> ${vbadge(i)}</summary>
+      ${(i.notes || []).map(n => `<div class="txnote">• ${esc(n)}</div>`).join('')}
+      ${i.components ? Object.entries(i.components).map(([k, v]) => `<div class="txnote">• <b>${esc(k.replace(/_/g, ' '))}</b>: ${esc(v)}</div>`).join('') : ''}</details>`;
+  }
   function drawLookup(body) {
-    const a = R.capital_gains.assets;
+    const cats = R.categories || ['Other'];
     const n = R.slabs.new_regime, o = R.slabs.old_regime;
+    const q = (document.getElementById('txl-q') || {}).value || '';
+    const match = x => !q || (x.label + ' ' + (x.notes || []).join(' ')).toLowerCase().includes(q.toLowerCase());
     body.innerHTML = `
+      <div class="txform"><input id="txl-q" placeholder="Search instruments… e.g. SGB, ESOP, REIT, NRE" value="${esc(q)}" style="min-width:320px"></div>
       <div class="txd-grid2">
-        <section><h4>Capital gains by asset</h4>
-          <table class="txt"><thead><tr><th>Asset</th><th>Long-term after</th><th>STCG</th><th>LTCG</th></tr></thead><tbody>
-          ${a.map(x => `<tr><td>${esc(x.label)} ${vbadge(x)}${x.notes ? `<div class="txnote">${x.notes.map(esc).join('<br>')}</div>` : ''}${x.follows ? `<div class="txnote">${esc(x.follows)}</div>` : ''}${x.maturity_exemption ? `<div class="txnote">${esc(x.maturity_exemption)}</div>` : ''}</td>
-            <td>${x.deemed_stcg ? 'Never (deemed short-term)' : x.flat ? '—' : x.lt_months ? '> ' + x.lt_months + ' months' + (x.lt_months_listed ? ` (listed > ${x.lt_months_listed})` : '') : '—'}</td>
-            <td>${x.flat ? x.flat + '% flat' : pct(x.stcg)}</td><td>${x.ltcg != null ? pct(x.ltcg) + (x.exemption_112A ? ' above ₹1.25L' : '') : x.flat ? x.flat + '% flat' : '—'}</td></tr>`).join('')}
-          </tbody></table>
-          <div class="txnote">${esc(R.capital_gains.common.indexation)} ${esc(R.capital_gains.common.land_building_option)}</div>
+        <section><h4>Capital gains — by instrument</h4>
+          ${cats.map(c => { const rows = R.capital_gains.assets.filter(a => (a.cat || 'Other') === c && match(a)); return rows.length ? `
+            <div class="txcat">${esc(c)}</div><table class="txt"><thead><tr><th>Instrument</th><th>Long-term after</th><th>STCG</th><th>LTCG</th></tr></thead><tbody>${rows.map(assetRow).join('')}</tbody></table>` : ''; }).join('')}
+          <div class="txnote">${esc(R.capital_gains.common.indexation)} ${esc(R.capital_gains.common.land_building_option)} ${esc(R.capital_gains.common.grandfathering_112A)}</div>
         </section>
-        <section><h4>Slabs — new regime (default)</h4>${slabTable(n.slabs)}
+        <section><h4>Income from instruments (interest, payouts, pensions)</h4>
+          ${cats.map(c => { const rows = R.income.filter(i => (i.cat || 'Other') === c && match(i)); return rows.length ? `<div class="txcat">${esc(c)}</div>${rows.map(incomeRow).join('')}` : ''; }).join('')}
+          <h4>Slabs — new regime (default)</h4>${slabTable(n.slabs)}
           <div class="txnote">Rebate: resident individuals with income ≤ ${inr(n.rebate.income_limit)} pay nil (max ${inr(n.rebate.max_rebate)}); not on special-rate gains. Standard deduction ${inr(n.standard_deduction.salary)}.</div>
           <h4>Old regime</h4>${slabTable(o.slabs.below_60)}
           <div class="txnote">Senior 60–79: nil to ₹3L; 80+: nil to ₹5L. Rebate ≤ ${inr(o.rebate.income_limit)}. 80C ₹1.5L, 80CCD(1B) ₹50k.</div>
-          <h4>Surcharge</h4><div class="txnote">${R.surcharge.individual_like.bands.map(b => `> ${inr(b[0])}: ${b[1]}%`).join(' · ')}. New regime capped at ${R.surcharge.individual_like.new_regime_cap}%. Capital gains & dividends capped at ${R.surcharge.individual_like.special_income_cap}%. Cess ${R.meta.cess_pct}%.</div>
-          <h4>Structures</h4>${Object.entries(R.entities).map(([k, e]) => `<details class="txdet"><summary>${esc(e.label)} ${vbadge(e)}</summary>
-            ${(e.rules || e.notes || []).map(r => `<div class="txnote">• ${esc(r)}</div>`).join('')}
-            ${e.options ? e.options.map(op => `<div class="txnote">• ${esc(op.id)}: ${op.rate != null ? op.rate + '%' : 'slabs'}${op.note ? ' — ' + esc(op.note) : ''}</div>`).join('') : ''}
-            ${e.mat ? `<div class="txnote">• MAT ${e.mat.rate}%${e.mat.final_tax ? ' (final tax)' : ''}${e.mat.credit ? ' — ' + esc(e.mat.credit) : ''}</div>` : ''}
-            ${e.open_question ? `<div class="txnote txwarn">⚠ ${esc(e.open_question)}</div>` : ''}</details>`).join('')}
+          <h4>Surcharge & cess</h4><div class="txnote">${R.surcharge.individual_like.bands.map(b => `> ${inr(b[0])}: ${b[1]}%`).join(' · ')}. New regime capped at ${R.surcharge.individual_like.new_regime_cap}%. Capital gains & dividends capped at ${R.surcharge.individual_like.special_income_cap}%. Cess ${R.meta.cess_pct}%.</div>
+          <h4>Set-off & losses</h4>${R.set_off.rules.map(r => `<div class="txnote">• ${esc(r)}</div>`).join('')}
+          <h4>TDS — residents</h4>${tdsTable(R.tds.resident)}<h4>TDS — NRIs</h4>${tdsTable(R.tds.nri)}
+          <h4>STT</h4><div class="txnote">Futures ${R.stt.futures.sell}% · options premium ${R.stt.options_premium.sell}% · exercise ${R.stt.options_exercise.rate}% · delivery ${R.stt.equity_delivery.buy}% each side.</div>
         </section>
       </div>
-      <div class="txd-grid2">
-        <section><h4>Other investment income</h4>${R.income.map(i => `<details class="txdet"><summary>${esc(i.label)} — <i>${esc(i.tax.replace(/_/g, ' '))}</i> ${vbadge(i)}</summary>
-          ${(i.notes || []).map(n => `<div class="txnote">• ${esc(n)}</div>`).join('')}
-          ${i.components ? Object.entries(i.components).map(([k, v]) => `<div class="txnote">• <b>${esc(k.replace(/_/g, ' '))}</b>: ${esc(v)}</div>`).join('') : ''}</details>`).join('')}</section>
-        <section><h4>Set-off & losses</h4>${R.set_off.rules.map(r => `<div class="txnote">• ${esc(r)}</div>`).join('')}
-          <h4>TDS — residents</h4>${tdsTable(R.tds.resident)}<h4>TDS — NRIs</h4>${tdsTable(R.tds.nri)}
-          <h4>STT</h4><div class="txnote">Futures ${R.stt.futures.sell}% · options premium ${R.stt.options_premium.sell}% · exercise ${R.stt.options_exercise.rate}% · delivery ${R.stt.equity_delivery.buy}% each side.</div></section>
-      </div>
       <div class="txnote" style="margin-top:1rem">${esc(R.meta.disclaimer)}</div>`;
+    const qi = document.getElementById('txl-q');
+    qi.oninput = () => { const pos = qi.selectionStart; drawLookup(body); const n2 = document.getElementById('txl-q'); n2.focus(); n2.setSelectionRange(pos, pos); };
   }
+
+  function drawStructures(body) {
+    const res = R.residency || {};
+    const groups = {};
+    Object.entries(R.entities).forEach(([k, e]) => (groups[e.group || 'Other'] = groups[e.group || 'Other'] || []).push([k, e]));
+    const order = ['Individuals', 'Family structures', 'Trusts', 'Firms & LLPs', 'Companies', 'Foreign investors', 'AOP / BOI / others', 'Charitable', 'Pooled vehicles', 'Other'];
+    body.innerHTML = `<div class="txd-grid2">
+      <section><h4>Residential status ${vbadge(res)}</h4>
+        <div class="txnote"><b>${esc(res.principle || '')}</b></div>
+        ${(res.tests || []).map(t => `<div class="txnote">• ${esc(t.rule)}</div>`).join('')}
+        <table class="txt"><tbody>${Object.entries(res.statuses || {}).map(([k, v]) => `<tr><td><b>${esc(k)}</b><div class="txnote">${esc(v.label)}</div></td><td>${esc(v.scope)}${v.conditions ? `<div class="txnote">${esc(v.conditions)}</div>` : ''}</td></tr>`).join('')}</tbody></table>
+        <h4>Citizenship vs residency</h4>${Object.entries(res.citizenship_types || {}).map(([k, v]) => `<div class="txnote">• <b>${esc(k.replace(/_/g, ' '))}</b>: ${esc(v)}</div>`).join('')}
+        <div class="txnote">• ${esc(res.huf_residency || '')}</div><div class="txnote">• ${esc(res.company_residency || '')}</div><div class="txnote">• ${esc(res.firm_aop_residency || '')}</div>
+        <h4>MMR</h4><div class="txnote">${esc(R.mmr.description)} TY ${esc(R.meta.tax_year)}: up to ${R.mmr.tax_year_2026_27_max_effective_pct}% (new-regime surcharge cap); ${R.mmr.old_regime_max_effective_pct}% at 37% surcharge.</div>
+      </section>
+      <section><h4>Every structure</h4>
+        ${order.filter(g => groups[g]).map(g => `<div class="txcat">${esc(g)}</div>` + groups[g].map(([k, e]) => `<details class="txdet"><summary>${esc(e.label)} ${vbadge(e)}${e.engine ? '' : ' <span class="txtag">reference</span>'}</summary>
+          ${(e.rules || e.notes || []).map(r => `<div class="txnote">• ${esc(r)}</div>`).join('')}
+          ${e.options ? e.options.map(op => `<div class="txnote">• ${esc(op.id)}: ${op.rate != null ? op.rate + '%' : 'slabs'}${op.note ? ' — ' + esc(op.note) : ''}</div>`).join('') : ''}
+          ${e.mat ? `<div class="txnote">• MAT ${e.mat.rate}%${e.mat.final_tax ? ' (final tax)' : ''}${e.mat.credit ? ' — ' + esc(e.mat.credit) : ''}</div>` : ''}
+          ${e.investment_notes ? e.investment_notes.map(r => `<div class="txnote">• ${esc(r)}</div>`).join('') : ''}
+          ${e.open_question ? `<div class="txnote txwarn">⚠ ${esc(e.open_question)}</div>` : ''}</details>`).join('')).join('')}
+      </section></div>`;
+  }
+
+  function drawEligibility(body) {
+    const el = R.eligibility || { rows: [] };
+    const cols = [['resident', 'Resident individual'], ['nri', 'NRI'], ['oci', 'OCI / PIO'], ['foreign_national_nr', 'Foreign national (NR)'], ['huf', 'HUF'], ['trust', 'Trust'], ['company', 'Company'], ['llp_firm', 'LLP / firm']];
+    body.innerHTML = `<div class="txnote">${esc(el.note || '')} ${vbadge(el)}</div>
+      <table class="txt"><thead><tr><th>Product</th>${cols.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>
+      <tbody>${el.rows.map(r => `<tr><td><b>${esc(r.product)}</b></td>${cols.map(c => `<td>${esc(r[c[0]] || '—')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+
+  function drawPlanning(body) {
+    body.innerHTML = `<div class="txd-grid2">${(R.structuring || []).map(p => `<section class="txupd"><b>${esc(p.title)}</b> ${vbadge(p)}
+      ${p.points.map(x => `<div class="txnote">• ${esc(x)}</div>`).join('')}</section>`).join('')}</div>
+      <div class="txnote">${esc(R.meta.disclaimer)}</div>`;
+  }
+
   function slabTable(s) { return `<table class="txt"><tbody>${s.map(([lo, hi, r]) => `<tr><td>${inr(lo)} – ${hi ? inr(hi) : 'above'}</td><td>${r}%</td></tr>`).join('')}</tbody></table>`; }
   function tdsTable(t) { return `<table class="txt"><tbody>${t.map(x => `<tr><td>${esc(x.item)} ${vbadge(x)}${x.note ? `<div class="txnote">${esc(x.note)}</div>` : ''}</td><td>${pct(x.rate)}${x.threshold ? ' > ' + inr(x.threshold) : ''}</td></tr>`).join('')}</tbody></table>`; }
 
@@ -340,6 +416,7 @@
         <label>Age (old regime)<select id="txc-age"><option value="below_60">Below 60</option><option value="senior_60_79">60–79</option><option value="super_senior_80">80+</option></select></label>
         <label>Other income for the year ₹<input type="number" id="txc-income" value="0"></label>
         <label>…of which dividends ₹<input type="number" id="txc-div" value="0"></label>
+        <label>Company tax option<select id="txc-coreg"><option value="115BAA">115BAA (22%)</option><option value="normal_small">Normal 25%</option><option value="normal">Normal 30%</option><option value="115BAB">115BAB (15%)</option></select></label>
         <label>Brought-forward losses ST / LT ₹<span style="display:flex;gap:.3rem"><input type="number" id="txc-stcl" placeholder="0"><input type="number" id="txc-ltcl" placeholder="0"></span></label>
       </div>
       <h4>Gains / losses this year</h4>
@@ -374,7 +451,7 @@
       sif_class: tr.querySelector('.l-sif').value, promoter: tr.querySelector('.l-promoter').value,
       label: tr.querySelector('.l-asset').selectedOptions[0].textContent,
     })).filter(g => g.purchase_date && g.sale_date);
-    return { entity: v('txc-entity'), regime: v('txc-regime'), age_band: v('txc-age'), normal_income: +v('txc-income') || 0,
+    return { entity: v('txc-entity'), regime: v('txc-regime'), age_band: v('txc-age'), company_regime: v('txc-coreg'), normal_income: +v('txc-income') || 0,
              dividend_income: +v('txc-div') || 0, brought_forward: { stcl: +v('txc-stcl') || 0, ltcl: +v('txc-ltcl') || 0 }, gains };
   }
   async function runCalc() {
@@ -416,8 +493,10 @@
       { entity: 'individual_resident', regime: 'new_regime', normal_income: inc },
       { entity: 'individual_resident', regime: 'old_regime', normal_income: inc },
       { entity: 'individual_nri', normal_income: 0 }, { entity: 'huf', normal_income: 0 },
-      { entity: 'trust_private_discretionary', normal_income: 0 }, { entity: 'firm_llp', normal_income: 0 },
-      { entity: 'company_115BAA', normal_income: 0 }, { entity: 'company_normal', normal_income: 0 },
+      { entity: 'individual_rnor', regime: 'new_regime', normal_income: inc }, { entity: 'trust_private_discretionary', normal_income: 0 },
+      { entity: 'trust_will_dependent', normal_income: 0 }, { entity: 'llp', normal_income: 0 },
+      { entity: 'company_private', company_regime: '115BAA', normal_income: 0 }, { entity: 'company_private', company_regime: 'normal', normal_income: 0 },
+      { entity: 'fpi_non_corporate', normal_income: 0 }, { entity: 'aop_indeterminate', normal_income: 0 },
     ];
     try {
       const r = await post('/tax/compare', { base: { gains: [g] }, variants });
@@ -541,6 +620,7 @@
   .txupd pre,.txupd textarea{font:.6rem/1.4 ui-monospace,monospace;background:var(--f-surface-hi,#f4f5f7);border:1px solid var(--f-rule,#e2e5ea);border-radius:5px;padding:.4rem;width:100%;min-height:70px;white-space:pre-wrap;box-sizing:border-box}
   .txtag{font-size:.55rem;padding:1px 6px;border-radius:3px;background:var(--f-surface-hi,#eef0f3);text-transform:uppercase}
   .txconf{font-size:.55rem;padding:1px 6px;border-radius:3px;text-transform:uppercase;font-weight:700}
+  .txcat{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#B8860B;margin:.8rem 0 .3rem}
   .txconf-high{background:#dcfce7;color:#166534} .txconf-medium{background:#fef3c7;color:#92400e} .txconf-low{background:#fee2e2;color:#991b1b}
   `;
   document.head.appendChild(css);
