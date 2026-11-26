@@ -90,6 +90,8 @@
       cards: ['f_tax_entity'], key: 'tax_entity' },
     { patterns: [' nri', 'nri ', 'non resident', 'non-resident', ' tds', 'tds ', 'dtaa', 'nre account', 'nro account'],
       cards: ['f_tax_nri'], key: 'tax_nri' },
+    { patterns: ['dtaa', 'treaty', 'dubai', 'uae', 'abu dhabi', 'singapore', ' usa', 'united states', 'america', ' uk ', 'london', 'canada', 'toronto', 'australia', 'sydney', 'melbourne', 'trc', 'form 10f', 'double tax'],
+      cards: ['f_tax_dtaa', 'f_tax_nri'], key: 'tax_nri' },
     { patterns: ['rnor', 'returning nri', 'moving back to india', 'coming back to india', 'oci', 'pio', 'foreign citizen', 'foreign national', 'expat', 'residential status', 'resident status', 'green card', 'us citizen'],
       cards: ['f_tax_residency', 'f_tax_nri'], key: 'tax_nri' },
     { patterns: ['gift to', 'gifting', 'clubbing', 'in wife\'s name', 'in my wife', 'in my son', 'in my daughter', 'minor', 'parents name', 'save tax', 'tax efficient', 'tax-efficient', 'private limited', 'pvt ltd', 'holding company', 'family office'],
@@ -176,6 +178,13 @@
         return fCard(id, 'Tax · Planning', 'Structuring for tax efficiency',
           pick.map(p => `<div class="txr"><span>${esc(p.title)}</span></div><div class="txnote">${esc(p.points[0])}</div>`).join('') +
           `<div class="txmuted"><a href="#" onclick="openTaxDesk('planning');return false">All planning notes →</a></div>` + foot());
+      }
+      case 'f_tax_dtaa': {
+        const cs = (R.dtaa || { countries: [] }).countries;
+        return fCard(id, 'Tax · NRI treaties', 'DTAA: what an NRI actually pays',
+          `<table class="txt"><thead><tr><th></th><th>Div.</th><th>NRO int.</th><th>MF gains</th></tr></thead><tbody>${cs.map(c => `<tr><td>${esc(c.name)}</td><td>${c.dividend.individual_effective}%</td><td>${c.interest.nro_effective}%</td><td>${c.mf_units_residence_only ? 'Claimable exempt*' : 'India rates'}</td></tr>`).join('')}</tbody></table>
+          <div class="txnote">* Tribunal view (MF units ≠ shares); contested — keep TRC, Form 10F, stay records.</div>
+          <div class="ftp"><strong>Say:</strong> You pay the lower of the Indian rate and the treaty rate — we need your TRC and Form 10F before the payout.</div>` + foot());
       }
       case 'f_tax_changes':
         return fCard(id, 'Tax · What changed', 'Tax changes in force for TY ' + esc(R.meta.tax_year),
@@ -300,7 +309,7 @@
       el = document.createElement('div'); el.id = 'tax-desk';
       el.innerHTML = `<div class="txd-panel">
         <div class="txd-head"><div><div class="txd-title">Tax Desk</div><div class="txd-sub" id="txd-sub"></div></div>
-          <div class="txd-tabs">${[['lookup', 'Instruments'], ['structures', 'Structures & residency'], ['eligibility', 'Who can invest'], ['planning', 'Planning'], ['calc', 'Calculator'], ['compare', 'Compare'], ['harvest', 'Harvest'], ['updates', 'Rule updates'], ['sources', 'Sources']]
+          <div class="txd-tabs">${[['lookup', 'Instruments'], ['structures', 'Structures & residency'], ['dtaa', 'NRI treaties'], ['eligibility', 'Who can invest'], ['planning', 'Planning'], ['calc', 'Calculator'], ['compare', 'Compare'], ['harvest', 'Harvest'], ['updates', 'Rule updates'], ['sources', 'Sources']]
             .map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join('')}</div>
           <button class="txd-x" onclick="closeTaxDesk()">✕</button></div>
         <div class="txd-body" id="txd-body"></div></div>`;
@@ -322,7 +331,7 @@
     document.getElementById('txd-sub').innerHTML = `TY ${esc(R.meta.tax_year)} · ${esc(R.meta.act.split(' (')[0])} · rules ${esc(R.version)}` +
       (st.pending_updates ? ` · <a href="#" onclick="FluidTax.tab('updates');return false" class="txpend">${st.pending_updates} update${st.pending_updates > 1 ? 's' : ''} pending</a>` : '') +
       (st.unverified ? ` · ${st.unverified} items flagged to verify` : '');
-    ({ lookup: drawLookup, structures: drawStructures, eligibility: drawEligibility, planning: drawPlanning, calc: drawCalc, compare: drawCompare,
+    ({ lookup: drawLookup, structures: drawStructures, dtaa: drawDTAA, eligibility: drawEligibility, planning: drawPlanning, calc: drawCalc, compare: drawCompare,
        harvest: drawHarvest, updates: drawUpdates, sources: drawSources }[deskTab] || drawLookup)(body);
   }
 
@@ -390,6 +399,24 @@
       </section></div>`;
   }
 
+  function drawDTAA(body) {
+    const d = R.dtaa; if (!d) { body.innerHTML = '<div class="txmuted">No treaty data.</div>'; return; }
+    body.innerHTML = `<div class="txnote"><b>${esc(d.principle)}</b></div>
+      <table class="txt"><thead><tr><th>Country</th><th>Dividends (individual pays)</th><th>NRO / other interest</th><th>Gains on Indian shares</th><th>Gains on MF units</th><th>Home-country tax</th></tr></thead><tbody>
+      ${d.countries.map(c => `<tr><td><b>${esc(c.name)}</b> ${vbadge(c)}</td>
+        <td><b>${c.dividend.individual_effective}%</b><div class="txnote">Treaty: ${esc(c.dividend.treaty)}${c.dividend.note ? '<br>' + esc(c.dividend.note) : ''}</div></td>
+        <td><b>${c.interest.nro_effective}%</b><div class="txnote">Treaty: ${esc(c.interest.treaty)}</div></td>
+        <td>${esc(c.cg_shares)}</td>
+        <td>${c.mf_units_residence_only ? '<span class="txconf txconf-high">possible exemption</span> ' : ''}${esc(c.cg_mf_units)}</td>
+        <td>${esc(c.home_tax)}${c.open_question ? `<div class="txnote txwarn">⚠ ${esc(c.open_question)}</div>` : ''}</td></tr>`).join('')}
+      </tbody></table>
+      <div class="txnote">Act rate without treaty: dividends ${d.act_rates_nonresident.dividend}%, NRO interest ${esc(d.act_rates_nonresident.nro_interest)}. NRE / FCNR interest is exempt for non-residents regardless of treaty.</div>
+      <div class="txd-grid2"><section><h4>Documents to claim treaty rates</h4>${d.documents.map(x => `<div class="txnote">• ${esc(x)}</div>`).join('')}
+        <h4>Anti-abuse</h4>${d.anti_abuse.map(x => `<div class="txnote">• ${esc(x)}</div>`).join('')}</section>
+        <section><h4>Caution</h4>${d.caution.map(x => `<div class="txnote txwarn">• ${esc(x)}</div>`).join('')}
+        <div class="txnote">Try it: Calculator → taxpayer NRI → treaty country → tick “MF-unit treaty exemption”.</div></section></div>`;
+  }
+
   function drawEligibility(body) {
     const el = R.eligibility || { rows: [] };
     const cols = [['resident', 'Resident individual'], ['nri', 'NRI'], ['oci', 'OCI / PIO'], ['foreign_national_nr', 'Foreign national (NR)'], ['huf', 'HUF'], ['trust', 'Trust'], ['company', 'Company'], ['llp_firm', 'LLP / firm']];
@@ -417,6 +444,8 @@
         <label>Other income for the year ₹<input type="number" id="txc-income" value="0"></label>
         <label>…of which dividends ₹<input type="number" id="txc-div" value="0"></label>
         <label>Company tax option<select id="txc-coreg"><option value="115BAA">115BAA (22%)</option><option value="normal_small">Normal 25%</option><option value="normal">Normal 30%</option><option value="115BAB">115BAB (15%)</option></select></label>
+        <label>Treaty country (non-residents)<select id="txc-dtaa"><option value="">None / Act rates</option>${(R.dtaa ? R.dtaa.countries : []).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
+        <label style="flex-direction:row;align-items:center;gap:.35rem"><input type="checkbox" id="txc-mftreaty" style="width:auto"> MF-unit treaty exemption (SG/UAE, tribunal view)</label>
         <label>Brought-forward losses ST / LT ₹<span style="display:flex;gap:.3rem"><input type="number" id="txc-stcl" placeholder="0"><input type="number" id="txc-ltcl" placeholder="0"></span></label>
       </div>
       <h4>Gains / losses this year</h4>
@@ -452,7 +481,7 @@
       label: tr.querySelector('.l-asset').selectedOptions[0].textContent,
     })).filter(g => g.purchase_date && g.sale_date);
     return { entity: v('txc-entity'), regime: v('txc-regime'), age_band: v('txc-age'), company_regime: v('txc-coreg'), normal_income: +v('txc-income') || 0,
-             dividend_income: +v('txc-div') || 0, brought_forward: { stcl: +v('txc-stcl') || 0, ltcl: +v('txc-ltcl') || 0 }, gains };
+             dividend_income: +v('txc-div') || 0, dtaa_country: v('txc-dtaa'), apply_mf_treaty: document.getElementById('txc-mftreaty').checked, brought_forward: { stcl: +v('txc-stcl') || 0, ltcl: +v('txc-ltcl') || 0 }, gains };
   }
   async function runCalc() {
     const out = document.getElementById('txc-out'); out.innerHTML = '<div class="txmuted">Calculating…</div>';
@@ -497,12 +526,14 @@
       { entity: 'trust_will_dependent', normal_income: 0 }, { entity: 'llp', normal_income: 0 },
       { entity: 'company_private', company_regime: '115BAA', normal_income: 0 }, { entity: 'company_private', company_regime: 'normal', normal_income: 0 },
       { entity: 'fpi_non_corporate', normal_income: 0 }, { entity: 'aop_indeterminate', normal_income: 0 },
+      { entity: 'individual_nri', normal_income: 0, dtaa_country: 'uae', apply_mf_treaty: true, _label: 'NRI in UAE — MF treaty claim' },
+      { entity: 'individual_nri', normal_income: 0, dtaa_country: 'singapore', apply_mf_treaty: true, _label: 'NRI in Singapore — MF treaty claim' },
     ];
     try {
       const r = await post('/tax/compare', { base: { gains: [g] }, variants });
       const max = Math.max(1, ...r.results.map(x => x.on_gains || 0));
       out.innerHTML = r.results.map(x => x.error ? `<div class="txerr">${esc(x.error)}</div>` :
-        `<div class="txbar"><span class="txbar-l">${esc(x.label)}${x.regime && x.regime.includes('regime') ? ' · ' + x.regime.replace('_regime', '') : ''}</span>
+        `<div class="txbar"><span class="txbar-l">${esc(x.variant._label || x.label)}${!x.variant._label && x.regime && x.regime.includes('regime') ? ' · ' + x.regime.replace('_regime', '') : ''}</span>
          <span class="txbar-t"><i style="width:${(x.on_gains || 0) / max * 100}%"></i></span><b>${inr(x.on_gains)}</b>
          <span class="txmuted">${g.gain ? ((x.on_gains || 0) / g.gain * 100).toFixed(1) + '%' : ''}</span></div>`).join('');
     } catch (e) { out.innerHTML = `<div class="txerr">${esc(e.message)}</div>`; }
