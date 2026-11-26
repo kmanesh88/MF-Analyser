@@ -90,6 +90,8 @@
       cards: ['f_tax_entity'], key: 'tax_entity' },
     { patterns: [' nri', 'nri ', 'non resident', 'non-resident', ' tds', 'tds ', 'dtaa', 'nre account', 'nro account'],
       cards: ['f_tax_nri'], key: 'tax_nri' },
+    { patterns: ['pfic', 'green card', 'us citizen', 'us person', 'american citizen', 'form 8621', 'fbar', 'irs', 'fatca', 'hmrc', 'offshore fund', 'reporting fund', 't1135', 'cra '],
+      cards: ['f_tax_home', 'f_tax_dtaa'], key: 'tax_nri' },
     { patterns: ['dtaa', 'treaty', 'dubai', 'uae', 'abu dhabi', 'singapore', ' usa', 'united states', 'america', ' uk ', 'london', 'canada', 'toronto', 'australia', 'sydney', 'melbourne', 'trc', 'form 10f', 'double tax'],
       cards: ['f_tax_dtaa', 'f_tax_nri'], key: 'tax_nri' },
     { patterns: ['rnor', 'returning nri', 'moving back to india', 'coming back to india', 'oci', 'pio', 'foreign citizen', 'foreign national', 'expat', 'residential status', 'resident status', 'green card', 'us citizen'],
@@ -185,6 +187,14 @@
           `<table class="txt"><thead><tr><th></th><th>Div.</th><th>NRO int.</th><th>MF gains</th></tr></thead><tbody>${cs.map(c => `<tr><td>${esc(c.name)}</td><td>${c.dividend.individual_effective}%</td><td>${c.interest.nro_effective}%</td><td>${c.mf_units_residence_only ? 'Claimable exempt*' : 'India rates'}</td></tr>`).join('')}</tbody></table>
           <div class="txnote">* Tribunal view (MF units ≠ shares); contested — keep TRC, Form 10F, stay records.</div>
           <div class="ftp"><strong>Say:</strong> You pay the lower of the Indian rate and the treaty rate — we need your TRC and Form 10F before the payout.</div>` + foot());
+      }
+      case 'f_tax_home': {
+        const h = R.home_country; if (!h) return null;
+        const rows = h.products.filter(r => /mutual funds|PMS|ETFs|NRE/.test(r.product));
+        return fCard(id, 'Tax · Home country', 'Taxed abroad? The wrapper matters',
+          `<table class="txt"><thead><tr><th></th><th>US</th><th>UK</th><th>CA</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r.product.split(' (')[0])}</td>${['us', 'uk', 'canada'].map(c => `<td><span class="txfit txfit-${r[c][0]}">${r[c][0] === 'ok' ? '✓' : r[c][0] === 'caution' ? '⚠' : '✕'}</span></td>`).join('')}</tr>`).join('')}</tbody></table>
+          <div class="ftp"><strong>Say:</strong> For a US person, Indian mutual funds are PFICs — punitive US tax and a Form 8621 per fund every year. A PMS or direct shares avoid that.</div>
+          <div class="txmuted"><a href="#" onclick="openTaxDesk('dtaa');return false">Full matrix →</a></div>` + foot());
       }
       case 'f_tax_changes':
         return fCard(id, 'Tax · What changed', 'Tax changes in force for TY ' + esc(R.meta.tax_year),
@@ -414,7 +424,26 @@
       <div class="txd-grid2"><section><h4>Documents to claim treaty rates</h4>${d.documents.map(x => `<div class="txnote">• ${esc(x)}</div>`).join('')}
         <h4>Anti-abuse</h4>${d.anti_abuse.map(x => `<div class="txnote">• ${esc(x)}</div>`).join('')}</section>
         <section><h4>Caution</h4>${d.caution.map(x => `<div class="txnote txwarn">• ${esc(x)}</div>`).join('')}
-        <div class="txnote">Try it: Calculator → taxpayer NRI → treaty country → tick “MF-unit treaty exemption”.</div></section></div>`;
+        <div class="txnote">Try it: Calculator → taxpayer NRI → treaty country → tick “MF-unit treaty exemption”.</div></section></div>
+      ${homeCountryHTML()}`;
+  }
+  function homeCountryHTML() {
+    const h = R.home_country; if (!h) return '';
+    const cs = [['us', 'US person'], ['uk', 'UK resident'], ['canada', 'Canada'], ['australia', 'Australia'], ['uae', 'UAE'], ['singapore', 'Singapore']];
+    const badge = r => `<span class="txfit txfit-${r}">${r === 'ok' ? '✓ fine' : r === 'caution' ? '⚠ caution' : '✕ avoid'}</span>`;
+    const p = h.us_pfic, u = h.uk_offshore_funds;
+    return `<h4>Home-country tax on Indian products ${vbadge(h)}</h4>
+      <div class="txnote"><b>${esc(h.principle)}</b></div>
+      <table class="txt"><thead><tr><th>Indian product</th>${cs.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody>
+      ${h.products.map(r => `<tr><td><b>${esc(r.product)}</b></td>${cs.map(c => `<td>${badge(r[c[0]][0])}<div class="txnote">${esc(r[c[0]][1])}</div></td>`).join('')}</tr>`).join('')}</tbody></table>
+      <div class="txd-grid2"><section><h4>US — PFIC ${vbadge(p)}</h4><div class="txnote">${esc(h.who_is_caught.us)}</div><div class="txnote"><b>${esc(p.what)}</b></div>
+        ${p.regimes.map(x => `<div class="txnote">• ${esc(x)}</div>`).join('')}<div class="txnote"><b>Reporting:</b> ${p.reporting.map(esc).join(' · ')}</div>
+        <div class="txnote">${esc(p.india_side)}</div></section>
+        <section><h4>UK — offshore funds ${vbadge(u)}</h4><div class="txnote">${esc(h.who_is_caught.uk)}</div><div class="txnote"><b>${esc(u.what)}</b></div>
+        <div class="txnote">• ${esc(u.effect)}</div><div class="txnote">• ${esc(u.direct_shares)}</div>
+        <h4>Canada ${vbadge(h.canada)}</h4><div class="txnote">${esc(h.canada.what)} ${esc(h.canada.effect)}</div>
+        <h4>Australia ${vbadge(h.australia)}</h4><div class="txnote">${esc(h.australia.what)} ${esc(h.australia.effect)}</div></section></div>
+      <div class="txnote txwarn">${esc(h.caution)}</div>`;
   }
 
   function drawEligibility(body) {
@@ -446,6 +475,7 @@
         <label>Company tax option<select id="txc-coreg"><option value="115BAA">115BAA (22%)</option><option value="normal_small">Normal 25%</option><option value="normal">Normal 30%</option><option value="115BAB">115BAB (15%)</option></select></label>
         <label>Treaty country (non-residents)<select id="txc-dtaa"><option value="">None / Act rates</option>${(R.dtaa ? R.dtaa.countries : []).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
         <label style="flex-direction:row;align-items:center;gap:.35rem"><input type="checkbox" id="txc-mftreaty" style="width:auto"> MF-unit treaty exemption (SG/UAE, tribunal view)</label>
+        <label style="flex-direction:row;align-items:center;gap:.35rem"><input type="checkbox" id="txc-usp" style="width:auto"> US person (citizen / green card) — flag PFIC</label>
         <label>Brought-forward losses ST / LT ₹<span style="display:flex;gap:.3rem"><input type="number" id="txc-stcl" placeholder="0"><input type="number" id="txc-ltcl" placeholder="0"></span></label>
       </div>
       <h4>Gains / losses this year</h4>
@@ -481,7 +511,7 @@
       label: tr.querySelector('.l-asset').selectedOptions[0].textContent,
     })).filter(g => g.purchase_date && g.sale_date);
     return { entity: v('txc-entity'), regime: v('txc-regime'), age_band: v('txc-age'), company_regime: v('txc-coreg'), normal_income: +v('txc-income') || 0,
-             dividend_income: +v('txc-div') || 0, dtaa_country: v('txc-dtaa'), apply_mf_treaty: document.getElementById('txc-mftreaty').checked, brought_forward: { stcl: +v('txc-stcl') || 0, ltcl: +v('txc-ltcl') || 0 }, gains };
+             dividend_income: +v('txc-div') || 0, dtaa_country: v('txc-dtaa'), apply_mf_treaty: document.getElementById('txc-mftreaty').checked, us_person: document.getElementById('txc-usp').checked, brought_forward: { stcl: +v('txc-stcl') || 0, ltcl: +v('txc-ltcl') || 0 }, gains };
   }
   async function runCalc() {
     const out = document.getElementById('txc-out'); out.innerHTML = '<div class="txmuted">Calculating…</div>';
@@ -651,6 +681,8 @@
   .txupd pre,.txupd textarea{font:.6rem/1.4 ui-monospace,monospace;background:var(--f-surface-hi,#f4f5f7);border:1px solid var(--f-rule,#e2e5ea);border-radius:5px;padding:.4rem;width:100%;min-height:70px;white-space:pre-wrap;box-sizing:border-box}
   .txtag{font-size:.55rem;padding:1px 6px;border-radius:3px;background:var(--f-surface-hi,#eef0f3);text-transform:uppercase}
   .txconf{font-size:.55rem;padding:1px 6px;border-radius:3px;text-transform:uppercase;font-weight:700}
+  .txfit{font-size:.56rem;font-weight:700;padding:1px 6px;border-radius:3px;white-space:nowrap}
+  .txfit-ok{background:#dcfce7;color:#166534} .txfit-caution{background:#fef3c7;color:#92400e} .txfit-avoid{background:#fee2e2;color:#991b1b}
   .txcat{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#B8860B;margin:.8rem 0 .3rem}
   .txconf-high{background:#dcfce7;color:#166534} .txconf-medium{background:#fef3c7;color:#92400e} .txconf-low{background:#fee2e2;color:#991b1b}
   `;
