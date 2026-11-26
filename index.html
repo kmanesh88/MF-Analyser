@@ -1325,6 +1325,7 @@ body {
 .cap-tag-l { background: rgba(91,159,214,.15); color: var(--lc); }
 .cap-tag-m { background: rgba(232,184,75,.15); color: var(--mc); }
 .cap-tag-s { background: rgba(224,86,86,.15);  color: var(--sc); }
+.cap-tag-i { background: rgba(123,104,238,.14); color: #7b68ee; }
 
 .chip {
   font-family: 'IBM Plex Mono', monospace;
@@ -1869,7 +1870,11 @@ body {
 
 <div class="page" id="page-alerts">
   <div class="pg-header"><div class="pg-title">Alerts Dashboard</div>
-  <div class="pg-sub">Threshold breaches and movement flags across all portfolios</div></div>
+  <div class="pg-sub">Market Watch (price moves × client exposure) · threshold breaches and movement flags across all portfolios</div></div>
+  <div class="card" style="margin-bottom:1.1rem">
+    <div class="card-title">Market Watch — get ready before the client calls</div>
+    <div id="mw-root"><div style="color:var(--muted);font-size:.65rem;padding:.5rem">Loading…</div></div>
+  </div>
   <div class="mgrid cols4" id="alert-kpis" style="margin-bottom:1.25rem"></div>
   <div class="card">
     <div class="card-title">Active Alerts</div>
@@ -2862,12 +2867,107 @@ function updateAmfiStatus(msg) {
 }
 
 // CAP CLASSIFICATION — single lookup into amfiCapData (populated from AMFI Excel or hardcoded sets)
-function classifyEquity(raw) {
-  return classifyEquityWithConfidence(raw).cap;
+function classifyEquity(raw, isin) {
+  return classifyEquityWithConfidence(raw, isin).cap;
 }
 
-function classifyEquityWithConfidence(raw) {
+// ── INTERNATIONAL EQUITY ────────────────────────────────────────────
+// Foreign stocks (in PPFAS-style domestic funds, international ETFs, or looked-through FoFs) have no
+// Indian cap category. Detection: ISIN prefix ≠ IN → server list of foreign names (built from uploaded
+// factsheets, /alerts/foreign-names) → narrow suffix heuristic for blank-ISIN rows.
+// Stored large/mid/small are NOT rewritten; capSplit() corrects them when items are built.
+const FOREIGN_LS = 'mf_analyser_foreign_names_v1';
+let _foreignMap = null;  // NORMALISED NAME → country code
+function _foreignNames() {
+  if (_foreignMap) return _foreignMap;
+  _foreignMap = new Map();
+  try {
+    const raw = JSON.parse(localStorage.getItem(FOREIGN_LS) || '{}');
+    Object.entries(raw.names || {}).forEach(([n, c]) => _foreignMap.set(normStockKey(n), c || ''));
+  } catch (e) {}
+  return _foreignMap;
+}
+async function refreshForeignNames() {
+  try {
+    const base = getMfApiUrl() || 'https://mf-holdings-api.onrender.com';
+    const r = await fetch(`${base}/alerts/foreign-names`, { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) return;
+    const j = await r.json();
+    localStorage.setItem(FOREIGN_LS, JSON.stringify({ names: j.names || {}, at: Date.now() }));
+    _foreignMap = null;
+  } catch (e) { console.warn('[intl] foreign-names refresh failed', e.message); }
+}
+function isForeignEquity(name, isin) {
+  const i = String(isin || '').toUpperCase();
+  if (/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(i)) return !i.startsWith('IN');
+  if (!name) return false;
+  const n = normStockKey(name);
+  if (amfiCapData[n]) return false;
+  if (_foreignNames().has(n)) return true;
+  // "Corp"/"Corporation" deliberately excluded — Indian names use them (Indian Oil Corp)
+  return /\b(INC|PLC|AG|N ?V|S ?A|SE|ASA|SPA|ADR|ADS|CLASS [ABC])$/.test(n);
+}
+function foreignCountry(name, isin) {
+  const i = String(isin || '').toUpperCase();
+  if (/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(i) && !i.startsWith('IN')) return i.slice(0, 2);
+  return _foreignNames().get(normStockKey(name || '')) || '';
+}
+const COUNTRY_LABEL = { US:'United States', GB:'United Kingdom', IE:'Ireland', LU:'Luxembourg', KY:'Cayman Is.',
+  NL:'Netherlands', DE:'Germany', FR:'France', CH:'Switzerland', JP:'Japan', CN:'China', HK:'Hong Kong',
+  TW:'Taiwan', KR:'South Korea', CA:'Canada', BM:'Bermuda', SG:'Singapore', DK:'Denmark', SE:'Sweden', IL:'Israel' };
+// Fund-level correction: re-split stored large+mid+small (where legacy data counted foreign stocks as
+// small) into Indian large/mid/small + intl, preserving the fund's equity total. Pure; never mutates f.
+function capSplit(f) {
+  const stocks = f.equityStocks || [];
+  if (!stocks.length) return {};
+  let lc = 0, mc = 0, sc = 0, ic = 0;
+  stocks.forEach(s => {
+    const p = s.pct || 0;
+    if (s.geo === 'INTL' || isForeignEquity(s.name, s.isin)) { ic += p; return; }
+    const c = s.cap || classifyEquity(s.name, s.isin);
+    if (c === 'large') lc += p; else if (c === 'mid') mc += p; else sc += p;
+  });
+  if (ic <= 0) return { intlEq: 0 };
+  // intlEq is added back so re-applying to an already-corrected object returns the same result
+  const prevIntl = f.intlEq || 0;
+  const T = (f.large || 0) + (f.mid || 0) + (f.small || 0) + prevIntl;
+  const k = T > 0 ? T / (lc + mc + sc + ic) : 1;
+  const intl = ic * k;
+  return { large: lc * k, mid: mc * k, small: sc * k, intlEq: intl, eqOther: (f.eqOther || 0) - prevIntl + intl };
+}
+// Portfolio-level international equity: direct foreign stocks inside domestic funds + international
+// funds/ETFs/FoFs (looked through where their holdings are known, else "no look-through").
+function computeIntlExposure(items) {
+  const out = { direct: 0, viaIntlFunds: 0, total: 0, byCountry: {}, bySector: {}, funds: [] };
+  const add = (m, k, v) => { m[k] = (m[k] || 0) + v; };
+  items.forEach(f => {
+    if (f.commodityType) return;
+    const fs = (f.equityStocks || []).filter(s => s.geo === 'INTL' || isForeignEquity(s.name, s.isin));
+    const fx = fs.reduce((a, s) => a + (s.pct || 0), 0);
+    const tally = scale => fs.forEach(s => {
+      const v = f.wt * (s.pct || 0) / 100 * scale;
+      add(out.byCountry, COUNTRY_LABEL[foreignCountry(s.name, s.isin)] || foreignCountry(s.name, s.isin) || 'Unknown', v);
+      add(out.bySector, getSector(s.name, s.sector) || 'Other', v);
+    });
+    if (f.specialType === 'International') {
+      out.viaIntlFunds += f.wt;
+      if (fx > 0) { tally(100 / Math.max(fx, 100)); if (fx < 99) add(out.byCountry, 'No look-through', f.wt * (100 - Math.min(fx, 100)) / 100); }
+      else add(out.byCountry, 'No look-through', f.wt);
+      out.funds.push({ name: f.name, wt: f.wt, kind: fx > 0 ? 'International fund' : 'International fund — upload underlying factsheet' });
+    } else if (fx > 0) {
+      out.direct += f.wt * fx / 100;
+      tally(1);
+      out.funds.push({ name: f.name, wt: f.wt * fx / 100, kind: `Direct (${fx.toFixed(1)}% of fund)` });
+    }
+  });
+  out.total = out.direct + out.viaIntlFunds;
+  out.funds.sort((a, b) => b.wt - a.wt);
+  return out;
+}
+
+function classifyEquityWithConfidence(raw, isin) {
   if (!raw) return { cap: 'small', src: 'Default', conf: 0 };
+  if (isForeignEquity(raw, isin)) return { cap: 'intl', src: 'Foreign', conf: 3 };
   const n = normStockKey(raw);
 
   // ── Direct lookup in amfiCapData (populated from AMFI_CAP_MAP + server fetch) ──
@@ -3471,17 +3571,19 @@ function getActiveItems() {
 
     // International / FoF / Arbitrage — excluded from Indian equity cap analysis
     let specialType = null;
-    if (/overseas|international|world|us\s*equity|nasdaq|s&p|global\s*(?!gold)|foreign/i.test(nm))
+    // International: name says so (same pattern as the backend's alerts_engine.INTL_NAME_RE).
+    // Domestic FoFs (multi-asset, debt, equity FoFs) are 'FoF' — previously every FoF was tagged International.
+    if (/overseas|international|world|foreign|\bus\b|u\.s\.|usa|america|nasdaq|s&p|nyse|fang|china|japan|taiwan|hang seng|europe|emerging market|asia|msci|developed market|global\s*(?!gold)/i.test(nm))
       specialType = 'International';
     else if (/\bfof\b|fund\s*of\s*fund/i.test(nm) && !/arbitrage/i.test(nm))
-      specialType = 'International';
+      specialType = 'FoF';
     else if (/\barbitrage\b/i.test(nm))
       specialType = 'Arbitrage';
 
     const uploaded = uploadedMap[r.fundName] || uploadedMap[normFund(r.fundName)];
 
     if (uploaded) {
-      items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, specialType, ...uploaded.data});
+      items.push({name: r.fundName, amc: r.amcName||uploaded.amc, wt, commodityType, specialType, ...uploaded.data, ...capSplit(uploaded.data)});
     } else {
       items.push({name: r.fundName, amc: r.amcName, wt, commodityType, specialType,
         large:0,mid:0,small:0,eqOther:0,gsec:0,sdl:0,aaa:0,aa:0,mkt:0,cash:0,debtTotal:0,
@@ -3537,6 +3639,7 @@ function takeSnapshot() {
     gsec:bl('gsec'),sdl:bl('sdl'),aaa:bl('aaa'),aa:bl('aa'),mkt:bl('mkt'),cash:bl('cash'),
     debtTotal:bl('gsec')+bl('sdl')+bl('aaa')+bl('aa')+bl('mkt')+bl('cash'),
     sectors:sectorMap,
+    intlEquityPct: computeIntlExposure(items).total,
     uniqueStocks:new Set(items.flatMap(f=>(f.equityStocks||[]).map(s=>normStockKey(s.name)))).size,
     fundCount:items.length,
   };
@@ -3681,6 +3784,7 @@ function showPage(pg) {
     if (pg==='summary')    try{buildSummary();}catch(e){console.error('buildSummary',e);}
     if (pg==='clients')    try{renderPortfolioGrid();refreshHealthAndDriftBadges();}catch(e){console.error('renderPortfolioGrid',e);}
     if (pg==='alerts')     try{buildAlertsPage();}catch(e){console.error('buildAlertsPage',e);}
+    if (pg==='alerts')     try{window.MarketWatch?.render();}catch(e){console.error('MarketWatch',e);}
     if (pg==='thresholds') try{buildThresholdsPage();}catch(e){console.error('buildThresholdsPage',e);}
     if (pg==='monitor')    { try{renderWatchlist();}catch(e){console.error('renderWatchlist',e);} if(!_monitorLoaded) loadMarketMonitor(); }
     if (pg==='fluid')      { try{fluidInit();}catch(e){console.error('fluidInit',e);} }
@@ -7628,7 +7732,11 @@ function buildSummary() {
     { label:'Equity',    val:equityPct,   color:'var(--lc)',      seg:'sg-l'    },
     { label:'Debt',      val:debtPct,     color:'var(--dc-aaa)',  seg:'sg-aaa'  },
     { label:'Cash/MM',   val:cashPortPct, color:'var(--dc-mkt)',  seg:'sg-mkt'  },
-    ...(specialPct > 0.1 ? [{ label:'Intl/FoF', val:specialPct, color:'#7b68ee', seg:'sg-intl' }] : []),
+    ...['International','FoF','Arbitrage'].map(t => {
+      const v = specItems.filter(f => f.specialType === t).reduce((s,f)=>s+f.wt,0);
+      const label = t === 'International' ? 'Intl funds' : t === 'FoF' ? 'Domestic FoF' : 'Arbitrage';
+      return v > 0.1 ? { label, val:v, color: t==='International' ? '#7b68ee' : 'var(--s4)', seg: t==='International' ? 'sg-intl' : 'sg-oeq' } : null;
+    }).filter(Boolean),
     ...commItems.map(f=>({ label:f.commodityType||'Commodity', val:f.wt, color:'#b8860b', seg:'sg-comm' })),
     ...(unknownPct > 1 ? [{ label:'Other', val:unknownPct, color:'var(--s4)', seg:'sg-oeq' }] : []),
   ].filter(a=>a.val > 0.1);
@@ -7651,11 +7759,22 @@ function buildSummary() {
   const pM = eqSum>0 ? bM/eqSum*100 : 0;
   const pS = eqSum>0 ? bS/eqSum*100 : 0;
 
+  const intlX = computeIntlExposure(items);
+  const topC = Object.entries(intlX.byCountry).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  const topSec = Object.entries(intlX.bySector).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const intlHtml = intlX.total > 0.05 ? `
+    <div style="font-size:.62rem;margin-top:.55rem;padding:.45rem .65rem;background:var(--s3);border-radius:var(--r-sm);border-left:3px solid #7b68ee">
+      <div style="font-weight:600;color:#7b68ee;margin-bottom:.2rem">International equity ${intlX.total.toFixed(1)}% of portfolio — excluded from the Indian cap split above</div>
+      <div style="color:var(--muted2)">Direct in domestic funds ${intlX.direct.toFixed(1)}% · International funds/FoFs ${intlX.viaIntlFunds.toFixed(1)}%</div>
+      <div style="color:var(--muted2)">Country: ${topC.map(([c,v])=>`${c} ${v.toFixed(1)}%`).join(' · ')}</div>
+      ${topSec.length ? `<div style="color:var(--muted2)">Sector: ${topSec.map(([c,v])=>`${c} ${v.toFixed(1)}%`).join(' · ')}</div>` : ''}
+      <div style="color:var(--muted);margin-top:.15rem">${intlX.funds.slice(0,5).map(f=>`${f.name} ${f.wt.toFixed(1)}% (${f.kind})`).join('<br>')}</div>
+    </div>` : '';
   document.getElementById('sum-cap-metrics').innerHTML = [
     metric(pL.toFixed(1)+'%', 'Large Cap', 'var(--lc)'),
     metric(pM.toFixed(1)+'%', 'Mid Cap',   'var(--mc)'),
     metric(pS.toFixed(1)+'%', 'Small Cap', 'var(--sc)'),
-  ].join('') + (commItems.length > 0 ? `
+  ].join('') + intlHtml + (commItems.length > 0 ? `
     <div style="font-size:.62rem;color:var(--muted);margin-top:.5rem;padding:.35rem .65rem;background:var(--s3);border-radius:var(--r-sm)">
       🏅 ${commItems.map(f=>`${f.name} (${f.wt}% → ${f.commodityType})`).join(', ')} excluded from cap split
     </div>` : '');
@@ -7765,7 +7884,9 @@ function buildSummary() {
       typeTag = `<span class="cap-tag ${debtCatClass[cat]||'rb-aaa'}" style="font-size:.55rem">${debtCatLabel[cat]||cat}</span>`;
     } else {
       const { cap } = classifyEquityWithConfidence(h.name);
-      typeTag = cap==='large'
+      typeTag = cap==='intl'
+        ? `<span class="cap-tag cap-tag-i">Intl</span>`
+        : cap==='large'
         ? `<span class="cap-tag cap-tag-l">L</span>`
         : cap==='mid'
         ? `<span class="cap-tag cap-tag-m">M</span>`
@@ -7936,7 +8057,7 @@ function buildMetrics() {
   document.getElementById('holdings-tbody').innerHTML = allHoldings.map((s,i) => {
     const cap = classifyEquity(s.name);
     const sec = getSector(s.name, s.sector);
-    const capTag = cap==='large'?'<span class="cap-tag cap-tag-l">L</span>':cap==='mid'?'<span class="cap-tag cap-tag-m">M</span>':'<span class="cap-tag cap-tag-s">S</span>';
+    const capTag = cap==='intl'?'<span class="cap-tag cap-tag-i">Intl</span>':cap==='large'?'<span class="cap-tag cap-tag-l">L</span>':cap==='mid'?'<span class="cap-tag cap-tag-m">M</span>':'<span class="cap-tag cap-tag-s">S</span>';
     const fundsStr = s.funds.slice(0,2).map(f=>f.fund.split(' ').slice(-2).join(' ')).join(', ')+(s.funds.length>2?` +${s.funds.length-2}`:'');
     return `<tr>
       <td class="c-dim">${i+1}</td>
@@ -8578,7 +8699,7 @@ async function loadMarketMonitor() {
     // extra cost, flags any portfolio with meaningful exposure to a
     // stock that just had negative news or missed earnings
     try {
-      runExposureAgent(data.market_news || [], data.earnings || []);
+      runExposureAgent(data.portfolio_news || [], data.earnings || []);  // portfolio_news carries `stock`
       refreshExposureAgentBadge();
     } catch(e) { console.error('Exposure agent', e); }
     renderFixedIncome(data.fixed_income || {});
@@ -10118,7 +10239,7 @@ async function _fetchServerHoldingsForPortfolio(port) {
         .filter(h => !isDebtHolding(h)
                && h.isin
                && !/mutual fund|mf -|etf|\bfof\b|fund of fund/i.test(h.name))
-        .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || ''), cap: h.cap || null }));
+        .map(h => ({ name: h.name, pct: h.pct, sector: normaliseSector(h.sector || ''), cap: h.cap || null, isin: h.isin || '', geo: h.geo || null }));
       const debtItems = data.holdings
         .filter(h => h.isin && isDebtHolding(h))
         .map(h => ({ name: h.name, pct: h.pct, cat: classifyDebt(h.name) || 'aaa' }));
@@ -10126,7 +10247,7 @@ async function _fetchServerHoldingsForPortfolio(port) {
       let lc=0, mc=0, sc=0;
       equityStocks.forEach(s => {
         // Use server-provided cap if available, else fallback to browser classifyEquity
-        const cap = s.cap || classifyEquity(s.name);
+        const cap = s.cap || classifyEquity(s.name, s.isin);
         if (cap==='large') lc+=s.pct; else if (cap==='mid') mc+=s.pct; else sc+=s.pct;
       });
       const eqTotal = lc+mc+sc;
@@ -10525,6 +10646,7 @@ window.addEventListener('load', async () => {
   try { loadThresholds(); } catch(e) { console.error('loadThresholds:', e); }
   try { loadWatchlist();  } catch(e) { console.error('loadWatchlist:', e); }
   try { loadFromStorage(); } catch(e) { console.error('loadFromStorage:', e); }
+  try { refreshForeignNames(); } catch(e) { console.error('refreshForeignNames:', e); }
 
   try {
     if (activePortId) {
@@ -16914,5 +17036,6 @@ window.MFPortfolioBuilder.showCostCalculator = async function(clientId) {
 console.log('✅ Cost Calculator loaded. Run: MFPortfolioBuilder.showCostCalculator()');
 </script>
 <script src="fluid-tax.js"></script>
+<script src="alerts-news.js"></script>
 </body>
 </html>
