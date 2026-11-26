@@ -85,6 +85,13 @@ window._fbSaveFactsheets = async (amcName, fundsObj) => {
   await Promise.all(promises);
 };
 
+window._fbSaveWatchlist = async () => {
+  const user = window._fb.currentUser;
+  if (!user || typeof watchlist === 'undefined') return;
+  try { await setDoc(doc(db, 'users', user.uid, 'data', 'watchlist'), { watchlist, savedAt: new Date().toISOString() }); }
+  catch (e) { console.warn('watchlist cloud save failed', e); }
+};
+
 window._fbSaveCloud = async () => {
   const user = window._fb.currentUser;
   if (!user) return;
@@ -121,6 +128,10 @@ window._fbSaveCloud = async () => {
     // Save thresholds
     await setDoc(doc(db, 'users', uid, 'data', 'thresholds'), { thresholds });
 
+    // Save watchlist (was browser-only before)
+    if (typeof watchlist !== 'undefined')
+      await setDoc(doc(db, 'users', uid, 'data', 'watchlist'), { watchlist, savedAt: new Date().toISOString() });
+
     document.getElementById('fb-sync-status').textContent = '☁ Synced ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
   } catch(e) {
     console.error('Cloud save failed:', e);
@@ -136,12 +147,28 @@ window._fbSaveCloud = async () => {
     document.getElementById('fb-sync-status').textContent = '☁ Loading…';
     const uid = user.uid;
 
-    const [amcSnap, portSnap, threshSnap, factsheetsSnap] = await Promise.all([
+    const [amcSnap, portSnap, threshSnap, factsheetsSnap, watchSnap] = await Promise.all([
       getDoc(doc(db, 'users', uid, 'data', 'amcs')),
       getDoc(doc(db, 'users', uid, 'data', 'portfolios')),
       getDoc(doc(db, 'users', uid, 'data', 'thresholds')),
-      getDocs(collection(db, 'users', uid, 'factsheets'))
+      getDocs(collection(db, 'users', uid, 'factsheets')),
+      getDoc(doc(db, 'users', uid, 'data', 'watchlist')).catch(() => null)
     ]);
+
+    // Watchlist: merge cloud + this browser (union by ticker/name) so neither side loses entries
+    try {
+      if (typeof watchlist !== 'undefined') {
+        const cloudWL = (watchSnap && watchSnap.exists()) ? (watchSnap.data().watchlist || []) : [];
+        const key = w => (w.ticker || w.nse || w.name || '').toUpperCase();
+        const merged = [...cloudWL];
+        watchlist.forEach(w => { if (!merged.some(c => key(c) === key(w))) merged.push(w); });
+        const changed = merged.length !== cloudWL.length;
+        watchlist = merged;
+        localStorage.setItem(WATCH_LS, JSON.stringify(watchlist));
+        if (typeof renderWatchlist === 'function') { try { renderWatchlist(); } catch (_) {} }
+        if (changed) await setDoc(doc(db, 'users', uid, 'data', 'watchlist'), { watchlist, savedAt: new Date().toISOString() });
+      }
+    } catch (we) { console.warn('watchlist sync', we); }
 
     // Build a lookup: { "amcName__fundName" -> { equityStocks, debtItems } }
     const holdingsMap = {};
@@ -8469,6 +8496,7 @@ function loadWatchlist() {
 }
 function saveWatchlist() {
   localStorage.setItem(WATCH_LS, JSON.stringify(watchlist));
+  if (window._fbSaveWatchlist) window._fbSaveWatchlist();   // keep a cloud copy
 }
 
 function addWatchStock() {

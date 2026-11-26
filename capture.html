@@ -210,7 +210,7 @@ const fmt = s => { s = Math.max(0, Math.floor(s||0)); const h=Math.floor(s/3600)
 function toast(msg, ms=3500){ const t=$("#toast"); t.textContent=msg; t.style.display="block"; clearTimeout(toast._t); toast._t=setTimeout(()=>t.style.display="none", ms); }
 
 const state = { user:null, tab:"record", channel:"in_person", taxonomy:null, sessions:[], detail:null,
-  pending:null /* {blob, name, recKey|null, source, meta} */, filterClient:true, filterUnreviewed:false };
+  pending:null /* {blob, name, recKey|null, source, meta} */, trash:false, filterClient:true, filterUnreviewed:false };
 
 auth.onAuthStateChanged(async u => {
   state.user = u;
@@ -420,14 +420,26 @@ function badge(s){ const cls = s==="ready"?"b-ready": s==="failed"?"b-failed":"b
 async function loadSessions(){
   clearTimeout(loadSessions._t);
   const box = $("#sessionList");
-  try { state.sessions = await api("/sessions"); } catch(e){ box.innerHTML = `<div class="muted">Couldn't load: ${esc(e.message)}</div>`; return; }
-  if (!state.sessions.length) { box.innerHTML = `<div class="muted">No recordings yet.</div>`; return; }
-  box.innerHTML = state.sessions.map(s => `
+  try { state.sessions = await api("/sessions" + (state.trash ? "?trash=true" : "")); } catch(e){ box.innerHTML = `<div class="muted">Couldn't load: ${esc(e.message)}</div>`; return; }
+  const head = `<div class="row" style="justify-content:space-between;margin-bottom:6px"><strong>${state.trash ? "Trash — deleted recordings are kept 30 days" : "Recordings"}</strong>
+    <button class="ghost" id="trashToggle">${state.trash ? "← Back to recordings" : "Trash"}</button></div>`;
+  const bindHead = () => { $("#trashToggle").onclick = () => { state.trash = !state.trash; loadSessions(); }; };
+  if (!state.sessions.length) { box.innerHTML = head + `<div class="muted">${state.trash ? "Trash is empty." : "No recordings yet."}</div>`; bindHead(); return; }
+  if (state.trash) {
+    box.innerHTML = head + state.sessions.map(s => `<div class="item" style="cursor:default"><div style="flex:1"><strong>${esc(s.client_id||"No client")}</strong>
+      <div class="muted small">${esc(new Date(s.recorded_at||s.created_at).toLocaleString())} · deleted ${esc(new Date(s.deleted_at).toLocaleDateString())} · permanently removed after 30 days</div></div>
+      <button class="primary" data-restore="${esc(s.id)}">Restore</button></div>`).join("");
+    bindHead();
+    $$("[data-restore]").forEach(b => b.onclick = async () => { try { await api(`/sessions/${b.dataset.restore}/restore`, {method:"POST"}); toast("Restored"); loadSessions(); } catch(e){ toast(e.message); } });
+    return;
+  }
+  box.innerHTML = head + state.sessions.map(s => `
     <div class="item" data-id="${esc(s.id)}">
       <div style="flex:1">
         <div><strong>${esc(s.client_id||(s.conversation_type==="team"?"Team conversation":"No client"))}</strong> <span class="muted small">· ${s.conversation_type==="team"?"team · ":""}${esc((s.channel||"").replace("_"," "))} · ${esc(s.detected_language||s.language_hint||"auto")}</span></div>
         <div class="muted small">${esc(new Date(s.recorded_at||s.created_at).toLocaleString())} · ${fmt(s.duration_sec)}${s.status==="ready" ? ` · ${s.utterance_count} lines · ${s.reviewed_count||0} reviewed` : ""}${s.error? ` · <span style="color:var(--red)">${esc(s.error)}</span>`:""}</div>
       </div>${badge(s.status)}</div>`).join("");
+  bindHead();
   $$("#sessionList .item").forEach(el => el.onclick = () => openDetail(el.dataset.id));
   if (state.tab==="review" && !state.detail && state.sessions.some(s=>PROC.includes(s.status))) loadSessions._t = setTimeout(loadSessions, 8000);
 }
@@ -484,7 +496,7 @@ function renderDetail(){
   <div class="row" style="margin-bottom:30px">
     <button class="ghost" id="retagBtn" ${s.status!=="ready"&&s.status!=="failed"?"disabled":""}>Re-run AI tagging</button>
     <button class="ghost" id="reprocBtn" ${PROC.includes(s.status)?"disabled":""}>Re-transcribe</button>
-    <button class="danger" id="delBtn">Delete recording</button>
+    <button class="danger" id="delBtn">Move to Trash</button>
   </div>`;
 
   $("#backBtn").onclick = () => { closeDetail(); loadSessions(); };
@@ -561,8 +573,8 @@ async function reprocess(stage){
   try { await api(`/sessions/${state.detail.session.id}/reprocess?stage=${stage}`, { method:"POST" }); openDetail(state.detail.session.id); } catch(e){ toast(e.message); }
 }
 async function deleteSession(){
-  if (!confirm("Delete this recording, its transcript and all reviews permanently?")) return;
-  try { await api(`/sessions/${state.detail.session.id}`, { method:"DELETE" }); closeDetail(); loadSessions(); toast("Deleted"); } catch(e){ toast(e.message); }
+  if (!confirm("Move this recording to Trash? You can restore it for 30 days.")) return;
+  try { await api(`/sessions/${state.detail.session.id}`, { method:"DELETE" }); closeDetail(); loadSessions(); toast("Moved to Trash (restorable for 30 days)"); } catch(e){ toast(e.message); }
 }
 
 /* ================================================================ DATASET */
